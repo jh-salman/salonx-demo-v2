@@ -15,7 +15,7 @@ function RebookAndCheckout({ onClick }) {
   const handleCheckoutClick = (e) => {
     setCheckoutClicked(true);
     if (onClick) onClick(e);
-    navigate("/checkout")
+    navigate("/climax")
   };
 
   return (
@@ -88,7 +88,7 @@ function RebookAndCheckout({ onClick }) {
             fill="#FFA704"
           />
         </svg>
-        Check out
+        ClimaX
       </button>
     </div>
   );

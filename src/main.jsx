@@ -10,7 +10,6 @@ createRoot(document.getElementById('root')).render(
 
   <StrictMode>
     <div style={{
-      backgroundColor: "black",
       display: "flex",
       justifyContent: "center",
       alignItems: "center",
@@ -22,37 +21,19 @@ createRoot(document.getElementById('root')).render(
 
 
 
-        {/* Phone Frame */}
-        <div style={{
-          background: "linear-gradient(180deg, #FF18EC 7.8%, #5333F1 52.06%, #00E7F9 99.27%)",
-          width: "393px",
-          height: "852px",
-          borderRadius: "24px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "2px"
-
-        }}>
-          <div style={{
+        {/* Phone shell — no orange rim (content provides accent) */}
+        <div
+          style={{
+            width: "393px",
+            height: "852px",
             borderRadius: "24px",
-            border: "none",
-            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
-            fontSize: "20px",
-            fontWeight: "bold",
-            width: "100%",
-            height: "100%",
-            backgroundColor: "black",
             overflow: "hidden",
             position: "relative",
-            padding: "0 15px"
-            
-          }}>
-
-            <RouterProvider router={router} />
-
-          </div>
-
+            backgroundColor: "#0a0a0c",
+            boxShadow: "0 12px 48px rgba(0, 0, 0, 0.55)",
+          }}
+        >
+          <RouterProvider router={router} />
         </div>
 
       </AppProvider>

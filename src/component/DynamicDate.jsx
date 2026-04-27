@@ -19,7 +19,7 @@ const wrapperStyle = {
   zIndex: "1000",
   position: "absolute",
   cursor: "pointer",
-  top: "20px",
+  top: "10px",
   right: "10px",
   fontSize: "16px",
   fontWeight: "bold",
