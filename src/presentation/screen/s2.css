@@ -26,12 +26,19 @@
   /* True viewport edge (mobile): whisper-thin line + wide soft falloff */
   --s2-screen-edge-line: rgba(255, 118, 72, 0.07);
   --s2-screen-edge-vignette: rgba(2, 0, 5, 0.14);
-  /* Card column + actions vertical rhythm */
+  /* Vertical rhythm: same gap between cards, header→body, and last card→dock */
   --s2-screen-card-gap: 8px;
-  /* Header / identity block → first card (tighter) */
-  --s2-header-stack-gap: 8px;
+  --s2-header-stack-gap: var(--s2-screen-card-gap);
   /* Same inset from phone edge everywhere (cards, header, buttons, toolbar) */
   --s2-page-gutter: 14px;
+  /* Bottom dock peek when collapsed (must match transform) */
+  --s2-dock-collapsed-peek: 46px;
+  /* Services + Home Care film cards: identical fixed footprint */
+  --s2-film-card-height: 122px;
+  /* Inner strip: every pill and + box share the same width (height = row stretch) */
+  --s2-film-box-size: 46px;
+  /* Consultation stack card: fixed footprint (inner panes scroll if needed) */
+  --s2-consult-card-height: 296px;
   /* What To Use card inner block; Today's Set uses same total card height */
   --s2-product-split-min-height: 112px;
   --s2-card-products-pad-top: 8px;
@@ -316,8 +323,11 @@
   align-items: stretch;
   gap: var(--s2-screen-card-gap);
   padding-top: 0;
-  /* Room for bottom dock grabber (collapsed peek) */
-  padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+  /* Dock peek + same vertical gap as between cards + safe area */
+  padding-bottom: calc(
+    var(--s2-dock-collapsed-peek) + var(--s2-screen-card-gap) +
+      env(safe-area-inset-bottom, 0px)
+  );
   padding-left: calc(var(--s2-page-gutter) + env(safe-area-inset-left, 0px));
   padding-right: calc(var(--s2-page-gutter) + env(safe-area-inset-right, 0px));
   margin-top: var(--s2-header-stack-gap);
@@ -347,6 +357,37 @@
   cursor: pointer;
   position: relative;
   overflow: hidden;
+}
+
+.s2-card.s2-card--v13.s2-consultCard {
+  width: 100%;
+  height: var(--s2-consult-card-height);
+  min-height: var(--s2-consult-card-height);
+  max-height: var(--s2-consult-card-height);
+  padding: 12px 14px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.s2-consultScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.s2-consultScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.s2-consultCard .s2-consultHeader {
+  flex-shrink: 0;
+}
+.s2-consultCard .s2-cardActions {
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 /* Consultation card top accent — keep (orange/yellow gradient); do not remove */
@@ -506,7 +547,140 @@
 .s2-actionBtn.is-mic .s2-actionBtn__label { color: #ff8ec1; }
 .s2-actionBtn.is-cam .s2-actionBtn__label { color: #4eebd0; }
 
-.s2-svcCard { padding: 14px; }
+/* Services + Home Care outer cards: same width (100%) + fixed height */
+.s2-card.s2-card--v13.s2-svcCard,
+.s2-card.s2-card--v13.s2-hcCard {
+  width: 100%;
+  min-width: 0;
+  height: var(--s2-film-card-height);
+  min-height: var(--s2-film-card-height);
+  max-height: var(--s2-film-card-height);
+  padding: 12px 14px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Services / Home Care — left cluster: all pills + SET + inline + (card outer unchanged) */
+.s2-filmRow {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+.s2-filmCluster {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.s2-filmCluster--left {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 1;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  padding-right: 2px;
+  overscroll-behavior-x: contain;
+}
+.s2-filmCluster--left::-webkit-scrollbar {
+  display: none;
+}
+.s2-filmPlus {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--s2-accent);
+  font-size: 26px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.92;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-filmPlus--inline {
+  flex: 0 0 var(--s2-film-box-size);
+  align-self: stretch;
+  min-height: 0;
+  min-width: var(--s2-film-box-size);
+  width: var(--s2-film-box-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 120, 25, 0.45);
+  box-sizing: border-box;
+}
+.s2-filmPlus:active {
+  opacity: 0.7;
+  transform: scale(0.96);
+}
+.s2-filmPill {
+  flex: 0 0 var(--s2-film-box-size);
+  width: var(--s2-film-box-size);
+  min-width: var(--s2-film-box-size);
+  min-height: 0;
+  align-self: stretch;
+  border-radius: 8px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 8px 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.s2-filmPill--svc.is-rec {
+  border-color: rgba(245, 179, 0, 0.5);
+  box-shadow: 0 0 0 1px rgba(245, 179, 0, 0.12) inset;
+}
+.s2-filmPill--prd {
+  background: linear-gradient(165deg, rgba(74, 45, 107, 0.5), rgba(26, 24, 28, 0.92));
+  border-color: rgba(168, 85, 247, 0.22);
+}
+.s2-filmPill--accent {
+  background: rgba(255, 255, 255, 0.07);
+  justify-content: center;
+}
+.s2-filmPill--ghost {
+  opacity: 0.4;
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.03);
+}
+.s2-filmPill__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 9px;
+  color: rgba(245, 245, 247, 0.92);
+  letter-spacing: 0.02em;
+}
+.s2-filmPill__brand {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 7px;
+  font-weight: 700;
+  color: #c4b5fd;
+  letter-spacing: 0.04em;
+}
+
 .s2-svcRow {
   display: flex;
   align-items: center;
@@ -618,7 +792,7 @@
 }
 
 .s2-bottomDock.is-collapsed {
-  transform: translateY(calc(100% - 46px));
+  transform: translateY(calc(100% - var(--s2-dock-collapsed-peek)));
 }
 
 .s2-bottomDock.is-expanded {
@@ -795,8 +969,370 @@
   text-align: center;
 }
 
+/* Add services / products — full-screen 3-column grid */
+.s2-addProdOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 55;
+  isolation: isolate;
+}
+.s2-addProdBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  background:
+    radial-gradient(ellipse 38% 120% at -5% 50%, rgba(255, 120, 25, 0.32), transparent 52%),
+    radial-gradient(ellipse 38% 120% at 105% 50%, rgba(255, 120, 25, 0.32), transparent 52%),
+    rgba(4, 4, 6, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.s2-addProdSheet {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding:
+    calc(30px + env(safe-area-inset-top, 0px))
+    12px
+    calc(12px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.s2-addProdSheet > * {
+  pointer-events: auto;
+}
+.s2-addProdHeader {
+  position: relative;
+  text-align: center;
+  flex: 0 0 auto;
+  padding: 0 44px 14px;
+}
+.s2-addProdClose {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(245, 245, 247, 0.92);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-addProdClose:active {
+  opacity: 0.85;
+  transform: scale(0.96);
+}
+.s2-addProdKicker {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--s2-accent);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.s2-addProdTitle {
+  margin: 0;
+  font-size: clamp(19px, 4.8vw, 26px);
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  color: rgba(245, 245, 247, 0.98);
+  line-height: 1.15;
+}
+.s2-addProdScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.s2-addProdScroll::-webkit-scrollbar {
+  display: none;
+}
+.s2-addProdGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 11px;
+  align-content: start;
+}
+.s2-addProdCard {
+  margin: 0;
+  padding: 0;
+  border: 1px solid #2b2b2b;
+  border-radius: 15px;
+  background: #0e0e10;
+  cursor: pointer;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  min-width: 0;
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+}
+.s2-addProdCard:active {
+  transform: scale(0.97);
+  opacity: 0.95;
+}
+.s2-addProdCard__visual {
+  aspect-ratio: 1 / 1.05;
+  width: 100%;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.s2-addProdCard__meta {
+  padding: 11px 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.s2-addProdCard__brand {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #d4a574;
+  text-transform: uppercase;
+  line-height: 1.25;
+}
+.s2-addProdCard__name {
+  font-size: clamp(13px, 3.4vw, 15px);
+  font-weight: 500;
+  color: rgba(245, 245, 247, 0.94);
+  line-height: 1.32;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-align: center;
+  flex: 1 1 auto;
+}
+.s2-addProdCard__price {
+  font-size: clamp(14px, 3.6vw, 16px);
+  font-weight: 700;
+  color: var(--s2-accent);
+  margin-top: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  letter-spacing: 0.02em;
+}
+
+.s2-addProdCard--service .s2-addProdCard__meta {
+  gap: 7px;
+  padding: 12px 8px 14px;
+}
+.s2-addProdCard__name--service {
+  font-size: clamp(12px, 3.2vw, 14px);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  -webkit-line-clamp: 4;
+  line-height: 1.28;
+}
+.s2-addProdCard.is-inQueue {
+  border-color: rgba(255, 120, 25, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 120, 25, 0.22);
+}
+
+.s2-svcPickBrand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+.s2-svcPickButterfly {
+  color: var(--s2-accent);
+  flex-shrink: 0;
+}
+.s2-svcPickSalon {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-size: clamp(13px, 3.6vw, 17px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: rgba(245, 245, 247, 0.94);
+  text-transform: uppercase;
+  line-height: 1.22;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+.s2-svcPickPowered {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: rgba(245, 245, 247, 0.48);
+  text-transform: uppercase;
+}
+
+.s2-svcPickQueue {
+  flex: 0 0 auto;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.s2-svcPickQueue__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: rgba(245, 245, 247, 0.58);
+  margin-bottom: 8px;
+  text-align: center;
+}
+.s2-svcPickQueue__row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.s2-svcPickQueue__row::-webkit-scrollbar {
+  display: none;
+}
+
+.s2-svcPickQueueCard {
+  position: relative;
+  flex: 0 0 auto;
+  width: 82px;
+  min-width: 82px;
+  border-radius: 10px;
+  border: 1px solid #2b2b2b;
+  background: #0e0e10;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  box-sizing: border-box;
+}
+.s2-svcPickQueueCard__rm {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(245, 245, 247, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-svcPickQueueCard__rm:active {
+  opacity: 0.88;
+  transform: scale(0.94);
+}
+.s2-svcPickQueueCard__thumb {
+  width: 100%;
+  aspect-ratio: 1 / 0.72;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.s2-svcPickQueueCard__meta {
+  padding: 5px 5px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.s2-svcPickQueueCard__brand {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #d4a574;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+.s2-prodPickQueue .s2-svcPickQueueCard__name {
+  -webkit-line-clamp: 2;
+}
+.s2-svcPickQueueCard__name {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.22;
+  color: rgba(245, 245, 247, 0.92);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.s2-svcPickQueueCard__price {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--s2-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  margin-top: auto;
+  letter-spacing: 0.02em;
+}
+
+.s2-svcPickQueueAdd {
+  flex: 0 0 auto;
+  width: 82px;
+  min-width: 82px;
+  min-height: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 120, 25, 0.65);
+  background: rgba(14, 14, 16, 0.92);
+  color: rgba(245, 245, 247, 0.92);
+  cursor: pointer;
+  box-sizing: border-box;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-svcPickQueueAdd:active {
+  opacity: 0.92;
+  transform: scale(0.98);
+}
+.s2-svcPickQueueAdd__plus {
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--s2-accent);
+}
+.s2-svcPickQueueAdd__text {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+  line-height: 1.28;
+}
+
 .s2-body > .s2-section:first-child {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -806,16 +1342,6 @@
 .s2-body > .s2-section:nth-child(3) {
   flex: 0 0 auto;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Consult card ≥ 2× Today's Set card; grows with first section when viewport is tall */
-.s2-body > .s2-section:first-child .s2-card--consult {
-  flex: 1 1 auto;
-  min-height: calc(2 * var(--s2-today-set-card-height));
-  overflow: hidden;
-  padding: 10px 0 0;
   display: flex;
   flex-direction: column;
 }
@@ -1047,10 +1573,6 @@
   box-shadow:
     0 4px 20px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.s2-card.s2-card--v13.s2-hcCard {
-  padding: 12px 14px;
 }
 
 /*
