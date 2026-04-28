@@ -181,3 +181,256 @@
   overflow: hidden;
   z-index: 1;
 }
+
+@keyframes timerCompletedBlink {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 12px rgba(255, 120, 25, 0.55);
+  }
+  50% {
+    opacity: 0.4;
+    box-shadow: 0 0 4px rgba(255, 120, 25, 0.18);
+  }
+}
+
+/* ---------- Timer / Stopwatch modal ---------- */
+.screen1-modal-root {
+  position: absolute;
+  inset: 0;
+  z-index: 250;
+  pointer-events: none;
+}
+.timerModal {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.timerModal__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: none;
+  background: rgba(8, 8, 8, 0.55);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.timerModal__panel {
+  position: absolute;
+  /* Match the appointment-list section bounds exactly */
+  top: 346px;
+  left: 5px;
+  width: 380px;
+  height: 316px;
+  z-index: 1;
+  background: #0a0a0c;
+  border: 1.5px solid rgba(255, 120, 25, 0.6);
+  border-radius: 14px;
+  padding: 12px 16px 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 30px rgba(255, 120, 25, 0.12);
+  pointer-events: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.timerModal__title {
+  margin: 0;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: #ff7819;
+  letter-spacing: 0.02em;
+}
+.timerModal__client {
+  margin-top: 2px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f5f5f7;
+}
+
+.timerModal__pickers {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  justify-content: center;
+  align-items: stretch;
+  margin: 8px 0 8px;
+  position: relative;
+}
+.timerModal__picker {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 132px;
+}
+.timerModal__pickerBand {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 44px;
+  transform: translateY(-50%);
+  background: rgba(255, 120, 25, 0.06);
+  border-top: 1px solid rgba(255, 120, 25, 0.45);
+  border-bottom: 1px solid rgba(255, 120, 25, 0.45);
+  pointer-events: none;
+  z-index: 1;
+}
+.timerModal__pickerScroll {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  text-align: center;
+}
+.timerModal__pickerScroll::-webkit-scrollbar {
+  display: none;
+}
+.timerModal__pickerItem {
+  height: 44px;
+  line-height: 44px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 22px;
+  color: rgba(245, 245, 247, 0.32);
+  scroll-snap-align: center;
+  user-select: none;
+  cursor: pointer;
+  transition: color 120ms;
+}
+.timerModal__pickerItem.is-current {
+  color: #f5f5f7;
+  font-weight: 700;
+}
+
+.timerModal__stopwatch {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 36px;
+  font-weight: 800;
+  color: #f5f5f7;
+  letter-spacing: 0.02em;
+}
+
+.timerModal__running {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+.timerModal__runningLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(245, 245, 247, 0.55);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.timerModal__runningClock {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 38px;
+  font-weight: 800;
+  color: #f5f5f7;
+  letter-spacing: 0.02em;
+  margin: 2px 0 4px;
+}
+.timerModal__running .timerModal__primaryRow {
+  width: 100%;
+}
+.timerModal__changeTime {
+  margin-top: 4px;
+  background: transparent;
+  border: none;
+  color: #ff7819;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  padding: 4px 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+.timerModal__changeTime:hover {
+  opacity: 0.85;
+}
+
+.timerModal__primaryRow {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  margin-top: 6px;
+}
+.timerModal__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 120ms, background 120ms, color 120ms;
+}
+.timerModal__btn--ghost {
+  border: 1px solid rgba(255, 120, 25, 0.45);
+  background: transparent;
+  color: #f5f5f7;
+}
+.timerModal__btn--ghost:active {
+  background: rgba(255, 120, 25, 0.08);
+}
+.timerModal__btn--primary {
+  border: 1px solid #ff7819;
+  background: rgba(255, 120, 25, 0.16);
+  color: #ff7819;
+  box-shadow: 0 0 18px rgba(255, 120, 25, 0.18);
+}
+.timerModal__btn--primary.is-running {
+  background: #ff7819;
+  color: #0a0a0c;
+}
+.timerModal__btn--primary.is-disabled,
+.timerModal__btn--primary[disabled] {
+  opacity: 0.4;
+  cursor: default;
+  box-shadow: none;
+}
+
+.timerModal__tabs {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+}
+.timerModal__tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 120, 25, 0.45);
+  background: transparent;
+  color: rgba(245, 245, 247, 0.65);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.timerModal__tab.is-active {
+  background: rgba(255, 120, 25, 0.16);
+  color: #ff7819;
+  border-color: #ff7819;
+  box-shadow: 0 0 14px rgba(255, 120, 25, 0.18);
+}

@@ -34,6 +34,7 @@ function Screen1() {
             <div className="date-screen1">
                 <DynamicDate />
             </div>
+            <div id="screen1-modal-root" className="screen1-modal-root" />
 
 
             <div className="layout-wrapper">

@@ -46,7 +46,6 @@ function CheckOut() {
         <div style={{
             height: "100%",
             width: "393px",
-            marginLeft: "-16px",
             backgroundImage: "url('./gradientbg.png')",
             backgroundSize: "cover",
             backgroundPosition: "center",
