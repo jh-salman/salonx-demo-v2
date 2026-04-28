@@ -1,237 +1,278 @@
 import React, { useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 
-const ClientCard = ({ name, service, price, color, isActive, showTimer, clipPath, onClick }) => {
-  const cardStyle = {
-    background: 'black',
-    color: 'white',
-    borderRadius: '10px',
-    marginBottom: '6px',
-    padding: '0.25rem 3rem 0.35rem 0.75rem',
-    // width: "150px",
-    
-    position: 'relative',
-    // border: `2px solid ${isActive ? color : 'transparent'}`,
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-    ...(clipPath && { clipPath: clipPath }),
+const ACCENT = '#ff7819';
 
+const CARD_WIDTH = 380;
+const CARD_HEIGHT = 56;
+
+const ClientCard = ({ name, time, service, isActive, showTimer, onClick }) => {
+  const outerStyle = {
+    position: 'relative',
+    width: `${CARD_WIDTH}px`,
+    height: `${CARD_HEIGHT}px`,
+    marginBottom: '6px',
+    padding: '1.5px',
+    borderRadius: '11.5px',
+    background: `linear-gradient(to right, ${ACCENT} 0%, ${ACCENT}cc 18%, ${ACCENT}66 45%, ${ACCENT}00 85%)`,
+    cursor: 'pointer',
+    boxSizing: 'border-box',
   };
 
-  const infoStyle = {
+  const innerStyle = {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    background: '#1A1A1A',
+    borderRadius: '10px',
+    padding: '8px 72px 8px 14px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '8px',
+    boxSizing: 'border-box',
+  };
+
+  const leftStyle = {
+    flex: '1 1 0',
+    minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
-    
+    gap: '2px',
   };
 
   const nameStyle = {
-    fontWeight: '600',
-    fontSize: '0.8rem',
-    color: 'white',
-    textAlign: 'left',
+    fontSize: '14px',
+    fontWeight: 700,
+    color: '#f5f5f7',
+    lineHeight: 1.15,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    margin: 0,
   };
 
-  const serviceStyle = {
-    fontSize: '0.53rem',
-    color: '#ccc',
-    marginTop: '3px',
+  const timeStyle = {
+    fontSize: '10px',
+    color: 'rgba(245, 245, 247, 0.55)',
+    letterSpacing: '0.02em',
+    margin: 0,
   };
 
-  const priceStyle = {
-    fontSize: '0.7rem',
-    fontWeight: '500',
-    marginRight: showTimer ? '1rem' : '0',
-    color: '#ddd',
+  const centerStyle = {
+    flex: '1 1 0',
+    minWidth: 0,
+    fontSize: '10.5px',
+    color: 'rgba(245, 245, 247, 0.72)',
+    textAlign: 'center',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    padding: '0 4px',
   };
 
-  const timerStyle = {
-    width: '25px',
-    height: '25px',
-    borderRadius: '50%',
-    border: `3px solid ${color}`,
+  const timerBtnBase = {
+    flex: '0 0 auto',
+    width: '44px',
+    height: '44px',
+    minWidth: '44px',
+    minHeight: '44px',
+    border: `1px solid ${ACCENT}`,
+    borderRadius: '8px',
+    padding: 0,
+    fontSize: '10.5px',
+    fontWeight: 700,
+    color: ACCENT,
+    background: 'transparent',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#000',
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: '0.45rem',
+    textAlign: 'center',
+    lineHeight: 1.1,
+    letterSpacing: '0.03em',
+    boxSizing: 'border-box',
   };
 
-  const circleDot = {
-    width: '6px',
-    height: '6px',
-    background: color,
-    borderRadius: '50%',
-    position: 'absolute',
-    bottom: '-3px',
-    left: '10px',
-    border: '2px solid #1a1a1a',
+  const timerBtnActive = {
+    ...timerBtnBase,
+    color: '#0a0a0c',
+    background: ACCENT,
+    boxShadow: '0 0 12px rgba(255, 120, 25, 0.35)',
   };
-
-  const cardBg ={
-    background: `linear-gradient(to bottom, ${color}, black)`,
-      ...(clipPath && { clipPath: clipPath }),
-      borderRadius:"10px",
-      padding:"2px",
-      height:"42px",
-      marginTop:"5px",
-      width:"338px"
-  }
 
   return (
-    <div style={{ ...cardBg, cursor: 'pointer' }} onClick={onClick} role="button" tabIndex={0}>
-      <div style={cardStyle}>
-        <div style={infoStyle}>
-          <span style={nameStyle}>{name}</span>
-          <span style={serviceStyle}>{service}</span>
-        </div> 
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={priceStyle}>${price}</span>
-          {showTimer ? (
-            <div style={timerStyle}>25</div>
-          ) : (
-            <div
-              style={{ color: '#888', fontSize: '0.4rem', textAlign: 'right', lineHeight: '1.2', cursor: 'pointer', paddingLeft:"29px" }}
-            >
-              set<br />timer
-            </div>
-          )}
+    <div style={outerStyle} onClick={onClick} role="button" tabIndex={0}>
+      <div style={innerStyle}>
+        <div style={leftStyle}>
+          <div style={nameStyle}>{name}</div>
+          {time ? <div style={timeStyle}>{time}</div> : null}
         </div>
-        {isActive && <div style={circleDot}></div>}
+        <div style={centerStyle}>{service}</div>
+        <div style={showTimer ? timerBtnActive : timerBtnBase}>
+          {showTimer ? '25' : <>Set<br />Timer</>}
+        </div>
       </div>
-
     </div>
-
   );
 };
 
 const ClientList = () => {
   const wrapperStyle = {
-    width: '400px',
-    margin: '0.5rem auto',
-
-
+    width: '100%',
+    padding: '6px 0 8px',
+    boxSizing: 'border-box',
   };
 
-  const { isTimer, setIsTimer} = useContext(AppContext);
-
-  // Unique clipPaths
-  const clip1 = 'polygon(0 0, 94% 0, 92% 100%, 0% 100%)';
-  const clip2 = 'polygon(0 0, 92% 0, 91% 100%, 0% 100%)';
-  const clip3 = 'polygon(0 0, 91% 0, 91% 100%, 0% 100%)';
-  const clip4 = 'polygon(0 0, 91% 0, 92.5% 100%, 0% 100%)';
-
-  const { setSelectedClientData } = useContext(AppContext);
-  const navigation = useNavigate();
+  const { setIsTimer, setSelectedClientData } = useContext(AppContext);
 
   const handleClientClick = (clientData) => {
     setSelectedClientData(clientData);
-    // setCurrentScreen("screen4");
-    navigation("/screen2");
   };
 
   return (
     <div style={wrapperStyle}>
       <ClientCard
         name="Cristi Curls"
+        time="8:00 AM – 9:10 AM"
         service="Extension install"
-        price={300}
-        color="#ff5ad8"
-        isActive={true}
-        showTimer={true}
-        clipPath={clip1}
+        isActive
+        showTimer
         onClick={() => handleClientClick({
-          name: "Cristi Curls",
-          service: "Extension install",
+          name: 'Cristi Curls',
+          service: 'Extension install',
           price: 300,
-          color: "#ff5ad8",
-          consultationDate: "7.2.2025",
-          duration: "30 min",
-          notes: "Redken shades EQ 7N. 7WB. No left developer.\n Next time use more 7N \n A Kool dude!!! \n Sister in law is pregnant and expecting twins. They just \n started rebuilding the cabin. Jennifer is going to FSU",
+          color: ACCENT,
+          consultationDate: '7.2.2025',
+          duration: '30 min',
+          notes:
+            'Redken shades EQ 7N. 7WB. No left developer.\n Next time use more 7N \n A Kool dude!!! \n Sister in law is pregnant and expecting twins. They just \n started rebuilding the cabin. Jennifer is going to FSU',
           services: [
-            { name: "Hair Gloss Treatment", price: 70 },
-            { name: "Blonding Service", price: 120 }
+            { name: 'Hair Gloss Treatment', price: 70 },
+            { name: 'Blonding Service', price: 120 },
           ],
-          recommendations: [
-            { name: "Blonding Service", price: 120 }
-          ],
-          homeCare: "Use sulfate-free shampoo and conditioner. Apply hair mask weekly."
+          recommendations: [{ name: 'Blonding Service', price: 120 }],
+          homeCare: 'Use sulfate-free shampoo and conditioner. Apply hair mask weekly.',
         })}
       />
       <ClientCard
         name="Jon Klein"
+        time="9:15 AM – 10:00 AM"
         service="Full lived-in color"
-        price={220}
-        color="#00d5ff"
-        isActive={true}
-        showTimer={true}
-        clipPath={clip2}
+        isActive
+        showTimer
         onClick={() => handleClientClick({
-          name: "Jon Klein",
-          service: "Full lived-in color",
+          name: 'Jon Klein',
+          service: 'Full lived-in color',
           price: 220,
-          color: "#00d5ff",
-          consultationDate: "8.15.2025",
-          duration: "45 min",
-          notes: "Redken shades EQ 7N. 7WB. No left developer.\nNext time use more 7N\nA Kool dude!!!\nSister in law is pregnant and expecting twins. They just\n started rebuilding the cabin. Jennifer is going to FSU",
+          color: ACCENT,
+          consultationDate: '8.15.2025',
+          duration: '45 min',
+          notes:
+            'Redken shades EQ 7N. 7WB. No left developer.\nNext time use more 7N\nA Kool dude!!!\nSister in law is pregnant and expecting twins. They just\n started rebuilding the cabin. Jennifer is going to FSU',
           services: [
-            { name: "Balayage", price: 150 },
-            { name: "Toner Application", price: 60 }
+            { name: 'Balayage', price: 150 },
+            { name: 'Toner Application', price: 60 },
           ],
-          recommendations: [
-            { name: "Deep Conditioning Treatment", price: 50 }
-          ],
+          recommendations: [{ name: 'Deep Conditioning Treatment', price: 50 }],
           homeCare: [
-            { name: "Rusk: Rusk COLORxConditioner", price: 25, img:"./img1.png" },
-            { name: "Rusk: Rusk VHAB Shampoo", price: 30, img:"./img2.png" },
-            
-          ]
+            { name: 'Rusk: Rusk COLORxConditioner', price: 25, img: './img1.png' },
+            { name: 'Rusk: Rusk VHAB Shampoo', price: 30, img: './img2.png' },
+          ],
         })}
       />
       <ClientCard
         name="Joe Styles"
+        time="10:15 AM – 10:55 AM"
         service="Men’s haircut and color"
-        price={125}
-        color="#c47aff"
-        isActive={true}
-        showTimer={true}
-        clipPath={clip3}
+        isActive
+        showTimer
         onClick={() => handleClientClick({
-          name: "Joe Styles",
-          service: "Men’s haircut and color",
+          name: 'Joe Styles',
+          service: 'Men’s haircut and color',
           price: 125,
-          color: "#c47aff",
-          consultationDate: "9.5.2025",
-          duration: "40 min",
-          notes: "Used Redken for men’s color.\nTrimmed sides and blended top.\nClient prefers natural look.",
+          color: ACCENT,
+          consultationDate: '9.5.2025',
+          duration: '40 min',
+          notes:
+            'Used Redken for men’s color.\nTrimmed sides and blended top.\nClient prefers natural look.',
           services: [
-            { name: "Haircut", price: 60 },
-            { name: "Color Touch-up", price: 65 }
+            { name: 'Haircut', price: 60 },
+            { name: 'Color Touch-up', price: 65 },
           ],
-          recommendations: [
-            { name: "Scalp Treatment", price: 40 }
-          ],
-          homeCare: "Use moisturizing shampoo. Avoid heavy styling products."
+          recommendations: [{ name: 'Scalp Treatment', price: 40 }],
+          homeCare: 'Use moisturizing shampoo. Avoid heavy styling products.',
         })}
       />
       <ClientCard
         name="Nita Haredoo"
+        time="11:00 AM – 11:45 AM"
         service="Extensions and color consultation"
-        price={75}
-        color="#888"
-        isActive={false}
         showTimer={false}
-        clipPath={clip4} 
         onClick={() => {
-          setIsTimer(true)
-          setOpenTimerSlider(true);
-          
-          
+          setIsTimer(true);
         }}
+      />
+      <ClientCard
+        name="Sara Bloom"
+        time="12:00 PM – 1:00 PM"
+        service="Partial highlights"
+        isActive
+        showTimer
+        onClick={() => handleClientClick({
+          name: 'Sara Bloom',
+          service: 'Partial highlights',
+          price: 185,
+          color: ACCENT,
+          consultationDate: '10.4.2025',
+          duration: '60 min',
+          notes: 'Wheat-blonde balayage maintenance.\nAvoid going lighter at temples.',
+          services: [
+            { name: 'Partial Highlights', price: 130 },
+            { name: 'Toner', price: 55 },
+          ],
+          recommendations: [{ name: 'Bond Repair', price: 40 }],
+          homeCare: 'Use violet shampoo 1× per week.',
+        })}
+      />
+      <ClientCard
+        name="Mark Rivera"
+        time="1:15 PM – 1:45 PM"
+        service="Beard sculpt + cut"
+        isActive
+        showTimer
+        onClick={() => handleClientClick({
+          name: 'Mark Rivera',
+          service: 'Beard sculpt + cut',
+          price: 55,
+          color: ACCENT,
+          consultationDate: '10.18.2025',
+          duration: '30 min',
+          notes: 'Keep #2 fade on sides, scissor crown.\nHot towel + balm.',
+          services: [
+            { name: "Men's Cut", price: 35 },
+            { name: 'Beard Trim', price: 20 },
+          ],
+          recommendations: [],
+          homeCare: 'Beard oil 2× daily.',
+        })}
+      />
+      <ClientCard
+        name="Ava Chen"
+        time="2:00 PM – 3:15 PM"
+        service="Bridal trial"
+        showTimer={false}
+        onClick={() => handleClientClick({
+          name: 'Ava Chen',
+          service: 'Bridal trial',
+          price: 150,
+          color: ACCENT,
+          consultationDate: '11.2.2025',
+          duration: '75 min',
+          notes: 'Soft updo, off-center part. Reference photo on file.',
+          services: [{ name: 'Bridal Trial', price: 150 }],
+          recommendations: [{ name: 'Day-of Bridal Hair', price: 200 }],
+          homeCare: 'Avoid heavy styling night before.',
+        })}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Butterfly,
@@ -6,6 +6,8 @@ import {
   Camera,
   Lightning,
   Microphone,
+  Minus,
+  PencilSimple,
   Scissors,
   User,
   X,
@@ -17,12 +19,13 @@ import './s2.css';
 const S2_ICON_TOOLBAR = 24;
 const S2_ICON_TOOLBAR_ACTIVE = 26;
 
+const TOOLBAR_ACTIVE = 1;
 const TOOLBAR_ITEMS = [
-  { Icon: Scissors, label: 'Styling / tools' },
-  { Icon: User, label: 'Client' },
-  { Icon: Lightning, label: 'Session' },
-  { Icon: CalendarBlank, label: 'Calendar' },
-  { Icon: X, label: 'Close' },
+  { Icon: Scissors, label: 'Stylist', to: '/screen1' },
+  { Icon: User, label: 'Client details', to: '/screen2' },
+  { Icon: Lightning, label: 'Checkout', to: '/checkout' },
+  { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
+  { Icon: X, label: 'Home', to: '/' },
 ];
 
 const CLIENT = {
@@ -53,7 +56,20 @@ const CONSULT = {
   lookExtraCount: 2,
 };
 
-const SVC_PICK_INITIAL_QUEUE_IDS = ['SVC-014', 'SVC-015', 'SVC-019', 'SVC-027'];
+/** Adjustable dollar fields: $0–$310, $1 steps (hourly + consultation use same slider pattern) */
+const ADJ_RATE_MIN = 0;
+const ADJ_RATE_MAX = 310;
+
+const SVC_HOURLY_BASE = { id: 'SVC-HOURLY', name: 'Hourly (stylist rate)', kind: 'hourly' };
+const SVC_CONSULT_BASE = { id: 'SVC-CONSULT', name: 'Consultation', kind: 'consult' };
+
+const SVC_PICK_INITIAL_REST_IDS = ['SVC-014', 'SVC-015', 'SVC-019', 'SVC-027'];
+
+function clampAdjustableRate(n) {
+  const v = Math.round(Number(n));
+  if (Number.isNaN(v)) return 0;
+  return Math.min(ADJ_RATE_MAX, Math.max(ADJ_RATE_MIN, v));
+}
 
 const SVC_VISUAL_GRADIENTS = [
   'linear-gradient(165deg, #3d2418 0%, #0a0a0c 88%)',
@@ -68,8 +84,22 @@ function svcGradientForIndex(i) {
   return SVC_VISUAL_GRADIENTS[i % SVC_VISUAL_GRADIENTS.length];
 }
 
+function svcGradientForPickerId(id, pickerList) {
+  const ix = pickerList.findIndex((x) => x.id === id);
+  return svcGradientForIndex(ix >= 0 ? ix : 0);
+}
+
+/** Hourly + consultation always first on card + queue footer */
+function sortSvcQueueForDisplay(queue) {
+  const hourly = queue.find((s) => s.id === 'SVC-HOURLY');
+  const consult = queue.find((s) => s.id === 'SVC-CONSULT');
+  const rest = queue.filter((s) => s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT');
+  return [hourly, consult, ...rest].filter(Boolean);
+}
+
 function queuePriceLabel(s) {
-  if (String(s.id).startsWith('SVC-C')) return '$100/hr';
+  if (s.id === 'SVC-HOURLY' || s.kind === 'hourly') return `$${s.price}/hr`;
+  if (String(s.id).startsWith('SVC-C')) return `$${s.price}/hr`;
   return `$${s.price}`;
 }
 
@@ -84,16 +114,75 @@ export default function Screen2() {
   const [consultOpen, setConsultOpen] = useState(false);
   const [addServicesOpen, setAddServicesOpen] = useState(false);
   const [addProductsOpen, setAddProductsOpen] = useState(false);
-  const [svcQueue, setSvcQueue] = useState(() =>
-    SVC_PICK_INITIAL_QUEUE_IDS.map((id) => MOCK_SERVICES.find((x) => x.id === id)).filter(Boolean),
-  );
+  const [hourlyRate, setHourlyRate] = useState(0);
+  const [consultRate, setConsultRate] = useState(0);
+  const [rateEditOpen, setRateEditOpen] = useState(null);
+  const [svcQueue, setSvcQueue] = useState(() => {
+    const rest = SVC_PICK_INITIAL_REST_IDS.map((id) => MOCK_SERVICES.find((x) => x.id === id)).filter(Boolean);
+    return [
+      { ...SVC_HOURLY_BASE, price: 0, kind: 'hourly' },
+      { ...SVC_CONSULT_BASE, price: 0, kind: 'consult' },
+      ...rest,
+    ];
+  });
   const [productQueue, setProductQueue] = useState([]);
   const [dockOpen, setDockOpen] = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(null);
 
   const grabberTouch = useRef({ y: 0 });
   const navTouch = useRef({ x: 0, y: 0, skipFilmNav: false });
 
   const initials = useMemo(() => CLIENT.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase(), []);
+
+  const displaySvcQueue = useMemo(() => sortSvcQueueForDisplay(svcQueue), [svcQueue]);
+
+  const displaySvcRestQueue = useMemo(
+    () => displaySvcQueue.filter((s) => s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT'),
+    [displaySvcQueue],
+  );
+
+  const hourlySvc = useMemo(
+    () => ({ ...SVC_HOURLY_BASE, price: hourlyRate, kind: 'hourly' }),
+    [hourlyRate],
+  );
+  const consultSvc = useMemo(
+    () => ({ ...SVC_CONSULT_BASE, price: consultRate, kind: 'consult' }),
+    [consultRate],
+  );
+  const svcPickerList = useMemo(() => [hourlySvc, consultSvc, ...MOCK_SERVICES], [hourlySvc, consultSvc]);
+
+  const hourlyInQueue = useMemo(() => svcQueue.some((q) => q.id === 'SVC-HOURLY'), [svcQueue]);
+  const consultInQueue = useMemo(() => svcQueue.some((q) => q.id === 'SVC-CONSULT'), [svcQueue]);
+
+  useEffect(() => {
+    setSvcQueue((prev) =>
+      prev.map((s) => {
+        if (s.id === 'SVC-HOURLY') return { ...s, price: hourlyRate };
+        if (s.id === 'SVC-CONSULT') return { ...s, price: consultRate };
+        return s;
+      }),
+    );
+  }, [hourlyRate, consultRate]);
+
+  const toggleSvcInQueue = useCallback((svc) => {
+    setSvcQueue((prev) =>
+      prev.some((q) => q.id === svc.id) ? prev.filter((q) => q.id !== svc.id) : [...prev, svc],
+    );
+  }, []);
+
+  const openRemoveConfirm = useCallback((kind, id, label) => {
+    setRemoveConfirm({ kind, id, label });
+  }, []);
+
+  const handleConfirmRemove = useCallback(() => {
+    if (!removeConfirm) return;
+    if (removeConfirm.kind === 'svc') {
+      setSvcQueue((prev) => prev.filter((q) => q.id !== removeConfirm.id));
+    } else {
+      setProductQueue((prev) => prev.filter((q) => q.id !== removeConfirm.id));
+    }
+    setRemoveConfirm(null);
+  }, [removeConfirm]);
 
   const onGrabberTouchStart = useCallback((e) => {
     grabberTouch.current.y = e.touches[0].clientY;
@@ -107,18 +196,18 @@ export default function Screen2() {
   }, []);
 
   const onRootTouchStart = useCallback((e) => {
-    if (consultOpen || addServicesOpen || addProductsOpen) return;
+    if (consultOpen || addServicesOpen || addProductsOpen || rateEditOpen || removeConfirm) return;
     const t = e.touches[0];
     const el = e.target;
     const skipFilmNav =
       el &&
       typeof el.closest === 'function' &&
-      Boolean(el.closest('.s2-filmCluster--left'));
+      Boolean(el.closest('.s2-filmCluster--queue'));
     navTouch.current = { x: t.clientX, y: t.clientY, skipFilmNav };
-  }, [addProductsOpen, addServicesOpen, consultOpen]);
+  }, [addProductsOpen, addServicesOpen, consultOpen, rateEditOpen, removeConfirm]);
 
   const onRootTouchEnd = useCallback((e) => {
-    if (consultOpen || addServicesOpen || addProductsOpen) return;
+    if (consultOpen || addServicesOpen || addProductsOpen || rateEditOpen || removeConfirm) return;
     if (navTouch.current.skipFilmNav) return;
     const el = e.target;
     if (el && typeof el.closest === 'function') {
@@ -130,7 +219,7 @@ export default function Screen2() {
     if (Math.abs(dx) < 72 || dy > 48) return;
     if (dx > 0) navigate('/screen1');
     else navigate('/calendar');
-  }, [addProductsOpen, addServicesOpen, consultOpen, navigate]);
+  }, [addProductsOpen, addServicesOpen, consultOpen, navigate, rateEditOpen, removeConfirm]);
 
   return (
     <div
@@ -240,25 +329,100 @@ export default function Screen2() {
           <div className="s2-pill s2-pill--neutral">Services</div>
           <div className="s2-card s2-card--v13 s2-svcCard">
             <div className="s2-filmRow s2-filmRow--services" aria-label="Services">
-              <div className="s2-filmCluster s2-filmCluster--left">
-                {svcQueue.map((s, i) => (
-                  <div
-                    key={`${s.id}-row-${i}`}
-                    className="s2-filmPill s2-filmPill--svc"
-                    title={s.name}
+              <div className="s2-filmCluster s2-filmCluster--queue">
+                <div className="s2-filmPinWrap">
+                  <button
+                    type="button"
+                    className={`s2-filmPill s2-filmPill--svc s2-filmPill--hourly${hourlyInQueue ? ' is-svcPicked' : ''}`}
+                    title={hourlySvc.name}
+                    aria-pressed={hourlyInQueue}
+                    aria-label={`${hourlySvc.name}, ${hourlyInQueue ? 'selected' : 'not selected'}`}
+                    onClick={() => toggleSvcInQueue(hourlySvc)}
                   >
-                    <span className="s2-filmPill__mono">{queuePriceLabel(s)}</span>
+                    <span className="s2-filmPill__mono">{queuePriceLabel(hourlySvc)}</span>
+                  </button>
+                  {hourlyInQueue ? (
+                    <button
+                      type="button"
+                      className="s2-filmRemoveBtn"
+                      aria-label={`Remove ${hourlySvc.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openRemoveConfirm('svc', 'SVC-HOURLY', hourlySvc.name);
+                      }}
+                    >
+                      <Minus size={11} weight="bold" aria-hidden />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="s2-filmPinWrap__edit"
+                    aria-label="Set hourly rate"
+                    onClick={() => setRateEditOpen('hourly')}
+                  >
+                    <PencilSimple size={11} weight="bold" aria-hidden />
+                  </button>
+                </div>
+                <div className="s2-filmPinWrap">
+                  <button
+                    type="button"
+                    className={`s2-filmPill s2-filmPill--svc s2-filmPill--consult${consultInQueue ? ' is-svcPicked' : ''}`}
+                    title={consultSvc.name}
+                    aria-pressed={consultInQueue}
+                    aria-label={`${consultSvc.name}, ${consultInQueue ? 'selected' : 'not selected'}`}
+                    onClick={() => toggleSvcInQueue(consultSvc)}
+                  >
+                    <span className="s2-filmPill__mono">{queuePriceLabel(consultSvc)}</span>
+                  </button>
+                  {consultInQueue ? (
+                    <button
+                      type="button"
+                      className="s2-filmRemoveBtn"
+                      aria-label={`Remove ${consultSvc.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openRemoveConfirm('svc', 'SVC-CONSULT', consultSvc.name);
+                      }}
+                    >
+                      <Minus size={11} weight="bold" aria-hidden />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="s2-filmPinWrap__edit"
+                    aria-label="Set consultation fee"
+                    onClick={() => setRateEditOpen('consult')}
+                  >
+                    <PencilSimple size={11} weight="bold" aria-hidden />
+                  </button>
+                </div>
+                {displaySvcRestQueue.map((s, i) => (
+                  <div key={`${s.id}-row-${i}`} className="s2-filmItemWrap">
+                    <button
+                      type="button"
+                      className="s2-filmRemoveBtn"
+                      aria-label={`Remove ${s.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openRemoveConfirm('svc', s.id, s.name);
+                      }}
+                    >
+                      <Minus size={11} weight="bold" aria-hidden />
+                    </button>
+                    <div className="s2-filmPill s2-filmPill--svc s2-filmPill--queueExtra is-svcPicked" title={s.name}>
+                      <span className="s2-filmPill__mono">{queuePriceLabel(s)}</span>
+                    </div>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  className="s2-filmPlus s2-filmPlus--inline"
-                  aria-label="Add services"
-                  onClick={() => setAddServicesOpen(true)}
-                >
-                  +
-                </button>
               </div>
+              <button
+                type="button"
+                className="s2-filmPlus s2-filmPlus--rail"
+                aria-label="Add services"
+                onClick={() => setAddServicesOpen(true)}
+              >
+                +
+              </button>
             </div>
           </div>
         </div>
@@ -267,26 +431,35 @@ export default function Screen2() {
           <div className="s2-pill s2-pill--neutral">Home Care</div>
           <div className="s2-card s2-card--v13 s2-hcCard">
             <div className="s2-filmRow s2-filmRow--products" aria-label="Home care products">
-              <div className="s2-filmCluster s2-filmCluster--left">
+              <div className="s2-filmCluster s2-filmCluster--queue">
                 {productQueue.map((p, i) => (
-                  <div
-                    key={`${p.id}-row-${i}`}
-                    className="s2-filmPill s2-filmPill--prd"
-                    title={p.name}
-                  >
-                    <span className="s2-filmPill__brand">{p.brand}</span>
-                    <span className="s2-filmPill__mono">${p.price}</span>
+                  <div key={`${p.id}-row-${i}`} className="s2-filmItemWrap">
+                    <button
+                      type="button"
+                      className="s2-filmRemoveBtn"
+                      aria-label={`Remove ${p.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openRemoveConfirm('product', p.id, `${p.brand} · ${p.name}`);
+                      }}
+                    >
+                      <Minus size={11} weight="bold" aria-hidden />
+                    </button>
+                    <div className="s2-filmPill s2-filmPill--prd" title={p.name}>
+                      <span className="s2-filmPill__brand">{p.brand}</span>
+                      <span className="s2-filmPill__mono">${p.price}</span>
+                    </div>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  className="s2-filmPlus s2-filmPlus--inline"
-                  aria-label="Add products"
-                  onClick={() => setAddProductsOpen(true)}
-                >
-                  +
-                </button>
               </div>
+              <button
+                type="button"
+                className="s2-filmPlus s2-filmPlus--rail"
+                aria-label="Add products"
+                onClick={() => setAddProductsOpen(true)}
+              >
+                +
+              </button>
             </div>
           </div>
         </div>
@@ -320,25 +493,25 @@ export default function Screen2() {
             </button>
           </div>
           <div className="s2-toolbar">
-            {TOOLBAR_ITEMS.map(({ Icon, label }, i) => (
-              <button
-                key={label}
-                type="button"
-                className={`s2-toolbar__btn${i === 2 ? ' s2-toolbar__btn--solid' : ''}`}
-                aria-label={label}
-                onClick={() => {
-                  if (i === 1) navigate('/screen1');
-                  if (i === 3) navigate('/calendar');
-                  if (i === 4) navigate('/');
-                }}
-              >
-                <Icon
-                  size={i === 2 ? S2_ICON_TOOLBAR_ACTIVE : S2_ICON_TOOLBAR}
-                  weight={i === 2 ? 'fill' : 'regular'}
-                  aria-hidden
-                />
-              </button>
-            ))}
+            {TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
+              const isActive = i === TOOLBAR_ACTIVE;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  className={`s2-toolbar__btn${isActive ? ' s2-toolbar__btn--solid' : ''}`}
+                  aria-label={label}
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => navigate(to)}
+                >
+                  <Icon
+                    size={isActive ? S2_ICON_TOOLBAR_ACTIVE : S2_ICON_TOOLBAR}
+                    weight={isActive ? 'fill' : 'regular'}
+                    aria-hidden
+                  />
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -421,8 +594,10 @@ export default function Screen2() {
             </header>
             <div className="s2-addProdScroll">
               <div className="s2-addProdGrid">
-                {MOCK_SERVICES.map((s, i) => {
+                {svcPickerList.map((s, i) => {
                   const inQueue = svcQueue.some((q) => q.id === s.id);
+                  const rowSvc =
+                    s.id === 'SVC-HOURLY' ? hourlySvc : s.id === 'SVC-CONSULT' ? consultSvc : s;
                   return (
                     <button
                       key={s.id}
@@ -432,7 +607,7 @@ export default function Screen2() {
                         setSvcQueue((prev) =>
                           prev.some((q) => q.id === s.id)
                             ? prev.filter((q) => q.id !== s.id)
-                            : [...prev, s],
+                            : [...prev, rowSvc],
                         );
                       }}
                     >
@@ -442,8 +617,8 @@ export default function Screen2() {
                         aria-hidden
                       />
                       <div className="s2-addProdCard__meta">
-                        <div className="s2-addProdCard__name s2-addProdCard__name--service">{s.name}</div>
-                        <div className="s2-addProdCard__price">{queuePriceLabel(s)}</div>
+                        <div className="s2-addProdCard__name s2-addProdCard__name--service">{rowSvc.name}</div>
+                        <div className="s2-addProdCard__price">{queuePriceLabel(rowSvc)}</div>
                       </div>
                     </button>
                   );
@@ -453,26 +628,19 @@ export default function Screen2() {
             <footer className="s2-svcPickQueue">
               <div className="s2-svcPickQueue__label">S2 QUEUE</div>
               <div className="s2-svcPickQueue__row">
-                {svcQueue.map((s, qi) => (
+                {displaySvcQueue.map((s, qi) => (
                   <div key={`${s.id}-${qi}`} className="s2-svcPickQueueCard">
                     <button
                       type="button"
                       className="s2-svcPickQueueCard__rm"
                       aria-label={`Remove ${s.name}`}
-                      onClick={() => setSvcQueue((prev) => prev.filter((_, j) => j !== qi))}
+                      onClick={() => openRemoveConfirm('svc', s.id, s.name)}
                     >
                       <X size={10} weight="bold" aria-hidden />
                     </button>
                     <div
                       className="s2-svcPickQueueCard__thumb"
-                      style={{
-                        background: svcGradientForIndex(
-                          (() => {
-                            const ix = MOCK_SERVICES.findIndex((x) => x.id === s.id);
-                            return ix >= 0 ? ix : qi;
-                          })(),
-                        ),
-                      }}
+                      style={{ background: svcGradientForPickerId(s.id, svcPickerList) }}
                       aria-hidden
                     />
                     <div className="s2-svcPickQueueCard__meta">
@@ -487,7 +655,7 @@ export default function Screen2() {
                   onClick={() =>
                     setSvcQueue((prev) => [
                       ...prev,
-                      { id: `SVC-C-${Date.now()}`, name: 'Custom service', price: 100 },
+                      { id: `SVC-C-${Date.now()}`, name: 'Custom service', price: 0 },
                     ])
                   }
                 >
@@ -564,7 +732,7 @@ export default function Screen2() {
                       type="button"
                       className="s2-svcPickQueueCard__rm"
                       aria-label={`Remove ${p.name}`}
-                      onClick={() => setProductQueue((prev) => prev.filter((_, j) => j !== qi))}
+                      onClick={() => openRemoveConfirm('product', p.id, `${p.brand} · ${p.name}`)}
                     >
                       <X size={10} weight="bold" aria-hidden />
                     </button>
@@ -582,6 +750,105 @@ export default function Screen2() {
                 ))}
               </div>
             </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {removeConfirm ? (
+        <div className="s2-confirmOverlay" role="dialog" aria-modal="true" aria-labelledby="s2-remove-confirm-title">
+          <button
+            type="button"
+            className="s2-addProdBackdrop"
+            aria-label="Cancel"
+            onClick={() => setRemoveConfirm(null)}
+          />
+          <div className="s2-confirmSheet">
+            <h2 id="s2-remove-confirm-title" className="s2-confirmTitle">
+              Remove this item?
+            </h2>
+            <p className="s2-confirmBody">{removeConfirm.label}</p>
+            <div className="s2-confirmActions">
+              <button type="button" className="s2-confirmBtn s2-confirmBtn--ghost" onClick={() => setRemoveConfirm(null)}>
+                Cancel
+              </button>
+              <button type="button" className="s2-confirmBtn s2-confirmBtn--danger" onClick={handleConfirmRemove}>
+                Yes, remove
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {rateEditOpen ? (
+        <div className="s2-rateEditOverlay" role="dialog" aria-modal="true" aria-label={rateEditOpen === 'hourly' ? 'Hourly rate' : 'Consultation fee'}>
+          <button
+            type="button"
+            className="s2-addProdBackdrop"
+            aria-label="Close"
+            onClick={() => setRateEditOpen(null)}
+          />
+          <div className="s2-rateEditSheet">
+            <header className="s2-rateEditHeader">
+              <button type="button" className="s2-rateEditClose" aria-label="Close" onClick={() => setRateEditOpen(null)}>
+                <X size={18} weight="regular" aria-hidden />
+              </button>
+              <h2 className="s2-rateEditTitle">{rateEditOpen === 'hourly' ? 'Hourly rate' : 'Consultation fee'}</h2>
+              <p className="s2-rateEditHint">
+                {rateEditOpen === 'hourly'
+                  ? `$${ADJ_RATE_MIN}–$${ADJ_RATE_MAX} per hour · $1 steps`
+                  : `$${ADJ_RATE_MIN}–$${ADJ_RATE_MAX} consultation fee · $1 steps`}
+              </p>
+            </header>
+            {rateEditOpen === 'hourly' || rateEditOpen === 'consult' ? (
+              <div className="s2-rateEditBody">
+                {(() => {
+                  const isHourly = rateEditOpen === 'hourly';
+                  const rateVal = isHourly ? hourlyRate : consultRate;
+                  const setRateVal = isHourly ? setHourlyRate : setConsultRate;
+                  const fillPct =
+                    ADJ_RATE_MAX > ADJ_RATE_MIN
+                      ? ((rateVal - ADJ_RATE_MIN) / (ADJ_RATE_MAX - ADJ_RATE_MIN)) * 100
+                      : 0;
+                  return (
+                    <>
+                      <div className="s2-rateEditBig">
+                        ${rateVal}
+                        {isHourly ? <span className="s2-rateEditBig__suffix">/hr</span> : null}
+                      </div>
+                      <input
+                        type="range"
+                        className="s2-rateEditSlider"
+                        min={ADJ_RATE_MIN}
+                        max={ADJ_RATE_MAX}
+                        step={1}
+                        value={rateVal}
+                        aria-valuemin={ADJ_RATE_MIN}
+                        aria-valuemax={ADJ_RATE_MAX}
+                        aria-valuenow={rateVal}
+                        style={{ '--rate-fill': `${fillPct}%` }}
+                        onChange={(e) => setRateVal(clampAdjustableRate(e.target.value))}
+                      />
+                      <label className="s2-rateEditField">
+                        <span className="s2-rateEditField__label">{isHourly ? '$ / hour' : '$ consultation'}</span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          className="s2-rateEditInput"
+                          min={ADJ_RATE_MIN}
+                          max={ADJ_RATE_MAX}
+                          step={1}
+                          value={rateVal}
+                          onChange={(e) => setRateVal(clampAdjustableRate(e.target.value))}
+                        />
+                      </label>
+                      <button type="button" className="s2-rateEditDone" onClick={() => setRateEditOpen(null)}>
+                        Done
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

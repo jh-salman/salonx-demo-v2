@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { addDays, format, isSameDay, isToday, startOfWeek, startOfMonth, endOfMonth, endOfWeek } from "date-fns";
+import BottomToolbar from "../../component/BottomToolbar";
 import "../style/calendar.css";
 
 const DAY_START_HOUR = 6;
@@ -338,6 +339,7 @@ export default function CalendarScreenWeb() {
           </div>
         </div>
       ) : null}
+      <BottomToolbar activeIndex={3} />
     </div>
   );
 }

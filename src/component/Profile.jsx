@@ -106,8 +106,7 @@ const imageStyle = {
 const sliderWrapperStyle = {
   position: 'absolute',
   bottom: '-30px',
-  left: '10%',
-  transform: 'translateX(-50%)',
+  left: '-16px',
 };
 const sliderContainerStyle = {
   display: 'flex',

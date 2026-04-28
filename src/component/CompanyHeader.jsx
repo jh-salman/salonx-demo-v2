@@ -27,26 +27,31 @@ function CompanyHeader() {
     )
 }
 
+const ACCENT = '#ff7819';
+
 const wrapperStyle = {
-  padding: '2px',
-  background: 'linear-gradient(to bottom, #00f0ff, black)',
-  borderRadius: '12px',
-  display: 'inline-block',
-  clipPath: 'polygon(0 0, 100% 0, 93.5% 100%, 0% 100%)',
-  width: '345px',
+  position: 'relative',
+  padding: '1.5px',
+  background: `linear-gradient(to right, ${ACCENT} 0%, ${ACCENT}cc 18%, ${ACCENT}66 45%, ${ACCENT}00 85%)`,
+  borderRadius: '11.5px',
+  width: '380px',
   height: '70px',
+  boxSizing: 'border-box',
 };
 
 const innerStyle = {
+  position: 'relative',
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  background: '#111',
+  width: '100%',
+  height: '100%',
+  background: '#1A1A1A',
   borderRadius: '10px',
-  padding: '5px 2rem',
+  padding: '5px 72px 5px 24px',
   color: 'white',
   fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-  clipPath: 'polygon(0 0, 100% 0, 93.5% 100%, 0% 100%)',
+  boxSizing: 'border-box',
 };
 
 const clickDivStyle = {

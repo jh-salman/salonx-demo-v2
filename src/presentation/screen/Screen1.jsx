@@ -1,4 +1,6 @@
 import React, { useContext, useState } from 'react'
+import { useNavigate } from 'react-router-dom';
+import { Scissors, User, Lightning, CalendarBlank, X } from 'phosphor-react';
 import CurvedLine from '../../component/CurvedLine'
 import Profile from '../../component/Profile';
 import { AppContext } from '../../context/AppContext';
@@ -6,38 +8,35 @@ import CompanyHeader from '../../component/CompanyHeader';
 import ClientList from '../../component/ClientList';
 import SetTimmer from '../../component/SetTimmer';
 import WaitingList from '../../component/WaitingList';
-import BottomButton from '../../component/BottomButton';
 import DynamicDate from '../../component/DynamicDate';
 import TopStats from '../../component/TopStats';
-import Screen2 from './Screen2';
 import '../style/screen1.css';
+
+const SCREEN1_ACTIVE = 0;
+const SCREEN1_TOOLBAR_ITEMS = [
+  { Icon: Scissors, label: 'Stylist', to: '/screen1' },
+  { Icon: User, label: 'Client details', to: '/screen2' },
+  { Icon: Lightning, label: 'Checkout', to: '/checkout' },
+  { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
+  { Icon: X, label: 'Home', to: '/' },
+];
 
 
 function Screen1() {
-
+    const navigate = useNavigate();
     const {
         selectSlider,
         isTimer,
-        layoutSlide,
-        setLayoutSlide,
-           } = useContext(AppContext);
-
-  
-    const handleSlide = () => {
-        setLayoutSlide(true);
-    };
+    } = useContext(AppContext);
 
     return (
         <div className="screen1-container">
-            <div onClick={handleSlide} className="slide-handle touchableDiv">
-
-            </div>
             <div className="date-screen1">
                 <DynamicDate />
             </div>
-            
 
-            <div className={`layout-wrapper${layoutSlide ? ' translate' : ''}`}>
+
+            <div className="layout-wrapper">
                 <div className="screen1-background">
                     <div className="curvedline-container">
                         <CurvedLine />
@@ -73,21 +72,32 @@ function Screen1() {
                             <WaitingList />
 
                         </div>
-                        <div className="buttons-wrapper buttons">
-                            <BottomButton />
-
+                        <div className="screen1-toolbar" role="toolbar" aria-label="Screen toolbar">
+                            {SCREEN1_TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
+                                const isActive = i === SCREEN1_ACTIVE;
+                                return (
+                                    <button
+                                        key={label}
+                                        type="button"
+                                        className={`screen1-toolbar__btn${isActive ? ' screen1-toolbar__btn--solid' : ''}`}
+                                        aria-label={label}
+                                        aria-current={isActive ? 'page' : undefined}
+                                        onClick={() => navigate(to)}
+                                    >
+                                        <Icon
+                                            size={isActive ? 26 : 24}
+                                            weight={isActive ? 'fill' : 'regular'}
+                                            aria-hidden
+                                        />
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
 
             </div>
-            <div style={{ position: "relative", height: "852px", width: "100%", overflow: "hidden", zIndex: "1" }}>
-                <div className="screen2-wrapper">
-                        <Screen2 />
-                </div>
-
-
-            </div>
+            <div className="screen1-blackBelow" aria-hidden />
         </div>
     )
 }

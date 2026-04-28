@@ -37,6 +37,10 @@
   --s2-film-card-height: 122px;
   /* Inner strip: every pill and + box share the same width (height = row stretch) */
   --s2-film-box-size: 46px;
+  /* Add-services / add-products grid: uniform card footprint */
+  --s2-addProd-card-min-h: 236px;
+  /* Popup bottom queue chips: uniform height */
+  --s2-queue-chip-h: 122px;
   /* Consultation stack card: fixed footprint (inner panes scroll if needed) */
   --s2-consult-card-height: 296px;
   /* What To Use card inner block; Today's Set uses same total card height */
@@ -331,7 +335,9 @@
   padding-left: calc(var(--s2-page-gutter) + env(safe-area-inset-left, 0px));
   padding-right: calc(var(--s2-page-gutter) + env(safe-area-inset-right, 0px));
   margin-top: var(--s2-header-stack-gap);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   box-sizing: border-box;
 }
 
@@ -560,6 +566,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+  overflow-x: hidden;
 }
 
 /* Services / Home Care — left cluster: all pills + SET + inline + (card outer unchanged) */
@@ -568,39 +575,46 @@
   flex-direction: row;
   align-items: stretch;
   justify-content: flex-start;
-  gap: 0;
+  gap: 6px;
   width: 100%;
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
   height: 100%;
   box-sizing: border-box;
+  overflow: hidden;
 }
 .s2-filmCluster {
   display: flex;
   flex-direction: row;
   align-items: stretch;
   gap: 6px;
-  flex-shrink: 0;
 }
-.s2-filmCluster--left {
+/* Chips scroll horizontally inside the card only; + rail stays fixed at end of row */
+.s2-filmCluster--queue {
   flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
   flex-shrink: 1;
   flex-wrap: nowrap;
   align-items: stretch;
+  gap: 6px;
+  padding-bottom: 2px;
+  padding-right: 2px;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
-  scrollbar-width: none;
-  padding-bottom: 2px;
-  padding-right: 2px;
   overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  scrollbar-width: none;
 }
-.s2-filmCluster--left::-webkit-scrollbar {
+.s2-filmCluster--queue::-webkit-scrollbar {
   display: none;
+}
+.s2-filmCluster--queue > .s2-filmPinWrap,
+.s2-filmCluster--queue > .s2-filmItemWrap {
+  flex-shrink: 0;
 }
 .s2-filmPlus {
   margin: 0;
@@ -629,10 +643,26 @@
   border: 1px dashed rgba(255, 120, 25, 0.45);
   box-sizing: border-box;
 }
+.s2-filmPlus--rail {
+  flex: 0 0 var(--s2-film-box-size);
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: calc(var(--s2-film-card-height) - 24px);
+  min-width: var(--s2-film-box-size);
+  width: var(--s2-film-box-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 120, 25, 0.45);
+  box-sizing: border-box;
+}
 .s2-filmPlus:active {
   opacity: 0.7;
   transform: scale(0.96);
 }
+/* Same shell as .s2-filmPlus--rail: dashed orange frame, dim fill, full stretch */
 .s2-filmPill {
   flex: 0 0 var(--s2-film-box-size);
   width: var(--s2-film-box-size);
@@ -644,19 +674,156 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 4px;
   padding: 8px 4px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 120, 25, 0.45);
+}
+button.s2-filmPill {
+  appearance: none;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
 }
 .s2-filmPill--svc.is-rec {
   border-color: rgba(245, 179, 0, 0.5);
   box-shadow: 0 0 0 1px rgba(245, 179, 0, 0.12) inset;
 }
+/* Pinned slot 1–2: same frame as + rail when off; solid accent when on */
+.s2-filmPill--hourly,
+.s2-filmPill--consult {
+  box-shadow: none;
+}
+.s2-filmPill--hourly .s2-filmPill__mono,
+.s2-filmPill--consult .s2-filmPill__mono {
+  color: rgba(245, 245, 247, 0.52);
+  font-weight: 600;
+}
+.s2-filmPill--hourly.is-svcPicked {
+  border-style: solid;
+  border-color: rgba(255, 120, 25, 0.58);
+  box-shadow: 0 0 0 1px rgba(255, 120, 25, 0.22) inset;
+  background: rgba(255, 120, 25, 0.11);
+}
+.s2-filmPill--hourly.is-svcPicked .s2-filmPill__mono {
+  color: var(--s2-accent);
+  font-weight: 700;
+}
+.s2-filmPill--consult.is-svcPicked {
+  border-style: solid;
+  border-color: rgba(255, 120, 25, 0.48);
+  box-shadow: 0 0 0 1px rgba(255, 120, 25, 0.16) inset;
+  background: rgba(255, 120, 25, 0.08);
+}
+.s2-filmPill--consult.is-svcPicked .s2-filmPill__mono {
+  color: var(--s2-accent);
+  font-weight: 700;
+}
+.s2-filmPill--queueExtra.is-svcPicked {
+  border: 1px dashed rgba(255, 120, 25, 0.62);
+  background: rgba(255, 120, 25, 0.09);
+  box-shadow: none;
+}
+.s2-filmPill--queueExtra.is-svcPicked .s2-filmPill__mono {
+  color: var(--s2-accent);
+  font-weight: 700;
+}
+
+.s2-filmPinWrap {
+  position: relative;
+  flex: 0 0 var(--s2-film-box-size);
+  width: var(--s2-film-box-size);
+  min-width: var(--s2-film-box-size);
+  align-self: stretch;
+  min-height: calc(var(--s2-film-card-height) - 24px);
+  display: flex;
+  flex-direction: column;
+}
+.s2-filmPinWrap .s2-filmPill {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.s2-filmPinWrap__edit {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--s2-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-filmPinWrap__edit:active {
+  opacity: 0.88;
+  transform: scale(0.94);
+}
+
+.s2-filmRemoveBtn {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(251, 113, 133, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-filmRemoveBtn:active {
+  opacity: 0.88;
+  transform: scale(0.94);
+}
+
+.s2-filmItemWrap {
+  position: relative;
+  flex: 0 0 var(--s2-film-box-size);
+  width: var(--s2-film-box-size);
+  min-width: var(--s2-film-box-size);
+  align-self: stretch;
+  min-height: calc(var(--s2-film-card-height) - 24px);
+  display: flex;
+  flex-direction: column;
+}
+.s2-filmItemWrap > .s2-filmPill {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
 .s2-filmPill--prd {
-  background: linear-gradient(165deg, rgba(74, 45, 107, 0.5), rgba(26, 24, 28, 0.92));
-  border-color: rgba(168, 85, 247, 0.22);
+  /* Match + rail shell; typography stays readable */
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 120, 25, 0.45);
+}
+.s2-filmPill--prd .s2-filmPill__brand {
+  color: rgba(255, 186, 120, 0.88);
+}
+.s2-filmPill--prd .s2-filmPill__mono {
+  color: var(--s2-accent);
+  font-weight: 700;
 }
 .s2-filmPill--accent {
   background: rgba(255, 255, 255, 0.07);
@@ -665,6 +832,7 @@
 .s2-filmPill--ghost {
   opacity: 0.4;
   border-style: dashed;
+  border-color: rgba(255, 120, 25, 0.28);
   background: rgba(255, 255, 255, 0.03);
 }
 .s2-filmPill__mono {
@@ -1066,9 +1234,10 @@
 }
 .s2-addProdGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 11px;
   align-content: start;
+  align-items: stretch;
 }
 .s2-addProdCard {
   margin: 0;
@@ -1083,6 +1252,9 @@
   align-items: stretch;
   overflow: hidden;
   min-width: 0;
+  min-height: var(--s2-addProd-card-min-h);
+  height: 100%;
+  align-self: stretch;
   -webkit-tap-highlight-color: transparent;
   box-sizing: border-box;
   font: inherit;
@@ -1093,9 +1265,9 @@
   opacity: 0.95;
 }
 .s2-addProdCard__visual {
-  aspect-ratio: 1 / 1.05;
+  flex: 1 1 auto;
+  min-height: 112px;
   width: 100%;
-  flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 .s2-addProdCard__meta {
@@ -1103,8 +1275,9 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: 5rem;
+  justify-content: flex-end;
 }
 .s2-addProdCard__brand {
   font-size: 12px;
@@ -1150,6 +1323,18 @@
 .s2-addProdCard.is-inQueue {
   border-color: rgba(255, 120, 25, 0.55);
   box-shadow: 0 0 0 1px rgba(255, 120, 25, 0.22);
+  background: rgba(255, 120, 25, 0.06);
+}
+.s2-addProdCard--service.is-inQueue .s2-addProdCard__name--service,
+.s2-addProdCard--service.is-inQueue .s2-addProdCard__price {
+  color: var(--s2-accent);
+}
+.s2-addProdCard:not(.s2-addProdCard--service).is-inQueue .s2-addProdCard__name,
+.s2-addProdCard:not(.s2-addProdCard--service).is-inQueue .s2-addProdCard__price {
+  color: var(--s2-accent);
+}
+.s2-addProdCard:not(.s2-addProdCard--service).is-inQueue .s2-addProdCard__brand {
+  color: #ffc48a;
 }
 
 .s2-svcPickBrand {
@@ -1216,6 +1401,7 @@
   flex: 0 0 auto;
   width: 82px;
   min-width: 82px;
+  min-height: var(--s2-queue-chip-h);
   border-radius: 10px;
   border: 1px solid #2b2b2b;
   background: #0e0e10;
@@ -1249,7 +1435,8 @@
 }
 .s2-svcPickQueueCard__thumb {
   width: 100%;
-  aspect-ratio: 1 / 0.72;
+  height: 52px;
+  min-height: 52px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -1260,6 +1447,7 @@
   gap: 3px;
   flex: 1 1 auto;
   min-height: 0;
+  justify-content: flex-end;
 }
 .s2-svcPickQueueCard__brand {
   font-size: 8px;
@@ -1296,7 +1484,7 @@
   flex: 0 0 auto;
   width: 82px;
   min-width: 82px;
-  min-height: 0;
+  min-height: var(--s2-queue-chip-h);
   align-self: stretch;
   display: flex;
   flex-direction: column;
@@ -1329,6 +1517,299 @@
   letter-spacing: 0.05em;
   text-align: center;
   line-height: 1.28;
+}
+
+/* Remove service / product — one-step confirm */
+.s2-confirmOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 65;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.s2-confirmOverlay .s2-addProdBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+}
+.s2-confirmSheet {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 300px;
+  border-radius: 16px;
+  border: 1px solid #2b2b2b;
+  background: #0e0e10;
+  padding: 20px 18px 18px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.55);
+}
+.s2-confirmTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: rgba(245, 245, 247, 0.96);
+}
+.s2-confirmBody {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+  color: rgba(245, 245, 247, 0.55);
+}
+.s2-confirmActions {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  margin-top: 20px;
+}
+.s2-confirmBtn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 12px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-confirmBtn--ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(245, 245, 247, 0.88);
+}
+.s2-confirmBtn--ghost:active {
+  opacity: 0.9;
+  transform: scale(0.98);
+}
+.s2-confirmBtn--danger {
+  border-color: rgba(251, 113, 133, 0.45);
+  background: rgba(251, 113, 133, 0.14);
+  color: #fda4af;
+}
+.s2-confirmBtn--danger:active {
+  opacity: 0.92;
+  transform: scale(0.98);
+}
+
+/* Hourly ($50–$310) + consultation ($25/$50/$75) rate editor */
+.s2-rateEditOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  isolation: isolate;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.s2-rateEditOverlay .s2-addProdBackdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+.s2-rateEditSheet {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 360px;
+  border-radius: 18px;
+  border: 1px solid #2b2b2b;
+  background: #0e0e10;
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.55);
+  padding: 16px 16px 18px;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+.s2-rateEditHeader {
+  position: relative;
+  text-align: center;
+  padding: 0 36px 12px;
+}
+.s2-rateEditClose {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(245, 245, 247, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-rateEditTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 247, 0.96);
+}
+.s2-rateEditHint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(245, 245, 247, 0.48);
+}
+.s2-rateEditBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 4px;
+}
+.s2-rateEditBig {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: clamp(32px, 9vw, 40px);
+  font-weight: 700;
+  color: var(--s2-accent);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+.s2-rateEditBig__suffix {
+  font-size: 0.55em;
+  font-weight: 600;
+  color: rgba(245, 245, 247, 0.55);
+  margin-left: 4px;
+}
+.s2-rateEditSlider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  --rate-fill: 50%;
+}
+.s2-rateEditSlider:focus {
+  outline: none;
+}
+.s2-rateEditSlider:focus-visible {
+  outline: 2px solid var(--s2-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+/* Single bar: orange fill runs in-track to thumb (no separate line below) */
+.s2-rateEditSlider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 120, 25, 0.5);
+  background: linear-gradient(
+    to right,
+    var(--s2-accent) 0%,
+    var(--s2-accent) var(--rate-fill),
+    rgba(40, 36, 34, 0.95) var(--rate-fill),
+    rgba(55, 50, 48, 0.98) 100%
+  );
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.s2-rateEditSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--s2-accent);
+  border: 3px solid #0e0e10;
+  box-shadow:
+    0 0 0 2px rgba(255, 120, 25, 0.55),
+    0 2px 10px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+}
+.s2-rateEditSlider:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(1.05);
+}
+.s2-rateEditSlider::-moz-range-track {
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 120, 25, 0.5);
+  background: rgba(55, 50, 48, 0.98);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.s2-rateEditSlider::-moz-range-progress {
+  height: 10px;
+  border-radius: 999px 0 0 999px;
+  background: var(--s2-accent);
+}
+.s2-rateEditSlider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--s2-accent);
+  border: 3px solid #0e0e10;
+  box-shadow:
+    0 0 0 2px rgba(255, 120, 25, 0.55),
+    0 2px 10px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+}
+.s2-rateEditSlider:active::-moz-range-thumb {
+  cursor: grabbing;
+}
+.s2-rateEditField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.s2-rateEditField__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 247, 0.45);
+}
+.s2-rateEditInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #2b2b2b;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(245, 245, 247, 0.95);
+  font-size: 18px;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+.s2-rateEditDone {
+  margin-top: 4px;
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  border: none;
+  background: var(--s2-accent);
+  color: #0a0a0c;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-rateEditDone--ghost {
+  background: transparent;
+  color: rgba(245, 245, 247, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .s2-body > .s2-section:first-child {
