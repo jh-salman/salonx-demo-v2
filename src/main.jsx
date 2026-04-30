@@ -4,6 +4,7 @@ import './index.css'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './route/router.jsx'
 import { AppProvider } from './context/AppContext.jsx'
+import { TimersProvider } from './context/TimersContext.jsx'
 
 const SHELL_W = 393
 const SHELL_H = 852
@@ -79,9 +80,11 @@ function ResponsivePhoneShell({ children }) {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AppProvider>
-      <ResponsivePhoneShell>
-        <RouterProvider router={router} />
-      </ResponsivePhoneShell>
+      <TimersProvider>
+        <ResponsivePhoneShell>
+          <RouterProvider router={router} />
+        </ResponsivePhoneShell>
+      </TimersProvider>
     </AppProvider>
   </StrictMode>,
 )

@@ -1,12 +1,45 @@
-import React, { useMemo, useState } from "react";
-import { addDays, format, isSameDay, isToday, startOfWeek, startOfMonth, endOfMonth, endOfWeek } from "date-fns";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
+import {
+  addDays,
+  addMinutes,
+  addMonths,
+  addWeeks,
+  differenceInMinutes,
+  format,
+  isSameDay,
+  isToday,
+  startOfWeek,
+  startOfMonth,
+  endOfMonth,
+  endOfWeek,
+} from "date-fns";
+import { Bell, ClipboardText, PencilSimpleLine, Plus, UserList, X } from "phosphor-react";
 import BottomToolbar from "../../component/BottomToolbar";
+import { useRunningTimers } from "../../context/TimersContext";
+import {
+  NewCustomerScreen,
+  NewServiceScreen,
+  PickerTrigger,
+  SearchablePickerModal,
+} from "../../component/calendar/CalendarOverlays";
+import { MOCK_CLIENTS } from "../../data/mockClients";
+import { MOCK_SERVICES } from "../../data/mockServices";
 import "../style/calendar.css";
 
 const DAY_START_HOUR = 6;
-const DAY_END_HOUR = 23;
-const SLOT_HEIGHT = 56; // match app
+const DAY_END_HOUR = 18;
+const SLOT_HEIGHT = 56;
 const TIME_AXIS_WIDTH = 40;
+const MINUTES_PER_DAY = (DAY_END_HOUR - DAY_START_HOUR + 1) * 60;
+const SNAP_MINUTES = 5;
+const COLOR_OPTIONS = [
+  { id: "pink", label: "Pink", swatch: "#FA1BFE" },
+  { id: "blue", label: "Blue", swatch: "#25AFFF" },
+  { id: "green", label: "Green", swatch: "#9DE684" },
+  { id: "gray", label: "Gray", swatch: "#8e8e93" },
+];
 
 function ArrowIcon({ dir = "left" }) {
   return (
@@ -34,16 +67,18 @@ function ArrowIcon({ dir = "left" }) {
   );
 }
 
-const mockToolbarEvents = [
-  // Parked (orange)
+const initialToolbarEvents = [
   { id: "pk-1", title: "Candy Smiles", isParked: true, color: "#FF7701" },
   { id: "pk-2", title: "Joe Styles", isParked: true, color: "#FF7701" },
-  // Waitlist (green) – show timestamp + optional service
-  { id: "wl-1", title: "Nita Haredoo", waitlistAddedAt: new Date(2025, 6, 28, 9, 12), service: "Haircut", color: "#9DE684" },
-  { id: "wl-2", title: "Cristi Curls", waitlistAddedAt: new Date(2025, 6, 28, 10, 31), service: "Beard Trim", color: "#9DE684" },
+  { id: "wl-1", title: "Liam Wright", waitlistAddedAt: new Date(2026, 3, 3, 21, 56), service: "Hair Cut", color: "#FA1BFE" },
+  { id: "wl-2", title: "Noah Davis", waitlistAddedAt: new Date(2026, 3, 4, 19, 56), service: "Color", color: "#FA1BFE" },
+  { id: "wl-3", title: "James Wilson", waitlistAddedAt: new Date(2026, 3, 5, 22, 56), service: "Blow Dry", color: "#FA1BFE" },
+  { id: "wl-4", title: "Olivia Patel", waitlistAddedAt: new Date(2026, 3, 6, 10, 12), service: "Highlights", color: "#FA1BFE" },
+  { id: "wl-5", title: "Mason Reyes", waitlistAddedAt: new Date(2026, 3, 6, 14, 25), service: "Beard Trim", color: "#FA1BFE" },
+  { id: "wl-6", title: "Zara Khan", waitlistAddedAt: new Date(2026, 3, 7, 9, 5), service: "Bridal Trial", color: "#FA1BFE" },
 ];
 
-const mockAppointments = [
+const initialMockAppointments = [
   {
     id: "ev-1",
     clientName: "Cristi Curls",
@@ -91,23 +126,68 @@ function overlaps(a, b) {
 }
 
 function layoutDayAppointments(apts) {
-  const sorted = [...apts].sort((a, b) => a.start.getTime() - b.start.getTime());
-  const groups = [];
+  const sorted = [...apts].sort(
+    (a, b) =>
+      a.start.getTime() - b.start.getTime() ||
+      a.end.getTime() - b.end.getTime() ||
+      String(a.id).localeCompare(String(b.id)),
+  );
+
+  // Build overlap "clusters" so column counts are local, not global. This
+  // prevents unrelated appointments from shrinking when a single overlap
+  // happens elsewhere in the day.
+  const clusters = [];
+  let current = null; // { items: [], endMs: number }
   for (const apt of sorted) {
-    let placed = false;
-    for (const g of groups) {
-      if (g.some((x) => overlaps(x, apt))) continue;
-      g.push(apt);
-      placed = true;
-      break;
+    const s = apt.start.getTime();
+    const e = apt.end.getTime();
+    if (!current) {
+      current = { items: [apt], endMs: e };
+      continue;
     }
-    if (!placed) groups.push([apt]);
+    if (s < current.endMs) {
+      current.items.push(apt);
+      current.endMs = Math.max(current.endMs, e);
+    } else {
+      clusters.push(current);
+      current = { items: [apt], endMs: e };
+    }
   }
-  const totalCols = groups.length;
+  if (current) clusters.push(current);
+
   const positioned = [];
-  groups.forEach((col, colIndex) => {
-    col.forEach((apt) => positioned.push({ apt, colIndex, totalCols }));
-  });
+  for (const cluster of clusters) {
+    // Greedy interval graph coloring within the cluster.
+    // columnsEndMs[i] = end time of the last apt in column i.
+    const columnsEndMs = [];
+    for (const apt of cluster.items) {
+      const s = apt.start.getTime();
+      let colIndex = -1;
+      for (let i = 0; i < columnsEndMs.length; i += 1) {
+        if (s >= columnsEndMs[i]) {
+          colIndex = i;
+          break;
+        }
+      }
+      if (colIndex === -1) {
+        colIndex = columnsEndMs.length;
+        columnsEndMs.push(apt.end.getTime());
+      } else {
+        columnsEndMs[colIndex] = apt.end.getTime();
+      }
+      positioned.push({
+        apt,
+        colIndex,
+        totalCols: 0, // filled after we know cluster width
+      });
+    }
+    const totalCols = Math.max(1, columnsEndMs.length);
+    // Backfill totalCols for just this cluster range (last N items pushed).
+    for (let i = positioned.length - cluster.items.length; i < positioned.length; i += 1) {
+      positioned[i].totalCols = totalCols;
+    }
+  }
+
   return positioned;
 }
 
@@ -118,21 +198,1152 @@ function colorToClass(c) {
   return "is-gray";
 }
 
+function snapMinutes(min, snap = SNAP_MINUTES) {
+  return Math.round(min / snap) * snap;
+}
+
+/**
+ * Returns true if placing `candidate` together with `others` would create any
+ * 3-way (or larger) overlap inside the candidate's time range. The "max 2
+ * concurrent" rule mirrors the RN app's overbookCheck.
+ */
+function wouldCauseThirdOverlap(others, candidate) {
+  const concurrent = others.filter((o) => overlaps(o, candidate));
+  for (let i = 0; i < concurrent.length; i += 1) {
+    for (let j = i + 1; j < concurrent.length; j += 1) {
+      const a = concurrent[i];
+      const b = concurrent[j];
+      const start = Math.max(
+        a.start.getTime(),
+        b.start.getTime(),
+        candidate.start.getTime(),
+      );
+      const end = Math.min(
+        a.end.getTime(),
+        b.end.getTime(),
+        candidate.end.getTime(),
+      );
+      if (start < end) return true;
+    }
+  }
+  return false;
+}
+
+const PARK_DROP_THRESHOLD = 14; // px above grid top counts as park drop
+
+// Tap interaction tuning
+const LONG_PRESS_MS = 2000; // 2s — long-press to enter drag/move mode
+const DOUBLE_TAP_MS = 300; // 2nd tap must arrive within 300ms to count as double
+
+function fmtTimeOfDay(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  const date = new Date(0, 0, 0, h, m);
+  return format(date, "h:mm a");
+}
+
+function makeEventId() {
+  // Must be globally unique across refreshes + persisted localStorage,
+  // otherwise React keys & drag state can "match" multiple cards and they move together.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `ev-${crypto.randomUUID()}`;
+  }
+  return `ev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// ---------- Phase 5: localStorage persistence ----------
+const CALENDAR_STORAGE_KEY = "@salonx/calendar/v1";
+
+function reviveDate(value) {
+  if (value && typeof value === "object" && value.__type === "Date") {
+    return new Date(value.value);
+  }
+  return value;
+}
+
+function serializeCalendarState(state) {
+  return JSON.stringify(state, (_key, value) => {
+    if (value instanceof Date) return { __type: "Date", value: value.toISOString() };
+    return value;
+  });
+}
+
+function deserializeCalendarState(json) {
+  return JSON.parse(json, (_key, value) => reviveDate(value));
+}
+
+function ensureDate(value) {
+  if (value == null) return value;
+  if (value instanceof Date) return value;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function reviveCalendarSlices(data) {
+  if (!data || typeof data !== "object") return data;
+  if (Array.isArray(data.events)) {
+    data.events = data.events
+      .map((ev) => ({
+        ...ev,
+        start: ensureDate(ev.start),
+        end: ensureDate(ev.end),
+      }))
+      .filter((ev) => ev.start instanceof Date && ev.end instanceof Date);
+  }
+  if (Array.isArray(data.toolbarEvents)) {
+    data.toolbarEvents = data.toolbarEvents.map((t) => ({
+      ...t,
+      waitlistAddedAt: t.waitlistAddedAt ? ensureDate(t.waitlistAddedAt) : undefined,
+    }));
+  }
+  if (Array.isArray(data.parkedFromDrag)) {
+    data.parkedFromDrag = data.parkedFromDrag.map((p) => ({
+      ...p,
+      ...(p.waitlistAddedAt ? { waitlistAddedAt: ensureDate(p.waitlistAddedAt) } : {}),
+    }));
+  }
+  return data;
+}
+
+function loadPersistedCalendar() {
+  if (typeof window === "undefined") return null;
+  try {
+    const json = window.localStorage.getItem(CALENDAR_STORAGE_KEY);
+    if (!json) return null;
+    return reviveCalendarSlices(deserializeCalendarState(json));
+  } catch (err) {
+    console.warn("[Calendar] failed to load persisted state", err);
+    return null;
+  }
+}
+
+function persistCalendar(state) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(CALENDAR_STORAGE_KEY, serializeCalendarState(state));
+  } catch (err) {
+    console.warn("[Calendar] failed to persist state", err);
+  }
+}
+
 export default function CalendarScreenWeb() {
-  const [viewMode, setViewMode] = useState("day"); // day | week | month
+  const persisted = useMemo(() => loadPersistedCalendar(), []);
+  const runningTimers = useRunningTimers();
+  const navigate = useNavigate();
+
+  // Tap dispatcher — distinguish single (→ client details) from double (→ modify modal)
+  const tapRef = useRef({ aptId: null, lastTapTs: 0, pendingTimer: null });
+
+  const [viewMode, setViewMode] = useState("day");
   const [currentDate, setCurrentDate] = useState(() => new Date(2025, 6, 28));
-  const [selectedApt, setSelectedApt] = useState(null);
+  const [events, setEvents] = useState(() => persisted?.events || initialMockAppointments);
+  const [now, setNow] = useState(() => new Date());
+
+  // Customer + service catalog state (mutable; new entries appended)
+  const [clients, setClients] = useState(() => persisted?.clients || MOCK_CLIENTS);
+  const [serviceCatalog, setServiceCatalog] = useState(
+    () => persisted?.serviceCatalog || MOCK_SERVICES,
+  );
+
+  // Phase 1 modal/overlay state
+  const [aptOptionsApt, setAptOptionsApt] = useState(null); // appointment object
+  const [emptySlotInfo, setEmptySlotInfo] = useState(null); // { date, hour, minute }
+  const [newApptInit, setNewApptInit] = useState(null); // initial start Date for NewAppt overlay
+  const [editingApt, setEditingApt] = useState(null); // appointment being modified
+  const [confirmCancelApt, setConfirmCancelApt] = useState(null);
+
+  // One-time safety: legacy persisted data could have duplicate ids which
+  // makes drag state (`dragApt === apt.id`) match multiple cards.
+  useEffect(() => {
+    setEvents((prev) => {
+      const seen = new Set();
+      let mutated = false;
+      const out = prev.map((ev) => {
+        if (!ev.id || seen.has(ev.id)) {
+          mutated = true;
+          return { ...ev, id: makeEventId() };
+        }
+        seen.add(ev.id);
+        return ev;
+      });
+      return mutated ? out : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleAddClient = useCallback((client) => {
+    setClients((prev) => [client, ...prev]);
+  }, []);
+
+  const handleAddService = useCallback((svc) => {
+    setServiceCatalog((prev) => [svc, ...prev]);
+  }, []);
+
+  // ---------- Phase 3: drag + resize + park + overlap guard ----------
+  const [parkedFromDrag, setParkedFromDrag] = useState(
+    () => persisted?.parkedFromDrag || [],
+  ); // appointments dragged to toolbar
+  const [toolbarEvents, setToolbarEvents] = useState(
+    () => persisted?.toolbarEvents || initialToolbarEvents,
+  );
+  const [overlapAlert, setOverlapAlert] = useState(null); // { message }
+
+  // Live drag tooltip ({ x, y, label }) following the pointer during a move
+  const [dragTooltip, setDragTooltip] = useState(null);
+  // 2D pointer offset for the dragging apt: { dx, dy } (px from press point)
+  const [dragOffset, setDragOffset] = useState(null);
+  // For resize mode — px height delta applied via inline style without mutating events
+  const [resizeDelta, setResizeDelta] = useState(0);
+  // Whether the pointer is currently hovering inside the park area
+  const [parkHover, setParkHover] = useState(false);
+  // Confirm modal after drop: { kind: 'move' | 'park' | 'resize', original, currentStart?, currentEnd?, durationMin? }
+  const [moveConfirm, setMoveConfirm] = useState(null);
+  // Follow-up notify confirm — { clientName, action: 'moved'|'resized'|'parked' }
+  const [notifyConfirm, setNotifyConfirm] = useState(null);
+
+  // ---------- Phase 5+ — waitlist drag-to-book ----------
+  const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
+  const [waitlistDrag, setWaitlistDrag] = useState(null); // { item, x, y } during drag
+  const waitlistDragRef = useRef({
+    itemId: null,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    longPressTimer: null,
+    activated: false,
+    dayGridRect: null,
+  });
+
+  // Parked overflow modal + drag
+  const [parkedModalOpen, setParkedModalOpen] = useState(false);
+  const [parkedDrag, setParkedDrag] = useState(null);
+  const parkedDragRef = useRef({
+    itemId: null,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    longPressTimer: null,
+    activated: false,
+    dayGridRect: null,
+  });
+
+  // Book-from-list confirm modal
+  // { kind: 'waitlist' | 'parked', item, start, end }
+  const [bookConfirm, setBookConfirm] = useState(null);
+
+  // ---------- Phase 4: reschedule + conflict resolver ----------
+  const [rescheduleApt, setRescheduleApt] = useState(null); // appointment being rescheduled
+  const [conflictItem, setConflictItem] = useState(null); // { remaining: [...occurrences], current: {start,end,sourceApt}, suggestions: [Date,...] }
+  const [dragApt, setDragApt] = useState(null); // active drag apt id
+  const dragRef = useRef({
+    aptId: null,
+    pointerId: null,
+    mode: "idle", // 'pre' | 'move' | 'resize'
+    startY: 0,
+    startX: 0,
+    anchorMin: 0,
+    anchorDur: 0,
+    original: null,
+    longPressTimer: null,
+    gridRect: null,
+    cancelled: false,
+  });
+
+  const cancelLongPress = useCallback(() => {
+    if (dragRef.current.longPressTimer) {
+      clearTimeout(dragRef.current.longPressTimer);
+      dragRef.current.longPressTimer = null;
+    }
+  }, []);
+
+  const finishDrag = useCallback(() => {
+    setDragApt(null);
+    dragRef.current = {
+      aptId: null,
+      pointerId: null,
+      mode: "idle",
+      startY: 0,
+      startX: 0,
+      anchorMin: 0,
+      anchorDur: 0,
+      original: null,
+      longPressTimer: null,
+      gridRect: null,
+      cancelled: false,
+    };
+  }, []);
+
+  const revertToOriginal = useCallback((original) => {
+    setEvents((prev) => prev.map((ev) => (ev.id === original.id ? original : ev)));
+  }, []);
+
+  const commitMoveOrResize = useCallback(
+    (apt, original) => {
+      const others = events.filter((ev) => ev.id !== apt.id);
+      if (wouldCauseThirdOverlap(others, apt)) {
+        revertToOriginal(original);
+        setOverlapAlert({
+          message: "Cannot overbook. Maximum two appointments can overlap.",
+        });
+      }
+    },
+    [events, revertToOriginal],
+  );
+
+  const handleAptPointerDown = useCallback(
+    (e, apt) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* noop */
+      }
+      const grid = e.currentTarget.closest(".cal-day__grid");
+      const gridRect = grid ? grid.getBoundingClientRect() : null;
+      const toolbarEl = document.querySelector(".cal-toolbar");
+      const toolbarRect = toolbarEl ? toolbarEl.getBoundingClientRect() : null;
+      dragRef.current = {
+        ...dragRef.current,
+        aptId: apt.id,
+        pointerId: e.pointerId,
+        mode: "pre",
+        startY: e.clientY,
+        startX: e.clientX,
+        anchorMin: minutesSinceStart(apt.start),
+        anchorDur: differenceInMinutes(apt.end, apt.start),
+        original: { ...apt, start: new Date(apt.start), end: new Date(apt.end) },
+        gridRect,
+        toolbarRect,
+        cancelled: false,
+      };
+      dragRef.current.longPressTimer = setTimeout(() => {
+        if (!dragRef.current || dragRef.current.cancelled) return;
+        if (dragRef.current.mode !== "pre") return;
+        dragRef.current.mode = "move";
+        setDragApt(apt.id);
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate([20, 30, 20]);
+        }
+      }, LONG_PRESS_MS);
+    },
+    [],
+  );
+
+  const handleResizePointerDown = useCallback(
+    (e, apt) => {
+      e.stopPropagation();
+      if (e.button !== undefined && e.button !== 0) return;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* noop */
+      }
+      const grid = e.currentTarget.closest(".cal-day__grid");
+      const gridRect = grid ? grid.getBoundingClientRect() : null;
+      dragRef.current = {
+        ...dragRef.current,
+        aptId: apt.id,
+        pointerId: e.pointerId,
+        mode: "resize",
+        startY: e.clientY,
+        startX: e.clientX,
+        anchorMin: minutesSinceStart(apt.start),
+        anchorDur: differenceInMinutes(apt.end, apt.start),
+        original: { ...apt, start: new Date(apt.start), end: new Date(apt.end) },
+        gridRect,
+        cancelled: false,
+      };
+      setDragApt(apt.id);
+    },
+    [],
+  );
+
+  const handleAptPointerMove = useCallback(
+    (e, apt) => {
+      const ref = dragRef.current;
+      if (!ref || ref.aptId !== apt.id) return;
+      if (ref.mode === "pre") {
+        const dx = e.clientX - ref.startX;
+        const dy = e.clientY - ref.startY;
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+          ref.cancelled = true;
+          cancelLongPress();
+        }
+        return;
+      }
+      // Clamp pointer position to within calendar + park area bounds.
+      // Park area = toolbar pill row above grid. Outside this combined region
+      // the appointment shouldn't drift, so we lock the effective pointer.
+      const grid = ref.gridRect;
+      const toolbar = ref.toolbarRect;
+      let clampedX = e.clientX;
+      let clampedY = e.clientY;
+      if (grid) {
+        const minX = grid.left;
+        const maxX = grid.right;
+        const maxY = grid.bottom;
+        const minY = toolbar ? toolbar.top : grid.top - 80;
+        clampedX = clamp(e.clientX, minX, maxX);
+        clampedY = clamp(e.clientY, minY, maxY);
+      }
+      const deltaX = clampedX - ref.startX;
+      const deltaY = clampedY - ref.startY;
+      const deltaMin = (deltaY / SLOT_HEIGHT) * 60;
+      if (ref.mode === "move") {
+        // The card visually follows the pointer in 2D via CSS transform (no
+        // state mutation), so motion stays smooth and free. The actual time
+        // assignment happens on release.
+        setDragOffset({ dx: deltaX, dy: deltaY });
+
+        const newMin = clamp(
+          ref.anchorMin + deltaMin,
+          0,
+          MINUTES_PER_DAY - ref.anchorDur,
+        );
+        const snapped = snapMinutes(newMin);
+        const previewStart = new Date(ref.original.start);
+        previewStart.setHours(DAY_START_HOUR, 0, 0, 0);
+        previewStart.setMinutes(snapped);
+
+        // Park area = pointer Y is above the grid (i.e., over the toolbar)
+        const overPark = grid && clampedY < grid.top - PARK_DROP_THRESHOLD;
+        setParkHover(!!overPark);
+        setDragTooltip({
+          x: clampedX,
+          y: clampedY,
+          label: overPark ? "Park" : format(previewStart, "h:mm a"),
+          kind: overPark ? "park" : "move",
+        });
+      } else if (ref.mode === "resize") {
+        const newDur = clamp(
+          ref.anchorDur + deltaMin,
+          5,
+          MINUTES_PER_DAY - ref.anchorMin,
+        );
+        const snapped = Math.max(5, snapMinutes(newDur));
+        // Visual-only resize via inline height delta — events untouched so
+        // the column layout doesn't reflow and adjacent apts don't shift.
+        const heightDelta = ((snapped - ref.anchorDur) / 60) * SLOT_HEIGHT;
+        ref.previewSnapped = snapped;
+        setResizeDelta(heightDelta);
+        setDragTooltip({
+          x: clampedX,
+          y: clampedY,
+          label: `${snapped} min`,
+          kind: "resize",
+        });
+      }
+    },
+    [cancelLongPress],
+  );
+
+  const handleAptPointerUp = useCallback(
+    (e, apt) => {
+      const ref = dragRef.current;
+      cancelLongPress();
+      setDragTooltip(null);
+      setDragOffset(null);
+      setResizeDelta(0);
+      setParkHover(false);
+      if (!ref || ref.aptId !== apt.id) {
+        finishDrag();
+        return;
+      }
+      if (ref.mode === "pre") {
+        // Tap (no drag) — dispatch single vs double tap.
+        finishDrag();
+        const now = Date.now();
+        const isDouble =
+          tapRef.current.aptId === apt.id &&
+          now - tapRef.current.lastTapTs < DOUBLE_TAP_MS;
+
+        if (isDouble) {
+          // Cancel pending single-tap navigation
+          if (tapRef.current.pendingTimer) {
+            clearTimeout(tapRef.current.pendingTimer);
+            tapRef.current.pendingTimer = null;
+          }
+          tapRef.current.aptId = null;
+          tapRef.current.lastTapTs = 0;
+          setAptOptionsApt(apt); // Modify / Reschedule / Cancel modal
+        } else {
+          // Defer single-tap nav so a 2nd tap can pre-empt it
+          if (tapRef.current.pendingTimer) {
+            clearTimeout(tapRef.current.pendingTimer);
+          }
+          tapRef.current.aptId = apt.id;
+          tapRef.current.lastTapTs = now;
+          tapRef.current.pendingTimer = setTimeout(() => {
+            tapRef.current.aptId = null;
+            tapRef.current.pendingTimer = null;
+            navigate("/screen2", { state: { apt } });
+          }, DOUBLE_TAP_MS);
+        }
+        return;
+      }
+      const original = ref.original;
+
+      // Clamp release pointer to bounds (matches in-flight clamping)
+      const grid = ref.gridRect;
+      const toolbar = ref.toolbarRect;
+      let clampedX = e.clientX;
+      let clampedY = e.clientY;
+      if (grid) {
+        const minX = grid.left;
+        const maxX = grid.right;
+        const maxY = grid.bottom;
+        const minY = toolbar ? toolbar.top : grid.top - 80;
+        clampedX = clamp(e.clientX, minX, maxX);
+        clampedY = clamp(e.clientY, minY, maxY);
+      }
+
+      // Park-drop check (only valid in move mode)
+      if (ref.mode === "move" && grid) {
+        const aboveGrid = clampedY < grid.top - PARK_DROP_THRESHOLD;
+        if (aboveGrid) {
+          setMoveConfirm({
+            kind: "park",
+            original,
+            aptSnapshot: { ...apt, start: new Date(apt.start), end: new Date(apt.end) },
+          });
+          finishDrag();
+          return;
+        }
+      }
+
+      // For 'move' the card was visually transformed but state not yet mutated.
+      // Compute the target time from the released (clamped) pointer Y.
+      if (ref.mode === "move") {
+        const deltaY = clampedY - ref.startY;
+        const deltaMin = (deltaY / SLOT_HEIGHT) * 60;
+        const newMin = clamp(
+          ref.anchorMin + deltaMin,
+          0,
+          MINUTES_PER_DAY - ref.anchorDur,
+        );
+        const snapped = snapMinutes(newMin);
+        if (snapped === ref.anchorMin) {
+          // No real change — just finish silently
+          finishDrag();
+          return;
+        }
+        const newStart = new Date(original.start);
+        newStart.setHours(DAY_START_HOUR, 0, 0, 0);
+        newStart.setMinutes(snapped);
+        const newEnd = addMinutes(newStart, ref.anchorDur);
+        const candidate = { id: apt.id, start: newStart, end: newEnd };
+        const others = events.filter((ev) => ev.id !== apt.id);
+        if (wouldCauseThirdOverlap(others, candidate)) {
+          setOverlapAlert({
+            message: "Cannot overbook. Maximum two appointments can overlap.",
+          });
+          finishDrag();
+          return;
+        }
+        setMoveConfirm({
+          kind: "move",
+          original,
+          currentStart: newStart,
+          currentEnd: newEnd,
+        });
+        finishDrag();
+        return;
+      }
+
+      // Resize: state was NOT mutated during drag — compute target end now
+      const snapped = ref.previewSnapped ?? ref.anchorDur;
+      if (snapped === ref.anchorDur) {
+        finishDrag();
+        return;
+      }
+      const newEnd = addMinutes(original.start, snapped);
+      const candidate = { id: apt.id, start: original.start, end: newEnd };
+      const othersResize = events.filter((ev) => ev.id !== apt.id);
+      if (wouldCauseThirdOverlap(othersResize, candidate)) {
+        setOverlapAlert({
+          message: "Cannot overbook. Maximum two appointments can overlap.",
+        });
+        finishDrag();
+        return;
+      }
+      setMoveConfirm({
+        kind: "resize",
+        original,
+        currentStart: original.start,
+        currentEnd: newEnd,
+      });
+      finishDrag();
+    },
+    [cancelLongPress, events, finishDrag, navigate],
+  );
+
+  // Confirm-modal handlers
+  const handleMoveConfirmYes = useCallback(() => {
+    if (!moveConfirm) return;
+    let clientName = "";
+    let action = "moved";
+    if (moveConfirm.kind === "park") {
+      const apt = moveConfirm.aptSnapshot || moveConfirm.original;
+      const durationMinutes = Math.max(5, differenceInMinutes(apt.end, apt.start) || 60);
+      setEvents((prev) => prev.filter((ev) => ev.id !== apt.id));
+      setParkedFromDrag((prev) => [
+        ...prev,
+        {
+          id: apt.id,
+          title: apt.clientName,
+          service: apt.service,
+          color: "#25AFFF",
+          isParked: true,
+          fromMove: true,
+          durationMinutes,
+        },
+      ]);
+      clientName = apt.clientName || "";
+      action = "parked";
+    } else if (moveConfirm.kind === "move" || moveConfirm.kind === "resize") {
+      // Apply the change now — events were untouched during drag (transform/
+      // height-delta only). On Yes commit; on No nothing to revert.
+      setEvents((prev) =>
+        prev.map((ev) =>
+          ev.id === moveConfirm.original.id
+            ? { ...ev, start: moveConfirm.currentStart, end: moveConfirm.currentEnd }
+            : ev,
+        ),
+      );
+      clientName = moveConfirm.original.clientName || "";
+      action = moveConfirm.kind === "resize" ? "resized" : "moved";
+    }
+    setMoveConfirm(null);
+    if (clientName) {
+      setNotifyConfirm({ clientName, action });
+    }
+  }, [moveConfirm]);
+
+  const handleMoveConfirmNo = useCallback(() => {
+    // No state mutation happened during drag for any of move/resize/park,
+    // so just dismiss the confirm. The apt naturally returns to its place
+    // because dragOffset / resizeDelta are already reset in pointerUp.
+    setMoveConfirm(null);
+  }, []);
+
+  const handleNotifyConfirmYes = useCallback(() => {
+    // TODO: hook up real notification (SMS / push) — mock acknowledges only.
+    setNotifyConfirm(null);
+  }, []);
+
+  const handleNotifyConfirmNo = useCallback(() => {
+    setNotifyConfirm(null);
+  }, []);
+
+  const handleAptPointerCancel = useCallback(
+    (e, apt) => {
+      cancelLongPress();
+      setDragTooltip(null);
+      setDragOffset(null);
+      setResizeDelta(0);
+      setParkHover(false);
+      // Don't fire a deferred single-tap nav if the gesture was cancelled
+      if (tapRef.current.pendingTimer) {
+        clearTimeout(tapRef.current.pendingTimer);
+        tapRef.current.pendingTimer = null;
+        tapRef.current.aptId = null;
+      }
+      // No state to revert — both move and resize are visual-only during drag.
+      finishDrag();
+    },
+    [cancelLongPress, finishDrag],
+  );
+
+  // ---------- Phase 4 helpers: free-slot suggestions + queued conflict apply ----------
+  const computeFreeSlotsForDay = useCallback(
+    (day, durationMinutes, eventsList, preferredMinutes) => {
+      const dayStart = new Date(day);
+      dayStart.setHours(DAY_START_HOUR, 0, 0, 0);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(DAY_END_HOUR + 1, 0, 0, 0);
+
+      const sameDayEvents = eventsList
+        .filter((ev) => isSameDay(ev.start, day))
+        .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      // Build free-time gaps
+      const gaps = [];
+      let cursor = dayStart.getTime();
+      for (const ev of sameDayEvents) {
+        if (ev.start.getTime() > cursor) {
+          gaps.push({ start: cursor, end: ev.start.getTime() });
+        }
+        cursor = Math.max(cursor, ev.end.getTime());
+      }
+      if (cursor < dayEnd.getTime()) {
+        gaps.push({ start: cursor, end: dayEnd.getTime() });
+      }
+
+      const durationMs = durationMinutes * 60 * 1000;
+      const candidates = [];
+      for (const g of gaps) {
+        if (g.end - g.start < durationMs) continue;
+        // Generate 15-min snapped candidates within the gap
+        let t = g.start;
+        const remainder = t % (15 * 60 * 1000);
+        if (remainder !== 0) t += 15 * 60 * 1000 - remainder;
+        while (t + durationMs <= g.end) {
+          candidates.push(new Date(t));
+          t += 30 * 60 * 1000; // 30-min step to keep list manageable
+        }
+      }
+
+      // Sort by closeness to preferred time-of-day (in minutes)
+      const prefMin =
+        typeof preferredMinutes === "number"
+          ? preferredMinutes
+          : minutesSinceStart(new Date());
+      candidates.sort((a, b) => {
+        const am = minutesSinceStart(a);
+        const bm = minutesSinceStart(b);
+        return Math.abs(am - prefMin) - Math.abs(bm - prefMin);
+      });
+      return candidates.slice(0, 6);
+    },
+    [],
+  );
+
+  const applyOccurrence = useCallback(
+    (occStart, occEnd, sourceApt) => {
+      const newEvent = {
+        id: makeEventId(),
+        clientName: sourceApt.clientName,
+        service: sourceApt.service,
+        color: sourceApt.color,
+        price: sourceApt.price ?? 0,
+        notes: sourceApt.notes ?? "",
+        start: occStart,
+        end: occEnd,
+        seriesId: sourceApt.seriesId || `series-${sourceApt.id}`,
+      };
+      setEvents((prev) => [...prev, newEvent]);
+    },
+    [],
+  );
+
+  const advanceConflictQueue = useCallback(
+    (remaining) => {
+      if (!remaining || remaining.length === 0) {
+        setConflictItem(null);
+        return;
+      }
+      const head = remaining[0];
+      const rest = remaining.slice(1);
+
+      const others = events; // current events at this point
+      const candidate = { start: head.start, end: head.end };
+      const conflicts = wouldCauseThirdOverlap(others, candidate);
+      if (!conflicts) {
+        applyOccurrence(head.start, head.end, head.sourceApt);
+        // Process next on next tick so events state is current
+        setTimeout(() => advanceConflictQueue(rest), 0);
+        return;
+      }
+
+      const durationMin = differenceInMinutes(head.end, head.start);
+      const suggestions = computeFreeSlotsForDay(
+        head.start,
+        durationMin,
+        events,
+        minutesSinceStart(head.start),
+      );
+
+      setConflictItem({
+        current: head,
+        remaining: rest,
+        suggestions,
+      });
+    },
+    [applyOccurrence, computeFreeSlotsForDay, events],
+  );
+
+  const handleRescheduleConfirm = useCallback(
+    ({ weeks, count }) => {
+      if (!rescheduleApt) return;
+      const baseStart = rescheduleApt.start;
+      const durationMin = differenceInMinutes(rescheduleApt.end, rescheduleApt.start);
+      const occurrences = [];
+      for (let i = 1; i <= count; i += 1) {
+        const occStart = addWeeks(baseStart, weeks * i);
+        const occEnd = addMinutes(occStart, durationMin);
+        occurrences.push({ start: occStart, end: occEnd, sourceApt: rescheduleApt });
+      }
+      setRescheduleApt(null);
+      // kick off queue
+      setTimeout(() => advanceConflictQueue(occurrences), 0);
+    },
+    [advanceConflictQueue, rescheduleApt],
+  );
+
+  const handlePickConflictSlot = useCallback(
+    (slot) => {
+      if (!conflictItem) return;
+      const { current, remaining } = conflictItem;
+      const durationMin = differenceInMinutes(current.end, current.start);
+      const occStart = new Date(slot);
+      const occEnd = addMinutes(occStart, durationMin);
+      applyOccurrence(occStart, occEnd, current.sourceApt);
+      setConflictItem(null);
+      setTimeout(() => advanceConflictQueue(remaining), 0);
+    },
+    [advanceConflictQueue, applyOccurrence, conflictItem],
+  );
+
+  const handleSkipConflict = useCallback(() => {
+    if (!conflictItem) return;
+    const { remaining } = conflictItem;
+    setConflictItem(null);
+    setTimeout(() => advanceConflictQueue(remaining), 0);
+  }, [advanceConflictQueue, conflictItem]);
+
+  // ---------- Book-from-list confirm handlers ----------
+  const handleBookConfirmYes = useCallback(() => {
+    if (!bookConfirm) return;
+    const { kind, item, start, end } = bookConfirm;
+    if (kind === "waitlist") {
+      setEvents((prev) => [
+        ...prev,
+        {
+          id: makeEventId(),
+          clientName: item.title,
+          service: item.service || "",
+          color: "green",
+          price: 0,
+          notes: "",
+          fromWaitlist: true,
+          start,
+          end,
+        },
+      ]);
+      setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
+      // Source list now committed — close it
+      setWaitlistModalOpen(false);
+    } else {
+      // parked → un-park
+      setEvents((prev) => [
+        ...prev,
+        {
+          id: makeEventId(),
+          clientName: item.title,
+          service: item.service || "",
+          color: item.fromMove ? "pink" : "gray",
+          price: 0,
+          notes: "",
+          start,
+          end,
+        },
+      ]);
+      setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
+      setParkedFromDrag((prev) => prev.filter((p) => p.id !== item.id));
+      setParkedModalOpen(false);
+    }
+    setBookConfirm(null);
+  }, [bookConfirm]);
+
+  const handleBookConfirmNo = useCallback(() => {
+    // Just dismiss the confirm — the source list modal is still mounted
+    // (just hidden via CSS) and will become visible again automatically.
+    setBookConfirm(null);
+  }, []);
+
+  // ---------- Waitlist drag-to-book ----------
+  const cancelWaitlistLongPress = useCallback(() => {
+    if (waitlistDragRef.current.longPressTimer) {
+      clearTimeout(waitlistDragRef.current.longPressTimer);
+      waitlistDragRef.current.longPressTimer = null;
+    }
+  }, []);
+
+  const finishWaitlistDrag = useCallback(() => {
+    setWaitlistDrag(null);
+    waitlistDragRef.current = {
+      itemId: null,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      longPressTimer: null,
+      activated: false,
+      dayGridRect: null,
+    };
+  }, []);
+
+  const handleWaitlistPointerDown = useCallback(
+    (e, item) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* noop */
+      }
+      waitlistDragRef.current = {
+        itemId: item.id,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        longPressTimer: null,
+        activated: false,
+        dayGridRect: null,
+      };
+      waitlistDragRef.current.longPressTimer = setTimeout(() => {
+        if (!waitlistDragRef.current || waitlistDragRef.current.itemId !== item.id) return;
+        waitlistDragRef.current.activated = true;
+        // Cache day grid rect for drop-time calculation
+        const grid = document.querySelector(".cal-day__grid");
+        waitlistDragRef.current.dayGridRect = grid ? grid.getBoundingClientRect() : null;
+        setWaitlistDrag({
+          item,
+          x: waitlistDragRef.current.startX,
+          y: waitlistDragRef.current.startY,
+        });
+        // NOTE: do NOT close the modal here — that unmounts the source card and
+        // releases pointer capture. The CSS `is-dragging` modifier visually
+        // hides the modal while keeping the card in DOM so we keep receiving
+        // pointer events.
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(15);
+        }
+      }, 200);
+    },
+    [],
+  );
+
+  const handleWaitlistPointerMove = useCallback((e, item) => {
+    const ref = waitlistDragRef.current;
+    if (!ref || ref.itemId !== item.id) return;
+    if (!ref.activated) {
+      const dx = e.clientX - ref.startX;
+      const dy = e.clientY - ref.startY;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        cancelWaitlistLongPress();
+        ref.itemId = null;
+      }
+      return;
+    }
+    setWaitlistDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
+  }, [cancelWaitlistLongPress]);
+
+  const handleWaitlistPointerUp = useCallback(
+    (e, item) => {
+      const ref = waitlistDragRef.current;
+      cancelWaitlistLongPress();
+      if (!ref || ref.itemId !== item.id) {
+        finishWaitlistDrag();
+        return;
+      }
+      if (!ref.activated) {
+        finishWaitlistDrag();
+        return;
+      }
+      const grid = ref.dayGridRect;
+      if (!grid) {
+        finishWaitlistDrag();
+        return;
+      }
+      // Drop ANYWHERE — clamp the pointer Y into the grid range so we always
+      // produce a valid time slot, even if user released above/below/outside.
+      const clampedY = clamp(e.clientY, grid.top, grid.bottom);
+      const yInGrid = clampedY - grid.top;
+      const totalMin = clamp((yInGrid / SLOT_HEIGHT) * 60, 0, MINUTES_PER_DAY - 30);
+      const snapped = snapMinutes(totalMin);
+      const start = new Date(currentDate);
+      start.setHours(DAY_START_HOUR, 0, 0, 0);
+      start.setMinutes(snapped);
+      const end = addMinutes(start, 60);
+      const candidate = { start, end };
+      if (wouldCauseThirdOverlap(events, candidate)) {
+        setOverlapAlert({
+          message: "Cannot overbook. Maximum two appointments can overlap.",
+        });
+        finishWaitlistDrag();
+        return;
+      }
+      // Don't book yet — show confirmation first
+      setBookConfirm({
+        kind: "waitlist",
+        item,
+        start,
+        end,
+      });
+      finishWaitlistDrag();
+    },
+    [cancelWaitlistLongPress, currentDate, events, finishWaitlistDrag],
+  );
+
+  const handleWaitlistPointerCancel = useCallback(
+    (e, item) => {
+      const ref = waitlistDragRef.current;
+      cancelWaitlistLongPress();
+      if (ref && ref.itemId === item.id) {
+        finishWaitlistDrag();
+      }
+    },
+    [cancelWaitlistLongPress, finishWaitlistDrag],
+  );
+
+  // Parked drag (mirrors waitlist flow but un-parks back into events)
+  const cancelParkedLongPress = useCallback(() => {
+    if (parkedDragRef.current.longPressTimer) {
+      clearTimeout(parkedDragRef.current.longPressTimer);
+      parkedDragRef.current.longPressTimer = null;
+    }
+  }, []);
+
+  const finishParkedDrag = useCallback(() => {
+    setParkedDrag(null);
+    parkedDragRef.current = {
+      itemId: null,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      longPressTimer: null,
+      activated: false,
+      dayGridRect: null,
+    };
+  }, []);
+
+  const removeFromParked = useCallback((id) => {
+    setToolbarEvents((prev) => prev.filter((t) => t.id !== id));
+    setParkedFromDrag((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const handleParkedPointerDown = useCallback((e, item) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (_) {
+      /* noop */
+    }
+    parkedDragRef.current = {
+      itemId: item.id,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      longPressTimer: null,
+      activated: false,
+      dayGridRect: null,
+    };
+    parkedDragRef.current.longPressTimer = setTimeout(() => {
+      if (!parkedDragRef.current || parkedDragRef.current.itemId !== item.id) return;
+      parkedDragRef.current.activated = true;
+      const grid = document.querySelector(".cal-day__grid");
+      parkedDragRef.current.dayGridRect = grid ? grid.getBoundingClientRect() : null;
+      setParkedDrag({
+        item,
+        x: parkedDragRef.current.startX,
+        y: parkedDragRef.current.startY,
+      });
+      // NOTE: keep modal mounted to preserve pointer capture; CSS hides it.
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(15);
+      }
+    }, 200);
+  }, []);
+
+  const handleParkedPointerMove = useCallback((e, item) => {
+    const ref = parkedDragRef.current;
+    if (!ref || ref.itemId !== item.id) return;
+    if (!ref.activated) {
+      const dx = e.clientX - ref.startX;
+      const dy = e.clientY - ref.startY;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        cancelParkedLongPress();
+        ref.itemId = null;
+      }
+      return;
+    }
+    setParkedDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
+  }, [cancelParkedLongPress]);
+
+  const handleParkedPointerUp = useCallback(
+    (e, item) => {
+      const ref = parkedDragRef.current;
+      cancelParkedLongPress();
+      if (!ref || ref.itemId !== item.id || !ref.activated) {
+        finishParkedDrag();
+        return;
+      }
+      const grid = ref.dayGridRect;
+      if (!grid) {
+        finishParkedDrag();
+        return;
+      }
+      const insideGrid =
+        e.clientY >= grid.top &&
+        e.clientY <= grid.bottom &&
+        e.clientX >= grid.left &&
+        e.clientX <= grid.right;
+      if (!insideGrid) {
+        finishParkedDrag();
+        return;
+      }
+      const yInGrid = e.clientY - grid.top;
+      const totalMin = clamp((yInGrid / SLOT_HEIGHT) * 60, 0, MINUTES_PER_DAY - 30);
+      const snapped = snapMinutes(totalMin);
+      const start = new Date(currentDate);
+      start.setHours(DAY_START_HOUR, 0, 0, 0);
+      start.setMinutes(snapped);
+      const durationMinutes = Math.max(5, Number(item.durationMinutes) || 60);
+      const end = addMinutes(start, durationMinutes);
+      const candidate = { start, end };
+      if (wouldCauseThirdOverlap(events, candidate)) {
+        setOverlapAlert({
+          message: "Cannot overbook. Maximum two appointments can overlap.",
+        });
+        finishParkedDrag();
+        return;
+      }
+      // Don't book yet — show confirmation first
+      setBookConfirm({
+        kind: "parked",
+        item,
+        start,
+        end,
+      });
+      finishParkedDrag();
+    },
+    [cancelParkedLongPress, currentDate, events, finishParkedDrag],
+  );
+
+  const handleParkedPointerCancel = useCallback(
+    (e, item) => {
+      const ref = parkedDragRef.current;
+      cancelParkedLongPress();
+      if (ref && ref.itemId === item.id) {
+        finishParkedDrag();
+      }
+    },
+    [cancelParkedLongPress, finishParkedDrag],
+  );
+
+  // Live time tick — every 30 seconds
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Persist on any state change (debounced)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      persistCalendar({ events, clients, serviceCatalog, parkedFromDrag, toolbarEvents });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [events, clients, serviceCatalog, parkedFromDrag, toolbarEvents]);
 
   const parked = useMemo(
-    () => mockToolbarEvents.filter((e) => e.isParked === true),
-    []
+    () => [...toolbarEvents.filter((e) => e.isParked === true), ...parkedFromDrag],
+    [toolbarEvents, parkedFromDrag],
   );
   const waitlist = useMemo(
     () =>
-      mockToolbarEvents
+      toolbarEvents
         .filter((e) => !e.isParked && e.waitlistAddedAt)
         .sort((a, b) => new Date(a.waitlistAddedAt).getTime() - new Date(b.waitlistAddedAt).getTime()),
-    []
+    [toolbarEvents],
   );
 
   const weekDates = useMemo(() => {
@@ -146,11 +1357,22 @@ export default function CalendarScreenWeb() {
   );
 
   const dayAppointments = useMemo(
-    () => mockAppointments.filter((a) => isSameDay(a.start, currentDate)),
-    [currentDate]
+    () => events.filter((a) => isSameDay(a.start, currentDate)),
+    [events, currentDate]
   );
 
   const positioned = useMemo(() => layoutDayAppointments(dayAppointments), [dayAppointments]);
+
+  // Known clients lookup — used to flag "new client" appointments (phone/name
+  // not yet in the owner's records). Boss spec: small blue dot indicator.
+  const knownClientNames = useMemo(() => {
+    const set = new Set();
+    for (const c of clients) {
+      const n = (c.name || "").trim().toLowerCase();
+      if (n) set.add(n);
+    }
+    return set;
+  }, [clients]);
 
   const hours = useMemo(
     () => Array.from({ length: DAY_END_HOUR - DAY_START_HOUR + 1 }, (_, i) => DAY_START_HOUR + i),
@@ -169,17 +1391,225 @@ export default function CalendarScreenWeb() {
     return weeks;
   }, [currentDate]);
 
+  // Live time line — only render when viewing today (Day view)
+  const liveTimeLineMin = useMemo(() => {
+    if (!isToday(currentDate)) return null;
+    const m = minutesSinceStart(now);
+    if (m < 0 || m > MINUTES_PER_DAY) return null;
+    return m;
+  }, [currentDate, now]);
+
+  // Click empty slot in grid → action modal. Day param is optional and lets
+  // the 5-day grid pass the column's specific date.
+  const handleGridClick = useCallback(
+    (e, day) => {
+      // 5-day view: tap any slot → jump to Day view for that date (no creation here)
+      if (viewMode === "week") {
+        if (day) setCurrentDate(day);
+        setViewMode("day");
+        return;
+      }
+      // Only react to direct grid clicks (not on appointment buttons / time line)
+      if (e.target.closest(".cal-apt") || e.target.closest(".cal-now")) return;
+      const grid = e.currentTarget;
+      const rect = grid.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const totalMinutes = clamp((y / SLOT_HEIGHT) * 60, 0, MINUTES_PER_DAY);
+      const snapped = snapMinutes(totalMinutes);
+      const hour = DAY_START_HOUR + Math.floor(snapped / 60);
+      const minute = snapped % 60;
+      setEmptySlotInfo({ date: day || currentDate, hour, minute });
+    },
+    [currentDate, viewMode]
+  );
+
+  const openNewAppointmentAt = useCallback((date, hour, minute) => {
+    const start = new Date(date);
+    start.setHours(hour, minute, 0, 0);
+    setEmptySlotInfo(null);
+    setEditingApt(null);
+    setNewApptInit(start);
+  }, []);
+
+  const handleHeaderPlus = useCallback(() => {
+    // Default to current hour rounded down + 0 minutes, or 9:00 AM if not today
+    const base = new Date(currentDate);
+    if (isToday(currentDate)) {
+      base.setMinutes(0, 0, 0);
+    } else {
+      base.setHours(9, 0, 0, 0);
+    }
+    setEditingApt(null);
+    setNewApptInit(base);
+  }, [currentDate]);
+
+  // Swipe "slider" animation for Day / 5-Day views
+  const [swipeAnim, setSwipeAnim] = useState(
+    /** @type {null | { dir: 'prev' | 'next'; from: Date; to: Date; translatePct: number }} */ (null)
+  );
+
+  useEffect(() => {
+    if (!swipeAnim) return;
+    // Kick off the CSS transition on the next frame.
+    const id = requestAnimationFrame(() => {
+      setSwipeAnim((prev) => {
+        if (!prev) return prev;
+        return { ...prev, translatePct: prev.dir === "next" ? -100 : 0 };
+      });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [swipeAnim]);
+
+  const beginSwipeNav = useCallback(
+    (dir) => {
+      if (viewMode === "month") return;
+      if (swipeAnim) return; // ignore while animating
+      const from = currentDate;
+      const to = addDays(from, dir === "prev" ? -1 : 1);
+      setSwipeAnim({
+        dir,
+        from,
+        to,
+        // For "prev", panes are [to, from] so start at -100%.
+        // For "next", panes are [from, to] so start at 0%.
+        translatePct: dir === "next" ? 0 : -100,
+      });
+    },
+    [currentDate, swipeAnim, viewMode]
+  );
+
+  // Pointer-based swipe → prev/next day on Day + 5-Day view (works for mouse,
+  // touch, and pen). Skips when the gesture starts inside an appointment, the
+  // toolbar, or any modal so other handlers aren't disturbed.
+  const swipeRef = useRef({ x: 0, y: 0, ts: 0, active: false, pointerId: null });
+
+  const handleSwipePointerDown = useCallback(
+    (e) => {
+      if (viewMode === "month") return;
+      if (swipeAnim) return;
+      if (
+        e.target &&
+        e.target.closest &&
+        (e.target.closest(".cal-apt") ||
+          e.target.closest(".cal-modal") ||
+          e.target.closest(".cal-toolbar"))
+      ) {
+        return;
+      }
+      swipeRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        ts: Date.now(),
+        active: true,
+        pointerId: e.pointerId ?? null,
+      };
+    },
+    [swipeAnim, viewMode],
+  );
+
+  const handleSwipePointerUp = useCallback(
+    (e) => {
+      const ref = swipeRef.current;
+      if (!ref.active || viewMode === "month") return;
+      if (swipeAnim) return;
+      if (
+        ref.pointerId != null &&
+        e.pointerId != null &&
+        e.pointerId !== ref.pointerId
+      ) {
+        return;
+      }
+      const dx = e.clientX - ref.x;
+      const dy = e.clientY - ref.y;
+      const dt = Date.now() - ref.ts;
+      swipeRef.current.active = false;
+      if (Math.abs(dx) < 50 || Math.abs(dy) > 80 || dt > 1000) return;
+      beginSwipeNav(dx > 0 ? "prev" : "next");
+    },
+    [beginSwipeNav, swipeAnim, viewMode],
+  );
+
+  const handleSwipePointerCancel = useCallback(() => {
+    swipeRef.current.active = false;
+  }, []);
+
+  // Save handler from NewAppt overlay
+  const handleSaveAppointment = useCallback(
+    ({
+      clientName,
+      service,
+      start,
+      durationMinutes,
+      color,
+      price,
+      notes,
+      repeat, // { enabled, interval: 'day'|'week'|'month', count }
+    }) => {
+      const trimmedClient = (clientName || "").trim();
+      if (!trimmedClient) return;
+      const end = addMinutes(start, durationMinutes);
+      const baseExtras = {
+        clientName: trimmedClient,
+        service: service || "",
+        color,
+        price: typeof price === "number" ? price : 0,
+        notes: (notes || "").trim().slice(0, 500),
+      };
+
+      if (editingApt) {
+        setEvents((prev) =>
+          prev.map((ev) =>
+            ev.id === editingApt.id ? { ...ev, ...baseExtras, start, end } : ev,
+          ),
+        );
+      } else {
+        const occurrences = [{ start, end }];
+        if (repeat && repeat.enabled && repeat.count > 1) {
+          const stepFn =
+            repeat.interval === "day"
+              ? (d, n) => addDays(d, n)
+              : repeat.interval === "month"
+                ? (d, n) => addMonths(d, n)
+                : (d, n) => addWeeks(d, n);
+          for (let i = 1; i < repeat.count; i += 1) {
+            const occStart = stepFn(start, i);
+            const occEnd = stepFn(end, i);
+            occurrences.push({ start: occStart, end: occEnd });
+          }
+        }
+        const seriesId = occurrences.length > 1 ? `series-${Date.now().toString(36)}` : undefined;
+        const newEvents = occurrences.map((o) => ({
+          id: makeEventId(),
+          ...baseExtras,
+          start: o.start,
+          end: o.end,
+          ...(seriesId ? { seriesId } : {}),
+        }));
+        setEvents((prev) => [...prev, ...newEvents]);
+      }
+      setNewApptInit(null);
+      setEditingApt(null);
+    },
+    [editingApt]
+  );
+
+  // Cancel handler — confirm then remove
+  const performCancelAppointment = useCallback((apt) => {
+    setEvents((prev) => prev.filter((ev) => ev.id !== apt.id));
+    setConfirmCancelApt(null);
+    setAptOptionsApt(null);
+  }, []);
+
+  const openModifyForApt = useCallback((apt) => {
+    setEditingApt(apt);
+    setNewApptInit(apt.start);
+    setAptOptionsApt(null);
+  }, []);
+
   return (
     <div className="cal-root">
+      <CalendarDecorations date={currentDate} />
       <div className="cal-header">
-        <button
-          className="cal-nav"
-          onClick={() => setCurrentDate((d) => addDays(d, viewMode === "month" ? -30 : -1))}
-          aria-label="Previous"
-        >
-          <ArrowIcon dir="left" />
-        </button>
-
         <div className="cal-tabs" role="tablist" aria-label="Calendar view">
           <button className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`} onClick={() => setViewMode("day")}>
             Day
@@ -194,58 +1624,87 @@ export default function CalendarScreenWeb() {
           <span className="cal-tabDivider is-2" aria-hidden="true" />
           <span className="cal-tabIndicator" data-mode={viewMode} />
         </div>
-
-        <button
-          className="cal-nav"
-          onClick={() => setCurrentDate((d) => addDays(d, viewMode === "month" ? 30 : 1))}
-          aria-label="Next"
-        >
-          <ArrowIcon dir="right" />
-        </button>
       </div>
 
-      <div className="cal-weekrow">
-        {(viewMode === "week" ? fiveDayDates : weekDates).map((d) => {
-          const selected = isSameDay(d, currentDate);
-          const today = isToday(d);
-          return (
-            <button
-              key={d.toISOString()}
-              className={`cal-daychip ${selected ? "is-selected" : ""} ${today ? "is-today" : ""}`}
-              onClick={() => {
-                setCurrentDate(d);
-                if (viewMode === "month") setViewMode("week");
-              }}
-            >
-              <div className="cal-daychip__dow">{format(d, "EEEEE")}</div>
-              <div className="cal-daychip__num">{format(d, "d")}</div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Parked / waitlist bar placeholder (same spot as app AllDaySection) */}
       {viewMode !== "month" ? (
-        <div className="cal-toolbar">
-          {parked.map((p) => (
-            <div key={p.id} className="cal-pill is-parked">
-              <span className="cal-pill__stripe" aria-hidden="true" />
-              <span className="cal-pill__text">{p.title}</span>
-            </div>
-          ))}
-          {waitlist.length === 1 ? (
-            <div className="cal-pill is-waitlist">
-              <span className="cal-pill__dot" aria-hidden="true" />
-              <span className="cal-pill__text">{waitlist[0].title}</span>
-              <span className="cal-pill__meta">{format(new Date(waitlist[0].waitlistAddedAt), "M/d  HH:mm")}</span>
-              {waitlist[0].service ? <span className="cal-pill__svc">{waitlist[0].service}</span> : null}
-            </div>
-          ) : waitlist.length > 1 ? (
-            <div className="cal-pill is-waitlist">
-              <span className="cal-pill__dot" aria-hidden="true" />
-              <span className="cal-pill__text">Waiting ({waitlist.length})</span>
-            </div>
-          ) : null}
+        <div className="cal-weekrow">
+          {(viewMode === "week" ? fiveDayDates : weekDates).map((d) => {
+            const selected = isSameDay(d, currentDate);
+            const today = isToday(d);
+            return (
+              <button
+                key={d.toISOString()}
+                className={`cal-daychip ${selected ? "is-selected" : ""} ${today ? "is-today" : ""}`}
+                onClick={() => setCurrentDate(d)}
+              >
+                <div className="cal-daychip__dow">{format(d, "EEEEE")}</div>
+                <div className="cal-daychip__num">{format(d, "d")}</div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {viewMode !== "month" ? (
+        <div
+          className={`cal-toolbar${
+            dragApt ? " is-dragging" : ""
+          }${parkHover ? " is-parkTarget" : ""}`}
+        >
+          <div className="cal-toolbar__center">
+            {parked.length === 0 ? null : parked.length === 1 ? (
+              <div
+                className={`cal-pill is-parked cal-pill--draggable${parked[0].fromMove ? " is-fromMove" : ""}`}
+                style={{ touchAction: "none" }}
+                onPointerDown={(e) => handleParkedPointerDown(e, parked[0])}
+                onPointerMove={(e) => handleParkedPointerMove(e, parked[0])}
+                onPointerUp={(e) => handleParkedPointerUp(e, parked[0])}
+                onPointerCancel={(e) => handleParkedPointerCancel(e, parked[0])}
+                title="Long-press to drag to calendar"
+              >
+                <span className="cal-pill__stripe" aria-hidden="true" />
+                <span className="cal-pill__text">{parked[0].title}</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="cal-pill is-parked cal-pill--button cal-pill--parkedCollapsed"
+                onClick={() => setParkedModalOpen(true)}
+              >
+                <span className="cal-pill__stripe" aria-hidden="true" />
+                <span className="cal-pill__text">Parked ({parked.length})</span>
+              </button>
+            )}
+            {parked.length > 0 && waitlist.length > 0 ? (
+              <span className="cal-toolbar__gap" aria-hidden />
+            ) : null}
+
+            {waitlist.length === 0 ? null : waitlist.length === 1 ? (
+              <div
+                className="cal-pill is-waitlist cal-pill--draggable"
+                style={{ touchAction: "none" }}
+                onPointerDown={(e) => handleWaitlistPointerDown(e, waitlist[0])}
+                onPointerMove={(e) => handleWaitlistPointerMove(e, waitlist[0])}
+                onPointerUp={(e) => handleWaitlistPointerUp(e, waitlist[0])}
+                onPointerCancel={(e) => handleWaitlistPointerCancel(e, waitlist[0])}
+                title="Long-press to drag to calendar"
+              >
+                <span className="cal-pill__dot" aria-hidden="true" />
+                <span className="cal-pill__text">{waitlist[0].title}</span>
+                <span className="cal-pill__meta">{format(new Date(waitlist[0].waitlistAddedAt), "M/d  HH:mm")}</span>
+                {waitlist[0].service ? <span className="cal-pill__svc">{waitlist[0].service}</span> : null}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="cal-pill is-waitlist cal-pill--button"
+                onClick={() => setWaitlistModalOpen(true)}
+              >
+                <span className="cal-pill__dot" aria-hidden="true" />
+                <span className="cal-pill__text">Waiting ({waitlist.length})</span>
+              </button>
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -279,68 +1738,1141 @@ export default function CalendarScreenWeb() {
             </div>
           ))}
         </div>
-      ) : (
-        <div className="cal-day">
-          <div className="cal-day__axis" style={{ width: TIME_AXIS_WIDTH }}>
-            {hours.map((h) => (
-              <div key={h} className="cal-axis__row" style={{ height: SLOT_HEIGHT }}>
-                <span className="cal-axis__label">{format(new Date(0, 0, 0, h), "h a")}</span>
-              </div>
-            ))}
-          </div>
+      ) : (() => {
+          const getColumnsFor = (baseDate) =>
+            viewMode === "week"
+              ? Array.from({ length: 5 }, (_, i) => addDays(baseDate, i))
+              : [baseDate];
 
-          <div className="cal-day__grid">
-            {hours.map((h) => (
-              <div key={h} className="cal-grid__row" style={{ height: SLOT_HEIGHT }} />
-            ))}
-
-            {positioned.map(({ apt, colIndex, totalCols }) => {
-              const topMin = clamp(minutesSinceStart(apt.start), 0, (DAY_END_HOUR - DAY_START_HOUR + 1) * 60);
-              const endMin = clamp(minutesSinceStart(apt.end), 0, (DAY_END_HOUR - DAY_START_HOUR + 1) * 60);
-              const top = (topMin / 60) * SLOT_HEIGHT;
-              const height = Math.max(28, ((endMin - topMin) / 60) * SLOT_HEIGHT);
-              const colW = (1 / totalCols) * 100;
-              const left = colIndex * colW;
-              return (
-                <button
-                  key={apt.id}
-                  className={`cal-apt ${colorToClass(apt.color)}`}
-                  style={{ top, height, left: `${left}%`, width: `${colW}%` }}
-                  onClick={() => setSelectedApt(apt)}
+          const renderColumnContent = (baseDate, day, includeColumnHead) => {
+            const dayEvents = events.filter((a) => isSameDay(a.start, day));
+            const dayPositioned = layoutDayAppointments(dayEvents);
+            const showLiveLine = isToday(day) && liveTimeLineMin !== null;
+            return (
+              <div
+                key={day.toISOString()}
+                className={`cal-day__col${includeColumnHead ? " cal-day__col--week" : ""}`}
+              >
+                <div
+                  className="cal-day__grid"
+                  onClick={(e) => handleGridClick(e, day)}
                 >
-                  <div className="cal-apt__client">{apt.clientName}</div>
-                  <div className="cal-apt__service">{apt.service}</div>
-                  <div className="cal-apt__time">
-                    {format(apt.start, "h:mm a")} – {format(apt.end, "h:mm a")}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                  {hours.map((h) => (
+                    <div
+                      key={h}
+                      className="cal-grid__row"
+                      style={{ height: SLOT_HEIGHT }}
+                    />
+                  ))}
+                  {dayPositioned.map(({ apt, colIndex, totalCols }) => {
+                    const topMin = clamp(minutesSinceStart(apt.start), 0, MINUTES_PER_DAY);
+                    const endMin = clamp(minutesSinceStart(apt.end), 0, MINUTES_PER_DAY);
+                    const top = (topMin / 60) * SLOT_HEIGHT;
+                    const aptH = Math.max(28, ((endMin - topMin) / 60) * SLOT_HEIGHT);
+                    const colW = (1 / totalCols) * 100;
+                    const left = colIndex * colW;
+                    const isOverlap = totalCols > 1;
+                    const isDragging = dragApt === apt.id;
+                    const timerState = runningTimers[apt.clientName];
+                    const hasActiveTimer =
+                      timerState &&
+                      (timerState.kind === "timerRunning" ||
+                        timerState.kind === "stopwatchRunning" ||
+                        timerState.kind === "completed");
+                    const isNewClient = !knownClientNames.has(
+                      (apt.clientName || "").trim().toLowerCase()
+                    );
+                    const dragTransform =
+                      isDragging && dragOffset
+                        ? `translate(${dragOffset.dx}px, ${dragOffset.dy}px)`
+                        : undefined;
+                    const visualHeight =
+                      isDragging && resizeDelta !== 0
+                        ? Math.max(28, aptH + resizeDelta)
+                        : aptH;
+                    return (
+                      <div
+                        key={apt.id}
+                        className={`cal-apt ${colorToClass(apt.color)}${isDragging ? " is-dragging" : ""}${isOverlap ? " is-overlap" : ""}`}
+                        style={{
+                          top,
+                          height: visualHeight,
+                          left: `calc(${left}% + ${colIndex === 0 ? 0 : 2}px)`,
+                          width: `calc(${colW}% - ${totalCols === 1 ? 0 : colIndex === 0 || colIndex === totalCols - 1 ? 2 : 4}px)`,
+                          zIndex: isDragging ? 50 : 5 + colIndex,
+                          touchAction: "none",
+                          transform: dragTransform,
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        onPointerDown={(e) => handleAptPointerDown(e, apt)}
+                        onPointerMove={(e) => handleAptPointerMove(e, apt)}
+                        onPointerUp={(e) => handleAptPointerUp(e, apt)}
+                        onPointerCancel={(e) => handleAptPointerCancel(e, apt)}
+                      >
+                        <div className="cal-apt__client">{apt.clientName}</div>
+                        <div className="cal-apt__service">{apt.service}</div>
+                        <div className="cal-apt__time">
+                          {format(apt.start, "h:mm a")} – {format(apt.end, "h:mm a")}
+                        </div>
+                        {hasActiveTimer ? (
+                          <span
+                            className={`cal-apt__alarm${
+                              timerState.kind === "completed" ? " is-completed" : ""
+                            }`}
+                            aria-label={
+                              timerState.kind === "completed"
+                                ? "Timer completed"
+                                : "Timer running"
+                            }
+                          >
+                            <Bell size={12} weight="fill" aria-hidden />
+                          </span>
+                        ) : null}
+                        {isNewClient ? (
+                          <span
+                            className="cal-apt__newDot"
+                            aria-label="New client"
+                            title="New client"
+                          />
+                        ) : null}
+                        {apt.fromWaitlist ? (
+                          <span className="cal-apt__waitTag" aria-hidden>
+                            Waiting
+                          </span>
+                        ) : null}
+                        <div
+                          className="cal-apt__resize"
+                          aria-label="Resize appointment"
+                          onPointerDown={(e) => handleResizePointerDown(e, apt)}
+                          onPointerMove={(e) => handleAptPointerMove(e, apt)}
+                          onPointerUp={(e) => handleAptPointerUp(e, apt)}
+                          onPointerCancel={(e) => handleAptPointerCancel(e, apt)}
+                        >
+                          <span className="cal-apt__resizeBar" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {showLiveLine ? (
+                    <div
+                      className="cal-now"
+                      style={{ top: (liveTimeLineMin / 60) * SLOT_HEIGHT }}
+                      aria-label="Current time"
+                    >
+                      <span className="cal-now__dot" />
+                      <span className="cal-now__line" />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          };
 
-      {selectedApt ? (
+          const renderDayWeekBody = (baseDate) => {
+            const columns = getColumnsFor(baseDate);
+            return (
+              <div className="cal-day__scroll">
+                <div className="cal-day__axis" style={{ width: TIME_AXIS_WIDTH }}>
+                  {hours.map((h) => (
+                    <div
+                      key={h}
+                      className="cal-axis__row"
+                      style={{ height: SLOT_HEIGHT }}
+                    >
+                      <span className="cal-axis__label">
+                        {format(new Date(0, 0, 0, h), "h a")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {viewMode === "week" ? (
+                  <div className="cal-day__weekGrid">
+                    {columns.map((d) => renderColumnContent(baseDate, d, true))}
+                  </div>
+                ) : (
+                  renderColumnContent(baseDate, baseDate, false)
+                )}
+              </div>
+            );
+          };
+
+          const handleSwipeTransitionEnd = () => {
+            if (!swipeAnim) return;
+            setCurrentDate(swipeAnim.to);
+            setSwipeAnim(null);
+          };
+
+          return (
+            <div
+              className={`cal-day${viewMode === "week" ? " cal-day--week" : ""}${
+                swipeAnim ? " is-swiping" : ""
+              }`}
+              onPointerDown={handleSwipePointerDown}
+              onPointerUp={handleSwipePointerUp}
+              onPointerCancel={handleSwipePointerCancel}
+            >
+              {swipeAnim ? (
+                <div className="cal-swipeViewport">
+                  <div
+                    className="cal-swipeTrack"
+                    style={{ transform: `translateX(${swipeAnim.translatePct}%)` }}
+                    onTransitionEnd={handleSwipeTransitionEnd}
+                  >
+                    {swipeAnim.dir === "next" ? (
+                      <>
+                        <div className="cal-swipePane">{renderDayWeekBody(swipeAnim.from)}</div>
+                        <div className="cal-swipePane">{renderDayWeekBody(swipeAnim.to)}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="cal-swipePane">{renderDayWeekBody(swipeAnim.to)}</div>
+                        <div className="cal-swipePane">{renderDayWeekBody(swipeAnim.from)}</div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                renderDayWeekBody(currentDate)
+              )}
+            </div>
+          );
+        })()}
+
+      {/* Appointment options (single tap on appointment) */}
+      {aptOptionsApt ? (
         <div className="cal-modal" role="dialog" aria-modal="true">
-          <button className="cal-modal__backdrop" onClick={() => setSelectedApt(null)} aria-label="Close" />
+          <button className="cal-modal__backdrop" onClick={() => setAptOptionsApt(null)} aria-label="Close" />
           <div className="cal-modal__card">
             <div className="cal-modal__title">Appointment Options</div>
             <div className="cal-modal__subtitle">
-              {selectedApt.clientName} • {format(selectedApt.start, "h:mm a")} – {format(selectedApt.end, "h:mm a")}
+              {aptOptionsApt.clientName} • {format(aptOptionsApt.start, "h:mm a")} – {format(aptOptionsApt.end, "h:mm a")}
             </div>
-            {["Modify appointment", "Reschedule appointment", "Cancel appointment"].map((t) => (
-              <button key={t} className="cal-modal__btn" onClick={() => setSelectedApt(null)}>
-                {t}
-              </button>
-            ))}
-            <button className="cal-modal__close" onClick={() => setSelectedApt(null)}>
+            <button
+              className="cal-modal__btn"
+              onClick={() => openModifyForApt(aptOptionsApt)}
+            >
+              Modify appointment
+            </button>
+            <button
+              className="cal-modal__btn"
+              onClick={() => {
+                setRescheduleApt(aptOptionsApt);
+                setAptOptionsApt(null);
+              }}
+            >
+              Reschedule appointment
+            </button>
+            <button
+              className="cal-modal__btn cal-modal__btn--danger"
+              onClick={() => setConfirmCancelApt(aptOptionsApt)}
+            >
+              Cancel appointment
+            </button>
+            <button className="cal-modal__close" onClick={() => setAptOptionsApt(null)}>
               Close
             </button>
           </div>
         </div>
       ) : null}
+
+      {/* Empty slot tap → 3-option modal */}
+      {emptySlotInfo
+        ? (() => {
+            const slotDate = emptySlotInfo.date;
+            const slotTime = new Date(slotDate);
+            slotTime.setHours(emptySlotInfo.hour, emptySlotInfo.minute, 0, 0);
+            return (
+              <div className="cal-modal" role="dialog" aria-modal="true">
+                <button
+                  className="cal-modal__backdrop"
+                  onClick={() => setEmptySlotInfo(null)}
+                  aria-label="Close"
+                />
+                <div className="cal-modal__card cal-emptyModal">
+                  <div className="cal-emptyModal__head">
+                    <div className="cal-emptyModal__heading">
+                      <div className="cal-emptyModal__date">{format(slotDate, "EEE, MMM d, yyyy")}</div>
+                      <div className="cal-emptyModal__time">{format(slotTime, "h:mm a")}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="cal-modal__iconBtn"
+                      aria-label="Close"
+                      onClick={() => setEmptySlotInfo(null)}
+                    >
+                      <X size={16} weight="bold" aria-hidden />
+                    </button>
+                  </div>
+                  <div className="cal-emptyModal__divider" aria-hidden />
+                  <button
+                    type="button"
+                    className="cal-emptyOption"
+                    onClick={() =>
+                      openNewAppointmentAt(slotDate, emptySlotInfo.hour, emptySlotInfo.minute)
+                    }
+                  >
+                    <span className="cal-emptyOption__icon is-newAppt" aria-hidden>
+                      <ClipboardText size={22} weight="duotone" />
+                    </span>
+                    <span className="cal-emptyOption__text">
+                      <span className="cal-emptyOption__title">New appointment</span>
+                      <span className="cal-emptyOption__sub">Create a new appointment</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="cal-emptyOption"
+                    onClick={() => setEmptySlotInfo(null)}
+                    title="Coming soon"
+                  >
+                    <span className="cal-emptyOption__icon is-personal" aria-hidden>
+                      <UserList size={22} weight="duotone" />
+                    </span>
+                    <span className="cal-emptyOption__text">
+                      <span className="cal-emptyOption__title">Personal task</span>
+                      <span className="cal-emptyOption__sub">Create a personal task</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="cal-emptyOption"
+                    onClick={() => setEmptySlotInfo(null)}
+                    title="Coming soon"
+                  >
+                    <span className="cal-emptyOption__icon is-hours" aria-hidden>
+                      <PencilSimpleLine size={22} weight="duotone" />
+                    </span>
+                    <span className="cal-emptyOption__text">
+                      <span className="cal-emptyOption__title">Edit working hours</span>
+                      <span className="cal-emptyOption__sub">Edit your calendar working hours</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            );
+          })()
+        : null}
+
+      {/* Overlap alert */}
+      {overlapAlert ? (
+        <div className="cal-modal" role="dialog" aria-modal="true">
+          <button
+            className="cal-modal__backdrop"
+            onClick={() => setOverlapAlert(null)}
+            aria-label="Close"
+          />
+          <div className="cal-modal__card cal-modal__card--confirm">
+            <div className="cal-modal__title">Can't overbook</div>
+            <div className="cal-modal__subtitle">{overlapAlert.message}</div>
+            <div className="cal-modal__row">
+              <button
+                className="cal-modal__btn cal-modal__btn--primary"
+                onClick={() => setOverlapAlert(null)}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Cancel confirm */}
+      {confirmCancelApt ? (
+        <div className="cal-modal" role="dialog" aria-modal="true">
+          <button className="cal-modal__backdrop" onClick={() => setConfirmCancelApt(null)} aria-label="Close" />
+          <div className="cal-modal__card cal-modal__card--confirm">
+            <div className="cal-modal__title">Cancel appointment?</div>
+            <div className="cal-modal__subtitle">
+              {confirmCancelApt.clientName} • {format(confirmCancelApt.start, "h:mm a")}
+            </div>
+            <div className="cal-modal__row">
+              <button className="cal-modal__btn cal-modal__btn--ghost" onClick={() => setConfirmCancelApt(null)}>
+                No
+              </button>
+              <button
+                className="cal-modal__btn cal-modal__btn--danger"
+                onClick={() => performCancelAppointment(confirmCancelApt)}
+              >
+                Yes, cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Waiting list modal — long-press a card and drag to calendar */}
+      {waitlistModalOpen ? (
+        <div
+          className={`cal-modal cal-modal--picker${waitlistDrag ? " is-dragHidden" : ""}`}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            className="cal-modal__backdrop"
+            onClick={() => setWaitlistModalOpen(false)}
+            aria-label="Close"
+          />
+          <div className="cal-modal__card cal-waitlist">
+            <div className="cal-modal__formHead">
+              <div>
+                <div className="cal-modal__title">Waiting List</div>
+                <div className="cal-waitlist__hint">Long-press and drag to calendar</div>
+              </div>
+              <button
+                type="button"
+                className="cal-modal__iconBtn"
+                aria-label="Close"
+                onClick={() => setWaitlistModalOpen(false)}
+              >
+                <X size={16} weight="bold" aria-hidden />
+              </button>
+            </div>
+            <div className="cal-waitlist__list">
+              {waitlist.length === 0 ? (
+                <div className="cal-pickerEmpty">No clients waiting</div>
+              ) : (
+                waitlist.map((item) => (
+                  <div
+                    key={item.id}
+                    className="cal-waitlist__card"
+                    style={{ touchAction: "none" }}
+                    onPointerDown={(e) => handleWaitlistPointerDown(e, item)}
+                    onPointerMove={(e) => handleWaitlistPointerMove(e, item)}
+                    onPointerUp={(e) => handleWaitlistPointerUp(e, item)}
+                    onPointerCancel={(e) => handleWaitlistPointerCancel(e, item)}
+                  >
+                    <span className="cal-waitlist__stripe" aria-hidden />
+                    <div className="cal-waitlist__body">
+                      <div className="cal-waitlist__name">{item.title}</div>
+                      <div className="cal-waitlist__svc">
+                        Waiting for: {item.service || "—"}
+                      </div>
+                    </div>
+                    <div className="cal-waitlist__when">
+                      {format(new Date(item.waitlistAddedAt), "M/d  HH:mm")}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Floating drag-time tooltip */}
+      {dragTooltip ? (
+        <div
+          className={`cal-dragTip${dragTooltip.kind === "park" ? " is-park" : ""}`}
+          style={{ left: dragTooltip.x, top: dragTooltip.y }}
+          aria-hidden
+        >
+          <span className="cal-dragTip__dot" />
+          <span className="cal-dragTip__label">{dragTooltip.label}</span>
+        </div>
+      ) : null}
+
+      {/* Move / Park confirm modal */}
+      {moveConfirm ? (
+        <div className="cal-modal" role="dialog" aria-modal="true">
+          <button
+            className="cal-modal__backdrop"
+            onClick={handleMoveConfirmNo}
+            aria-label="Cancel"
+          />
+          <div className="cal-modal__card cal-confirm">
+            {moveConfirm.kind === "park" ? (
+              <>
+                <div className="cal-modal__title">Park appointment</div>
+                <div className="cal-confirm__body">
+                  Are you sure you want to park this appointment?
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="cal-modal__title cal-confirm__time">
+                  {format(moveConfirm.currentStart, "h:mm a")}
+                </div>
+                <div className="cal-confirm__body">
+                  Are you sure you want to {moveConfirm.kind === "resize" ? "resize" : "move"} this appointment?
+                </div>
+              </>
+            )}
+            <div className="cal-modal__row">
+              <button
+                type="button"
+                className="cal-modal__btn cal-modal__btn--ghost"
+                onClick={handleMoveConfirmNo}
+              >
+                {moveConfirm.kind === "park" ? "Cancel" : "No"}
+              </button>
+              <button
+                type="button"
+                className="cal-modal__btn cal-modal__btn--primary"
+                onClick={handleMoveConfirmYes}
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Floating ghost during waitlist drag — portaled to <body> so the
+          parent <transform: scale()> shell doesn't trap `position: fixed`. */}
+      {waitlistDrag
+        ? createPortal(
+            <div
+              className="cal-apt cal-apt--ghost is-green"
+              style={{ left: waitlistDrag.x, top: waitlistDrag.y }}
+              aria-hidden
+            >
+              <div className="cal-apt__client">{waitlistDrag.item.title}</div>
+              <div className="cal-apt__service">
+                {waitlistDrag.item.service || "Waiting"}
+              </div>
+              <div className="cal-apt__time">60 min</div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {/* Parked overflow modal — long-press a card and drag to calendar */}
+      {parkedModalOpen ? (
+        <div
+          className={`cal-modal cal-modal--picker${parkedDrag ? " is-dragHidden" : ""}`}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            className="cal-modal__backdrop"
+            onClick={() => setParkedModalOpen(false)}
+            aria-label="Close"
+          />
+          <div className="cal-modal__card cal-waitlist cal-parkedList">
+            <div className="cal-modal__formHead">
+              <div>
+                <div className="cal-modal__title">Parked</div>
+                <div className="cal-waitlist__hint">Long-press and drag to calendar</div>
+              </div>
+              <button
+                type="button"
+                className="cal-modal__iconBtn"
+                aria-label="Close"
+                onClick={() => setParkedModalOpen(false)}
+              >
+                <X size={16} weight="bold" aria-hidden />
+              </button>
+            </div>
+            <div className="cal-waitlist__list">
+              {parked.length === 0 ? (
+                <div className="cal-pickerEmpty">No parked appointments</div>
+              ) : (
+                parked.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`cal-waitlist__card cal-parkedCard${item.fromMove ? " is-fromMove" : ""}`}
+                    style={{ touchAction: "none" }}
+                    onPointerDown={(e) => handleParkedPointerDown(e, item)}
+                    onPointerMove={(e) => handleParkedPointerMove(e, item)}
+                    onPointerUp={(e) => handleParkedPointerUp(e, item)}
+                    onPointerCancel={(e) => handleParkedPointerCancel(e, item)}
+                  >
+                    <span className="cal-waitlist__stripe" aria-hidden />
+                    <div className="cal-waitlist__body">
+                      <div className="cal-waitlist__name">{item.title}</div>
+                      <div className="cal-waitlist__svc">
+                        {item.service ? `Parked · ${item.service}` : "Parked"}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Notify-client confirm — opens after a successful move / resize / park */}
+      {notifyConfirm ? (
+        <div className="cal-modal" role="dialog" aria-modal="true">
+          <button
+            className="cal-modal__backdrop"
+            onClick={handleNotifyConfirmNo}
+            aria-label="Skip"
+          />
+          <div className="cal-modal__card cal-confirm">
+            <div className="cal-modal__title">Notify client?</div>
+            <div className="cal-confirm__body">
+              Send {notifyConfirm.clientName} an update that the appointment was {notifyConfirm.action}?
+            </div>
+            <div className="cal-modal__row">
+              <button
+                type="button"
+                className="cal-modal__btn cal-modal__btn--ghost"
+                onClick={handleNotifyConfirmNo}
+              >
+                No
+              </button>
+              <button
+                type="button"
+                className="cal-modal__btn cal-modal__btn--primary"
+                onClick={handleNotifyConfirmYes}
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Book-from-list confirm modal — for waitlist + parked drops */}
+      {bookConfirm ? (
+        <div className="cal-modal" role="dialog" aria-modal="true">
+          <button
+            className="cal-modal__backdrop"
+            onClick={handleBookConfirmNo}
+            aria-label="Cancel"
+          />
+          <div className="cal-modal__card cal-confirm">
+            <div className="cal-modal__title cal-confirm__time">
+              {format(bookConfirm.start, "h:mm a")}
+            </div>
+            <div className="cal-confirm__body">
+              {bookConfirm.kind === "waitlist"
+                ? `Book ${bookConfirm.item.title} at this time?`
+                : `Un-park ${bookConfirm.item.title} to this time?`}
+            </div>
+            <div className="cal-modal__row">
+              <button
+                type="button"
+                className="cal-modal__btn cal-modal__btn--ghost"
+                onClick={handleBookConfirmNo}
+              >
+                No
+              </button>
+              <button
+                type="button"
+                className="cal-modal__btn cal-modal__btn--primary"
+                onClick={handleBookConfirmYes}
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Floating ghost during parked drag — also portaled to <body>. */}
+      {parkedDrag
+        ? createPortal(
+            <div
+              className={`cal-apt cal-apt--ghost ${parkedDrag.item.fromMove ? "is-pink" : "is-gray"}`}
+              style={{ left: parkedDrag.x, top: parkedDrag.y }}
+              aria-hidden
+            >
+              <div className="cal-apt__client">{parkedDrag.item.title}</div>
+              <div className="cal-apt__service">
+                {parkedDrag.item.service || "Parked"}
+              </div>
+              <div className="cal-apt__time">60 min</div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {/* Reschedule modal */}
+      {rescheduleApt ? (
+        <RescheduleModal
+          apt={rescheduleApt}
+          onCancel={() => setRescheduleApt(null)}
+          onConfirm={handleRescheduleConfirm}
+        />
+      ) : null}
+
+      {/* Conflict resolver — per-occurrence free-slot picker */}
+      {conflictItem ? (
+        <ConflictResolverModal
+          item={conflictItem}
+          onPick={handlePickConflictSlot}
+          onSkip={handleSkipConflict}
+          onCancelAll={() => setConflictItem(null)}
+        />
+      ) : null}
+
+      {/* New / Edit appointment overlay */}
+      {newApptInit ? (
+        <NewAppointmentOverlay
+          initialStart={newApptInit}
+          editing={editingApt}
+          clients={clients}
+          services={serviceCatalog}
+          onAddClient={handleAddClient}
+          onAddService={handleAddService}
+          onCancel={() => {
+            setNewApptInit(null);
+            setEditingApt(null);
+          }}
+          onSave={handleSaveAppointment}
+        />
+      ) : null}
+
       <BottomToolbar activeIndex={3} />
     </div>
   );
 }
 
+const REPEAT_INTERVALS = [
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+];
+
+function NewAppointmentOverlay({
+  initialStart,
+  editing,
+  clients,
+  services,
+  onAddClient,
+  onAddService,
+  onCancel,
+  onSave,
+}) {
+  // Try to match editing.clientName against the catalog when modifying
+  const initialClient = useMemo(() => {
+    if (!editing) return null;
+    return clients.find((c) => c.name === editing.clientName) || null;
+  }, [editing, clients]);
+  const initialService = useMemo(() => {
+    if (!editing) return null;
+    return services.find((s) => s.name === editing.service) || null;
+  }, [editing, services]);
+
+  const [selectedClient, setSelectedClient] = useState(initialClient);
+  const [clientName, setClientName] = useState(editing?.clientName || "");
+  const [selectedService, setSelectedService] = useState(initialService);
+  const [serviceName, setServiceName] = useState(editing?.service || "");
+  const [time, setTime] = useState(format(initialStart, "HH:mm"));
+  const [durationMin, setDurationMin] = useState(
+    editing ? Math.max(5, differenceInMinutes(editing.end, editing.start)) : 60,
+  );
+  const [color, setColor] = useState(editing?.color || "blue");
+  const [price, setPrice] = useState(editing?.price ?? "");
+  const [notes, setNotes] = useState(editing?.notes || "");
+
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [repeatInterval, setRepeatInterval] = useState("week");
+  const [repeatCount, setRepeatCount] = useState(4);
+
+  // Sub-overlay state: 'pickClient' | 'pickService' | 'newClient' | 'newService' | null
+  const [subOverlay, setSubOverlay] = useState(null);
+  const [pendingNewName, setPendingNewName] = useState("");
+
+  const handleClientSelect = (c) => {
+    setSelectedClient(c);
+    setClientName(c.name);
+    setSubOverlay(null);
+  };
+  const handleServiceSelect = (s) => {
+    setSelectedService(s);
+    setServiceName(s.name);
+    if (typeof s.price === "number") setPrice(s.price);
+    if (typeof s.duration === "number") setDurationMin(s.duration);
+    setSubOverlay(null);
+  };
+  const handleClientCreated = (c) => {
+    onAddClient(c);
+    handleClientSelect(c);
+  };
+  const handleServiceCreated = (s) => {
+    onAddService(s);
+    handleServiceSelect(s);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const [hh, mm] = (time || "00:00").split(":").map((s) => parseInt(s, 10) || 0);
+    const start = new Date(initialStart);
+    start.setHours(hh, mm, 0, 0);
+    onSave({
+      clientName,
+      service: serviceName,
+      start,
+      durationMinutes: clamp(parseInt(durationMin, 10) || 0, 5, 12 * 60),
+      color,
+      price: typeof price === "number" ? price : Number(price) || 0,
+      notes,
+      repeat: editing
+        ? { enabled: false, interval: "week", count: 1 }
+        : {
+            enabled: repeatEnabled,
+            interval: repeatInterval,
+            count: clamp(parseInt(repeatCount, 10) || 1, 1, 24),
+          },
+    });
+  };
+
+  return (
+    <>
+      <div className="cal-modal cal-modal--full" role="dialog" aria-modal="true">
+        <button className="cal-modal__backdrop" onClick={onCancel} aria-label="Close" />
+        <form className="cal-modal__card cal-modal__card--form" onSubmit={handleSubmit}>
+          <div className="cal-modal__formHead">
+            <div className="cal-modal__title">
+              {editing ? "Modify Appointment" : "New Appointment"}
+            </div>
+            <button
+              type="button"
+              className="cal-modal__iconBtn"
+              aria-label="Close"
+              onClick={onCancel}
+            >
+              <X size={16} weight="bold" aria-hidden />
+            </button>
+          </div>
+          <div className="cal-modal__formDate">{format(initialStart, "EEEE, MMM d")}</div>
+
+          <div className="cal-field">
+            <span className="cal-field__label">Client</span>
+            <PickerTrigger
+              value={clientName}
+              placeholder="Select client"
+              onClick={() => setSubOverlay("pickClient")}
+            />
+          </div>
+
+          <div className="cal-field">
+            <span className="cal-field__label">Service</span>
+            <PickerTrigger
+              value={serviceName}
+              placeholder="Select service"
+              onClick={() => setSubOverlay("pickService")}
+            />
+          </div>
+
+          <div className="cal-fieldRow">
+            <label className="cal-field">
+              <span className="cal-field__label">Start</span>
+              <input
+                type="time"
+                className="cal-field__input"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                step={300}
+                required
+              />
+            </label>
+            <label className="cal-field">
+              <span className="cal-field__label">Duration (min)</span>
+              <input
+                type="number"
+                className="cal-field__input"
+                min={5}
+                max={720}
+                step={5}
+                value={durationMin}
+                onChange={(e) => setDurationMin(e.target.value)}
+                required
+              />
+            </label>
+          </div>
+
+          <label className="cal-field">
+            <span className="cal-field__label">Price ($)</span>
+            <input
+              type="number"
+              className="cal-field__input"
+              min={0}
+              step={5}
+              value={price}
+              onChange={(e) => setPrice(e.target.value === "" ? "" : Number(e.target.value))}
+              placeholder="0"
+            />
+          </label>
+
+          <div className="cal-field">
+            <span className="cal-field__label">Color</span>
+            <div className="cal-colorRow">
+              {COLOR_OPTIONS.map((c) => (
+                <button
+                  type="button"
+                  key={c.id}
+                  className={`cal-colorChip ${color === c.id ? "is-active" : ""}`}
+                  style={{ ["--swatch"]: c.swatch }}
+                  aria-label={c.label}
+                  onClick={() => setColor(c.id)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <label className="cal-field">
+            <span className="cal-field__label">Notes</span>
+            <textarea
+              className="cal-field__input cal-field__textarea"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value.slice(0, 500))}
+              placeholder="Anything to remember…"
+              rows={2}
+              maxLength={500}
+            />
+            <span className="cal-field__counter">{notes.length}/500</span>
+          </label>
+
+          {!editing ? (
+            <div className="cal-field">
+              <div className="cal-toggleRow">
+                <span className="cal-field__label">Repeat</span>
+                <button
+                  type="button"
+                  className={`cal-toggle${repeatEnabled ? " is-on" : ""}`}
+                  aria-pressed={repeatEnabled}
+                  onClick={() => setRepeatEnabled((v) => !v)}
+                >
+                  <span className="cal-toggle__knob" />
+                </button>
+              </div>
+              {repeatEnabled ? (
+                <div className="cal-repeatBlock">
+                  <div className="cal-segment">
+                    {REPEAT_INTERVALS.map((opt) => (
+                      <button
+                        type="button"
+                        key={opt.id}
+                        className={`cal-segment__opt${repeatInterval === opt.id ? " is-active" : ""}`}
+                        onClick={() => setRepeatInterval(opt.id)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="cal-field cal-field--inline">
+                    <span className="cal-field__label">Number of times</span>
+                    <input
+                      type="number"
+                      className="cal-field__input"
+                      min={1}
+                      max={24}
+                      value={repeatCount}
+                      onChange={(e) => setRepeatCount(e.target.value)}
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="cal-modal__row">
+            <button
+              type="button"
+              className="cal-modal__btn cal-modal__btn--ghost"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="cal-modal__btn cal-modal__btn--primary">
+              {editing ? "Save" : "Book"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {subOverlay === "pickClient" ? (
+        <SearchablePickerModal
+          title="Select client"
+          items={clients}
+          searchKeys={["name", "phone", "email"]}
+          renderItem={(c) => (
+            <span className="cal-pickerItem__row">
+              <span className="cal-pickerItem__name">{c.name}</span>
+              {c.phone ? <span className="cal-pickerItem__sub">{c.phone}</span> : null}
+            </span>
+          )}
+          onSelect={handleClientSelect}
+          onAddNew={(typed) => {
+            setPendingNewName(typed || "");
+            setSubOverlay("newClient");
+          }}
+          addNewLabel="+ Add new client"
+          onClose={() => setSubOverlay(null)}
+        />
+      ) : null}
+
+      {subOverlay === "pickService" ? (
+        <SearchablePickerModal
+          title="Select service"
+          items={services}
+          searchKeys={["name"]}
+          renderItem={(s) => (
+            <span className="cal-pickerItem__row">
+              <span className="cal-pickerItem__name">{s.name}</span>
+              {typeof s.price === "number" ? (
+                <span className="cal-pickerItem__sub">${s.price}</span>
+              ) : null}
+            </span>
+          )}
+          onSelect={handleServiceSelect}
+          onAddNew={(typed) => {
+            setPendingNewName(typed || "");
+            setSubOverlay("newService");
+          }}
+          addNewLabel="+ Add new service"
+          onClose={() => setSubOverlay(null)}
+        />
+      ) : null}
+
+      {subOverlay === "newClient" ? (
+        <NewCustomerScreen
+          initialName={pendingNewName}
+          onCancel={() => setSubOverlay("pickClient")}
+          onSave={handleClientCreated}
+        />
+      ) : null}
+
+      {subOverlay === "newService" ? (
+        <NewServiceScreen
+          initialName={pendingNewName}
+          onCancel={() => setSubOverlay("pickService")}
+          onSave={handleServiceCreated}
+        />
+      ) : null}
+    </>
+  );
+}
+
+// ---------- Phase 4 — Reschedule modal (weeks + repeat selectors) ----------
+
+const RESCHEDULE_WEEK_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const RESCHEDULE_COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+function RescheduleModal({ apt, onCancel, onConfirm }) {
+  const [weeks, setWeeks] = useState(1);
+  const [count, setCount] = useState(1);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onConfirm({ weeks, count });
+  };
+
+  return (
+    <div className="cal-modal cal-modal--full" role="dialog" aria-modal="true">
+      <button className="cal-modal__backdrop" onClick={onCancel} aria-label="Close" />
+      <form className="cal-modal__card cal-modal__card--form" onSubmit={handleSubmit}>
+        <div className="cal-modal__formHead">
+          <div className="cal-modal__title">Reschedule appointment</div>
+          <button type="button" className="cal-modal__iconBtn" aria-label="Close" onClick={onCancel}>
+            <X size={16} weight="bold" aria-hidden />
+          </button>
+        </div>
+        <div className="cal-modal__formDate">
+          {apt.clientName} • {format(apt.start, "EEE, MMM d • h:mm a")}
+        </div>
+
+        <div className="cal-field">
+          <span className="cal-field__label">Every</span>
+          <div className="cal-chipRow">
+            {RESCHEDULE_WEEK_OPTIONS.map((w) => (
+              <button
+                type="button"
+                key={w}
+                className={`cal-chip${weeks === w ? " is-active" : ""}`}
+                onClick={() => setWeeks(w)}
+              >
+                {w}w
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="cal-field">
+          <span className="cal-field__label">Repeat appointments</span>
+          <div className="cal-chipRow">
+            {RESCHEDULE_COUNT_OPTIONS.map((n) => (
+              <button
+                type="button"
+                key={n}
+                className={`cal-chip${count === n ? " is-active" : ""}`}
+                onClick={() => setCount(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="cal-helperText">
+          BOOK will schedule {count} appointment{count > 1 ? "s" : ""} every {weeks} week
+          {weeks > 1 ? "s" : ""}.
+        </div>
+
+        <div className="cal-modal__row">
+          <button type="button" className="cal-modal__btn cal-modal__btn--ghost" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="cal-modal__btn cal-modal__btn--primary">
+            BOOK
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------- Phase 4 — Conflict resolver (per-occurrence free-slot picker) ----------
+
+function ConflictResolverModal({ item, onPick, onSkip, onCancelAll }) {
+  const { current, suggestions, remaining } = item;
+  return (
+    <div className="cal-modal cal-modal--picker" role="dialog" aria-modal="true">
+      <button className="cal-modal__backdrop" onClick={onCancelAll} aria-label="Close" />
+      <div className="cal-modal__card cal-modal__card--picker">
+        <div className="cal-modal__formHead">
+          <div>
+            <div className="cal-modal__title">Conflict on {format(current.start, "EEE, MMM d")}</div>
+            <div className="cal-modal__subtitle" style={{ textAlign: "left", marginTop: 4 }}>
+              Requested {format(current.start, "h:mm a")} – {format(current.end, "h:mm a")} •{" "}
+              {remaining.length} more to resolve
+            </div>
+          </div>
+          <button type="button" className="cal-modal__iconBtn" aria-label="Close" onClick={onCancelAll}>
+            <X size={16} weight="bold" aria-hidden />
+          </button>
+        </div>
+
+        <div className="cal-conflictGrid">
+          {suggestions.length === 0 ? (
+            <div className="cal-pickerEmpty">No free slots — skip this one</div>
+          ) : (
+            suggestions.map((slot) => (
+              <button
+                type="button"
+                key={slot.toISOString()}
+                className="cal-conflictSlot"
+                onClick={() => onPick(slot)}
+              >
+                {format(slot, "h:mm a")}
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="cal-modal__row">
+          <button type="button" className="cal-modal__btn cal-modal__btn--ghost" onClick={onSkip}>
+            Skip this occurrence
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Phase 4 — Decorative right-side date stamp + soft accents ----------
+
+function CalendarDecorations({ date }) {
+  return (
+    <div className="cal-deco cal-deco--rightStamp" aria-hidden>
+      <div className="cal-deco__stampDow">{format(date, "EEE")}</div>
+      <div className="cal-deco__stampNum">{format(date, "d")}</div>
+    </div>
+  );
+}

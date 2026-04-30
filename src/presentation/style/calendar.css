@@ -5,7 +5,7 @@
   color:#fff;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   position: relative;
-  --cal-primary: #25AFFF;
+  --cal-primary: #FF7701;
   --cal-text: rgba(255,255,255,0.92);
   --cal-muted: rgba(255,255,255,0.70);
   --cal-border: rgba(255,255,255,0.14);
@@ -17,7 +17,7 @@
   height: 84px;
   display:flex;
   align-items:center;
-  justify-content:space-between;
+  justify-content:center;
   padding: 14px 16px 6px;
 }
 
@@ -121,10 +121,24 @@
 .cal-daychip.is-today:not(.is-selected) .cal-daychip__num{ border: 2px solid var(--cal-primary); }
 
 .cal-toolbar{
+  position: relative;
   display:flex;
+  align-items: center;
   gap: 8px;
   padding: 0 16px 10px;
   overflow: hidden;
+  min-height: 42px;
+}
+.cal-toolbar__center{
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cal-toolbar__gap{
+  width: 30px;
+  flex: 0 0 30px;
 }
 .cal-pill{
   height: 22px;
@@ -168,20 +182,72 @@
   margin-left: 4px;
 }
 .cal-pill.is-parked{
-  border-color: rgba(255,119,1,0.85);
+  border-color: rgba(37,175,255,0.85);
   color: #ffffff;
-  background: rgba(210, 126, 0, 0.24); /* app parked background opacity */
+  background: rgba(37, 175, 255, 0.18);
+}
+.cal-pill.is-parked .cal-pill__stripe{
+  background: #25AFFF;
+}
+.cal-pill.is-parked.is-fromMove {
+  border-color: rgba(168, 85, 247, 0.85);
+  background: rgba(168, 85, 247, 0.18);
+}
+.cal-pill.is-parked.is-fromMove .cal-pill__stripe {
+  background: #A855F7;
 }
 .cal-pill.is-waitlist{
-  border-color: rgba(157,230,132,0.85);
+  border-color: rgba(255,119,1,0.85);
   color:#ffffff;
-  background: rgba(157,230,132,0.18);
+  background: rgba(255,119,1,0.18);
+}
+.cal-pill.is-waitlist .cal-pill__dot{
+  background: #FF7701;
 }
 
 .cal-day{
   display:flex;
   height: calc(100% - 84px - 52px - 32px);
   padding: 0 16px 14px;
+}
+
+.cal-day__scroll{
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cal-day.is-swiping{
+  /* Prevent accidental tap/drag during slide */
+  pointer-events: none;
+}
+
+.cal-swipeViewport{
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.cal-swipeTrack{
+  display: flex;
+  width: 200%;
+  height: 100%;
+  transition: transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  will-change: transform;
+}
+
+.cal-swipePane{
+  flex: 0 0 50%;
+  width: 50%;
+  display: flex;
+  min-width: 0;
 }
 
 .cal-day__axis{
@@ -201,7 +267,85 @@
 .cal-day__grid{
   position:relative;
   flex:1;
-  border-left: 1px solid rgba(255,255,255,0.08);
+  border-left: 0;
+}
+
+/* Day vs 5-Day grid layout */
+.cal-day__col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+}
+.cal-day__col--week {
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  margin-left: 0;
+}
+.cal-day__col--week:first-child {
+  border-left: none;
+}
+.cal-day--week {
+  align-items: stretch;
+}
+.cal-day__weekGrid {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  align-items: stretch;
+}
+.cal-day__axisHeadSpacer {
+  height: 30px;
+  flex-shrink: 0;
+}
+.cal-day__col--week .cal-day__grid {
+  flex: 1 1 auto;
+  border-left: none;
+}
+.cal-day__colHead {
+  flex: 0 0 auto;
+  height: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.02);
+  border: none;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: inherit;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms, color 120ms;
+}
+.cal-day__colHead:hover {
+  background: rgba(255, 120, 25, 0.08);
+}
+.cal-day__colHead.is-selected {
+  background: rgba(255, 120, 25, 0.16);
+  color: #ff7819;
+}
+.cal-day__colHead.is-today {
+  color: #ff7819;
+}
+.cal-day__colHeadDow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.cal-day__colHeadNum {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* In week view, time-axis labels need the same head spacer to align with columns */
+.cal-day--week .cal-day__axis {
+  padding-top: 0;
 }
 .cal-grid__row{
   border-top: 1px solid rgba(255,255,255,0.08);
@@ -223,6 +367,9 @@
 .cal-apt.is-green{ background: linear-gradient(135deg, rgba(157,230,132,0.40), rgba(0,0,0,0.15)); border-left: 4px solid #9DE684; }
 .cal-apt.is-gray{ background: linear-gradient(135deg, rgba(255,255,255,0.12), rgba(0,0,0,0.22)); border-left: 4px solid #8e8e93; }
 
+.cal-apt.is-overlap{
+  box-shadow: 0 6px 14px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.10);
+}
 .cal-apt__client{ font-weight:700; font-size: 13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .cal-apt__service{ font-size: 12px; opacity:0.85; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .cal-apt__time{ font-size: 11px; opacity:0.75; margin-top:6px;}
@@ -302,5 +449,1037 @@
   border:0;
   background:transparent;
   color: rgba(255,255,255,0.75);
+}
+
+/* Phase 1 — header `+` button + live time line */
+.cal-headerPlus {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(calc(-50% - 5px));
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 120, 25, 0.6);
+  background: rgba(255, 120, 25, 0.16);
+  color: #ff7819;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms;
+  z-index: 1;
+}
+.cal-headerPlus:hover {
+  background: rgba(255, 120, 25, 0.24);
+}
+
+.cal-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+.cal-now__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff3b30;
+  box-shadow: 0 0 8px rgba(255, 59, 48, 0.7);
+  margin-left: -3px;
+}
+.cal-now__line {
+  flex: 1;
+  height: 1.5px;
+  background: linear-gradient(to right, #ff3b30, rgba(255, 59, 48, 0.4));
+  margin-left: 2px;
+}
+
+/* Confirm modal compact row */
+.cal-modal__card--confirm {
+  width: 280px;
+}
+.cal-modal__row {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  margin-top: 14px;
+}
+.cal-modal__row > .cal-modal__btn {
+  margin-top: 0;
+}
+.cal-modal__btn--danger {
+  border-color: rgba(255, 59, 48, 0.55);
+  background: rgba(255, 59, 48, 0.16);
+  color: #ff7c70;
+}
+.cal-modal__btn--ghost {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+}
+.cal-modal__btn--primary {
+  border-color: rgba(255, 120, 25, 0.6);
+  background: rgba(255, 120, 25, 0.18);
+  color: #ff7819;
+}
+
+/* New Appointment overlay */
+.cal-modal--full {
+  align-items: flex-start;
+  padding-top: 32px;
+}
+.cal-modal__card--form {
+  width: 340px;
+  max-width: 92vw;
+  padding: 16px 18px 18px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cal-modal__formHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cal-modal__formHead .cal-modal__title {
+  text-align: left;
+  font-size: 16px;
+}
+.cal-modal__iconBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(245, 245, 247, 0.85);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.cal-modal__formDate {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+  margin-top: -4px;
+}
+
+.cal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  letter-spacing: 0.02em;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.cal-field__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+}
+.cal-field__input {
+  width: 100%;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f5f7;
+  font-size: 14px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  outline: none;
+  font-family: inherit;
+}
+.cal-field__input:focus {
+  border-color: rgba(255, 120, 25, 0.55);
+  background: rgba(255, 120, 25, 0.06);
+}
+.cal-field__input[type="time"]::-webkit-calendar-picker-indicator,
+.cal-field__input[type="number"]::-webkit-inner-spin-button,
+.cal-field__input[type="number"]::-webkit-outer-spin-button {
+  filter: invert(1) opacity(0.55);
+}
+
+.cal-fieldRow {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.cal-colorRow {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  margin-top: 4px;
+}
+.cal-colorChip {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--swatch, #888);
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 120ms, border-color 120ms;
+  -webkit-tap-highlight-color: transparent;
+}
+.cal-colorChip:hover {
+  transform: scale(1.05);
+}
+.cal-colorChip.is-active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
+}
+
+/* Phase 2 — pickers, sub-screens, repeat toggle, segmented control */
+.cal-modal--picker {
+  align-items: center;
+  padding: 24px 16px;
+}
+.cal-modal--sub {
+  z-index: 70;
+}
+.cal-modal__card--picker {
+  width: 320px;
+  max-width: 92vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.cal-pickerSearch {
+  position: relative;
+  height: 36px;
+}
+.cal-pickerSearch__icon {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+}
+.cal-pickerSearch__input {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f5f7;
+  font-size: 14px;
+  padding: 0 12px 0 32px;
+  box-sizing: border-box;
+  outline: none;
+  font-family: inherit;
+}
+.cal-pickerSearch__input:focus {
+  border-color: rgba(255, 120, 25, 0.55);
+  background: rgba(255, 120, 25, 0.06);
+}
+
+.cal-pickerList {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  padding: 2px 0 4px;
+}
+.cal-pickerList::-webkit-scrollbar {
+  width: 4px;
+}
+.cal-pickerList::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+
+.cal-pickerItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: #f5f5f7;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms;
+  -webkit-tap-highlight-color: transparent;
+}
+.cal-pickerItem:hover {
+  background: rgba(255, 120, 25, 0.08);
+  border-color: rgba(255, 120, 25, 0.45);
+}
+.cal-pickerItem--add {
+  color: #ff7819;
+  border-style: dashed;
+  border-color: rgba(255, 120, 25, 0.55);
+  background: rgba(255, 120, 25, 0.06);
+  gap: 6px;
+}
+.cal-pickerItem--add:hover {
+  background: rgba(255, 120, 25, 0.14);
+}
+.cal-pickerItem__row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cal-pickerItem__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-pickerItem__sub {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(245, 245, 247, 0.55);
+}
+.cal-pickerEmpty {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* Picker trigger — dropdown-style button used inside the form */
+.cal-pickerTrigger {
+  width: 100%;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f5f7;
+  font-size: 14px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.cal-pickerTrigger:hover {
+  border-color: rgba(255, 120, 25, 0.55);
+}
+.cal-pickerTrigger__value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.cal-pickerTrigger__value.is-placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+.cal-pickerTrigger__chev {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+/* Textarea + char counter */
+.cal-field__textarea {
+  height: auto;
+  min-height: 60px;
+  padding: 10px 12px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.cal-field__counter {
+  align-self: flex-end;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: -2px;
+}
+
+/* Toggle */
+.cal-toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cal-toggle {
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms, border-color 120ms;
+}
+.cal-toggle__knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(245, 245, 247, 0.85);
+  transition: transform 160ms;
+}
+.cal-toggle.is-on {
+  border-color: rgba(255, 120, 25, 0.7);
+  background: rgba(255, 120, 25, 0.55);
+}
+.cal-toggle.is-on .cal-toggle__knob {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.cal-repeatBlock {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cal-field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.cal-field--inline .cal-field__label {
+  flex: 1 1 auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+}
+.cal-field--inline .cal-field__input {
+  flex: 0 0 auto;
+  width: 64px;
+  text-align: center;
+}
+
+/* Segmented control */
+.cal-segment {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+.cal-segment__opt {
+  flex: 1 1 0;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.65);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms, color 120ms;
+}
+.cal-segment__opt:not(:last-child) {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cal-segment__opt.is-active {
+  background: rgba(255, 120, 25, 0.18);
+  color: #ff7819;
+}
+
+/* Phase 3 — drag, resize, park drop */
+.cal-apt {
+  cursor: grab;
+  transition: box-shadow 120ms, transform 120ms;
+}
+.cal-apt.is-dragging {
+  cursor: grabbing;
+  /* z-index set inline — see render */
+  /* The transform is set inline (translate(dx, dy)) — only restyle visuals */
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 120, 25, 0.55), 0 0 22px rgba(255, 120, 25, 0.32);
+  opacity: 0.96;
+  will-change: transform;
+}
+.cal-apt__resize {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 12px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 3px;
+  touch-action: none;
+}
+.cal-apt__resizeBar {
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+  transition: background 120ms;
+}
+.cal-apt:hover .cal-apt__resizeBar,
+.cal-apt.is-dragging .cal-apt__resizeBar {
+  background: #fff;
+}
+
+/* Soft outline while a drag is in flight (any pointer position) */
+.cal-toolbar.is-dragging {
+  outline: 1px dashed rgba(168, 85, 247, 0.45);
+  outline-offset: -2px;
+  border-radius: 8px;
+  position: relative;
+  transition: background 120ms, outline-color 120ms;
+}
+/* Strong highlight only when the pointer is hovering INSIDE the park area */
+.cal-toolbar.is-parkTarget {
+  outline: 2px dashed #FF7701;
+  outline-offset: -2px;
+  background: rgba(255, 119, 1, 0.18);
+  border-radius: 8px;
+  box-shadow: 0 0 22px rgba(255, 119, 1, 0.30);
+  position: relative;
+}
+.cal-toolbar.is-parkTarget::after {
+  content: "Drop here to park";
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: rgba(255, 205, 168, 0.95);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* Phase 4 — chip rows, helper text, conflict grid, decorations */
+.cal-chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.cal-chip {
+  flex: 0 0 auto;
+  min-width: 36px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(245, 245, 247, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 120ms, background 120ms, color 120ms;
+}
+.cal-chip:hover {
+  border-color: rgba(255, 120, 25, 0.45);
+}
+.cal-chip.is-active {
+  border-color: #ff7819;
+  background: rgba(255, 120, 25, 0.18);
+  color: #ff7819;
+  box-shadow: 0 0 12px rgba(255, 120, 25, 0.18);
+}
+
+.cal-helperText {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(245, 245, 247, 0.6);
+  padding: 4px 2px;
+}
+
+.cal-conflictGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+.cal-conflictSlot {
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 120, 25, 0.45);
+  background: rgba(255, 120, 25, 0.10);
+  color: #ff7819;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms;
+}
+.cal-conflictSlot:hover {
+  background: rgba(255, 120, 25, 0.22);
+}
+
+/* Decorations */
+.cal-deco {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+.cal-deco--leftCurve {
+  top: 100px;
+  left: -8px;
+  opacity: 0.55;
+}
+.cal-deco--rightStamp {
+  top: 12px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  z-index: 1;
+}
+.cal-deco__stampDow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: rgba(255, 120, 25, 0.65);
+  text-transform: uppercase;
+}
+.cal-deco__stampNum {
+  font-size: 18px;
+  font-weight: 800;
+  color: rgba(255, 120, 25, 0.85);
+  line-height: 1;
+}
+
+/* Phase 5 — service-timer alarm icon on appointment cards
+   Subtle, slow pulse (no fast blink). */
+.cal-apt__alarm {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 120, 25, 0.85);
+  color: #ff7819;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  animation: calAlarmPulse 2.6s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(255, 120, 25, 0.35);
+}
+.cal-apt__alarm.is-completed {
+  border-color: #ff3b30;
+  color: #ff3b30;
+  box-shadow: 0 0 8px rgba(255, 59, 48, 0.45);
+  animation-duration: 1.6s;
+}
+
+/* New client indicator — small static blue dot, top-left of card */
+.cal-apt__newDot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #25AFFF;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5), 0 0 8px rgba(37, 175, 255, 0.55);
+  pointer-events: none;
+}
+/* If both indicators are present, shift the new-client dot down so they
+   don't overlap the alarm. */
+.cal-apt__alarm + .cal-apt__newDot {
+  top: 30px;
+}
+
+.cal-apt__waitTag {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: rgba(157, 230, 132, 0.85);
+  pointer-events: none;
+  text-transform: capitalize;
+}
+.cal-apt.is-green .cal-apt__waitTag {
+  color: rgba(157, 230, 132, 0.95);
+}
+@keyframes calAlarmPulse {
+  0%, 100% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(1.06);
+  }
+}
+
+/* ---------- Empty-slot tap modal (Phase 5 visual upgrade) ---------- */
+.cal-emptyModal {
+  width: 320px;
+  max-width: 90vw;
+  padding: 18px 18px 14px;
+  text-align: left;
+  background: rgba(20, 20, 26, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  display: flex;
+  flex-direction: column;
+}
+.cal-emptyModal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cal-emptyModal__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cal-emptyModal__date {
+  font-size: 16px;
+  font-weight: 800;
+  color: #f5f5f7;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+}
+.cal-emptyModal__time {
+  font-size: 16px;
+  font-weight: 800;
+  color: #f5f5f7;
+  line-height: 1.25;
+}
+.cal-emptyModal__divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 12px 0 8px;
+}
+
+.cal-emptyOption {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 10px 6px;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 10px;
+  transition: background 120ms;
+  -webkit-tap-highlight-color: transparent;
+}
+.cal-emptyOption:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.cal-emptyOption__icon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--icon-color, #ff7819);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--icon-color, #ff7819);
+}
+.cal-emptyOption__icon.is-newAppt {
+  --icon-color: #b6e23a;
+}
+.cal-emptyOption__icon.is-personal {
+  --icon-color: #d63aa8;
+}
+.cal-emptyOption__icon.is-hours {
+  --icon-color: #4fd0d9;
+}
+.cal-emptyOption__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cal-emptyOption__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f5f5f7;
+  line-height: 1.2;
+}
+.cal-emptyOption__sub {
+  font-size: 12px;
+  color: rgba(245, 245, 247, 0.55);
+  line-height: 1.3;
+}
+
+/* Phase 5+ — Waiting List drag-to-book modal */
+.cal-pill--button {
+  border: 1px solid rgba(157, 230, 132, 0.85);
+  background: rgba(157, 230, 132, 0.18);
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  height: 22px;
+  padding: 0 10px;
+  -webkit-tap-highlight-color: transparent;
+}
+.cal-pill--button:hover {
+  background: rgba(157, 230, 132, 0.28);
+}
+
+.cal-waitlist {
+  width: 320px;
+  max-width: 92vw;
+  padding: 16px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  background: rgba(20, 20, 26, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.cal-waitlist.is-dragging {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* When dragging starts, hide the picker modal but keep it mounted so the
+   source card retains pointer capture. Children stay visible to the
+   captured-pointer handler, but no clicks reach them. */
+.cal-modal.is-dragHidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.cal-modal.is-dragHidden .cal-modal__backdrop {
+  pointer-events: none;
+}
+.cal-waitlist__hint {
+  font-size: 12px;
+  color: rgba(245, 245, 247, 0.55);
+  margin-top: 2px;
+}
+.cal-waitlist__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  padding: 2px 0 4px;
+}
+
+.cal-waitlist__card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: grab;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 120ms, background 120ms;
+}
+.cal-waitlist__card:hover {
+  border-color: rgba(255, 120, 25, 0.45);
+}
+.cal-waitlist__card:active {
+  cursor: grabbing;
+}
+.cal-waitlist__stripe {
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #ff7819, #d63aa8);
+  flex: 0 0 auto;
+}
+.cal-waitlist__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cal-waitlist__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f5f5f7;
+}
+.cal-waitlist__svc {
+  font-size: 12px;
+  color: rgba(245, 245, 247, 0.55);
+}
+.cal-waitlist__when {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: rgba(245, 245, 247, 0.62);
+  white-space: nowrap;
+}
+
+.cal-waitlist__ghost {
+  position: fixed;
+  z-index: 300;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 120, 25, 0.6);
+  background: rgba(20, 20, 26, 0.96);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55), 0 0 14px rgba(255, 120, 25, 0.32);
+  width: 260px;
+  max-width: 80vw;
+}
+.cal-waitlist__ghost.is-parked {
+  border-color: rgba(168, 85, 247, 0.7);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55), 0 0 14px rgba(168, 85, 247, 0.42);
+}
+
+/* Appointment-card-style ghost — used by waitlist + parked drag */
+.cal-apt--ghost {
+  position: fixed !important;
+  z-index: 320;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  width: 220px;
+  max-width: 80vw;
+  height: auto !important;
+  min-height: 70px;
+  top: auto;
+  left: auto;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.65), 0 0 22px rgba(255, 120, 25, 0.35);
+  opacity: 0.96;
+}
+
+/* Parked overflow modal — same skeleton as waitlist with park accent */
+.cal-parkedList .cal-waitlist__stripe {
+  background: linear-gradient(180deg, #FF7701, #A855F7);
+}
+.cal-parkedCard.is-fromMove .cal-waitlist__stripe {
+  background: #A855F7;
+}
+.cal-pill--parkedCollapsed {
+  border-color: rgba(255, 120, 25, 0.85);
+  background: rgba(255, 120, 25, 0.18);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Single pill that supports long-press drag */
+.cal-pill--draggable {
+  cursor: grab;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms, box-shadow 120ms;
+}
+.cal-pill--draggable:active {
+  cursor: grabbing;
+}
+.cal-pill--draggable:hover {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+/* Floating drag-time tooltip — follows pointer during apt drag/resize */
+.cal-dragTip {
+  position: fixed;
+  z-index: 320;
+  transform: translate(16px, -50%);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  background: rgba(20, 20, 26, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  font-weight: 700;
+  color: #f5f5f7;
+  white-space: nowrap;
+}
+.cal-dragTip__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #9DE684;
+  box-shadow: 0 0 8px rgba(157, 230, 132, 0.6);
+}
+.cal-dragTip.is-park {
+  border-color: rgba(255, 119, 1, 0.8);
+}
+.cal-dragTip.is-park .cal-dragTip__dot {
+  background: #FF7701;
+  box-shadow: 0 0 8px rgba(255, 119, 1, 0.65);
+}
+
+/* Move / park confirm modal — iOS-like glass card */
+.cal-confirm {
+  width: 300px;
+  max-width: 90vw;
+  padding: 18px 16px 14px;
+  background: rgba(160, 160, 170, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  text-align: center;
+}
+.cal-confirm__time {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #f5f5f7;
+}
+.cal-confirm__body {
+  margin-top: 6px;
+  font-size: 14px;
+  color: rgba(245, 245, 247, 0.85);
+  line-height: 1.4;
+}
+.cal-confirm .cal-modal__row {
+  margin-top: 16px;
+  gap: 10px;
+}
+.cal-confirm .cal-modal__btn {
+  height: 44px;
+  font-size: 15px;
+  border-radius: 14px;
 }
 

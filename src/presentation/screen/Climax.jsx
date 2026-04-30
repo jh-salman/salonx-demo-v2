@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from "react";
-import BottomToolbar from "../../component/BottomToolbar";
 import "../style/climax.css";
 import { MOCK_SERVICES } from "../../data/mockServices";
 
@@ -431,7 +430,6 @@ export default function Climax() {
           </div>
         </div>
       ) : null}
-      <BottomToolbar activeIndex={2} />
     </div>
   );
 }

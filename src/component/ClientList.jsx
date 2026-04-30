@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AppContext } from '../context/AppContext';
+import { useTimers } from '../context/TimersContext';
 import TimerModal from './TimerModal';
 
 const ACCENT = '#ff7819';
@@ -333,60 +334,59 @@ const ClientList = () => {
   };
 
   const { setSelectedClientData } = useContext(AppContext);
+  const { timers, setTimer, clearTimer } = useTimers();
 
-  const [timersById, setTimersById] = useState(() => {
-    const out = {};
+  // Seed any "initialState" markers (e.g., Joe Styles starts as 'completed')
+  // into the global timers store on first render — only if not already set.
+  useEffect(() => {
     APPOINTMENTS.forEach((a) => {
-      if (a.initialState) out[a.id] = a.initialState;
+      if (a.initialState && !timers[a.name]) {
+        setTimer(a.name, a.initialState);
+      }
     });
-    return out;
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [now, setNow] = useState(() => Date.now());
-  const [modalForCardId, setModalForCardId] = useState(null);
+  const [modalForName, setModalForName] = useState(null);
 
   useEffect(() => {
-    const hasRunning = Object.values(timersById).some(
+    const hasRunning = Object.values(timers).some(
       (t) => t && (t.kind === 'timerRunning' || t.kind === 'stopwatchRunning'),
     );
     if (!hasRunning) return undefined;
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
-  }, [timersById]);
+  }, [timers]);
 
   const liveTimers = useMemo(() => {
     const out = {};
-    Object.entries(timersById).forEach(([cardId, t]) => {
+    Object.entries(timers).forEach(([name, t]) => {
       if (!t) return;
       if (t.kind === 'timerRunning') {
         const remainingMs = t.endsAt - now;
         if (remainingMs <= 0) {
-          out[cardId] = { kind: 'completed' };
+          out[name] = { kind: 'completed' };
         } else {
-          out[cardId] = { kind: 'timerRunning', remainingMs };
+          out[name] = { kind: 'timerRunning', remainingMs };
         }
       } else if (t.kind === 'stopwatchRunning') {
-        out[cardId] = { kind: 'stopwatchRunning', elapsedMs: now - t.startedAt };
+        out[name] = { kind: 'stopwatchRunning', elapsedMs: now - t.startedAt };
       } else {
-        out[cardId] = t;
+        out[name] = t;
       }
     });
     return out;
-  }, [timersById, now]);
+  }, [timers, now]);
 
+  // Promote expired timers in shared store to 'completed'
   useEffect(() => {
-    const expired = Object.entries(liveTimers)
-      .filter(([cardId, t]) => t.kind === 'completed' && timersById[cardId]?.kind === 'timerRunning')
-      .map(([cardId]) => cardId);
-    if (expired.length === 0) return;
-    setTimersById((prev) => {
-      const next = { ...prev };
-      expired.forEach((cardId) => {
-        next[cardId] = { kind: 'completed' };
-      });
-      return next;
+    Object.entries(liveTimers).forEach(([name, t]) => {
+      if (t.kind === 'completed' && timers[name]?.kind === 'timerRunning') {
+        setTimer(name, { kind: 'completed' });
+      }
     });
-  }, [liveTimers, timersById]);
+  }, [liveTimers, timers, setTimer]);
 
   const handleClientClick = useCallback(
     (clientData) => {
@@ -395,91 +395,73 @@ const ClientList = () => {
     [setSelectedClientData],
   );
 
-  const handleTimerBoxClick = useCallback((cardId) => {
-    setModalForCardId(cardId);
+  const handleTimerBoxClick = useCallback((name) => {
+    setModalForName(name);
   }, []);
 
   const handleStartTimer = useCallback(
     (totalSec) => {
-      if (!modalForCardId) return;
-      setTimersById((prev) => ({
-        ...prev,
-        [modalForCardId]: {
-          kind: 'timerRunning',
-          endsAt: Date.now() + totalSec * 1000,
-        },
-      }));
+      if (!modalForName) return;
+      setTimer(modalForName, {
+        kind: 'timerRunning',
+        endsAt: Date.now() + totalSec * 1000,
+      });
       setNow(Date.now());
-      setModalForCardId(null);
+      setModalForName(null);
     },
-    [modalForCardId],
+    [modalForName, setTimer],
   );
 
   const handleStartStopwatch = useCallback(() => {
-    if (!modalForCardId) return;
-    setTimersById((prev) => ({
-      ...prev,
-      [modalForCardId]: {
-        kind: 'stopwatchRunning',
-        startedAt: Date.now(),
-      },
-    }));
+    if (!modalForName) return;
+    setTimer(modalForName, {
+      kind: 'stopwatchRunning',
+      startedAt: Date.now(),
+    });
     setNow(Date.now());
-  }, [modalForCardId]);
+  }, [modalForName, setTimer]);
 
   const handleStopStopwatch = useCallback(() => {
-    if (!modalForCardId) return;
-    setTimersById((prev) => {
-      const next = { ...prev };
-      delete next[modalForCardId];
-      return next;
-    });
-    setModalForCardId(null);
-  }, [modalForCardId]);
+    if (!modalForName) return;
+    clearTimer(modalForName);
+    setModalForName(null);
+  }, [modalForName, clearTimer]);
 
   const handleStopTimer = useCallback(() => {
-    if (!modalForCardId) return;
-    setTimersById((prev) => {
-      const next = { ...prev };
-      delete next[modalForCardId];
-      return next;
-    });
-    setModalForCardId(null);
-  }, [modalForCardId]);
+    if (!modalForName) return;
+    clearTimer(modalForName);
+    setModalForName(null);
+  }, [modalForName, clearTimer]);
 
   const handleResetTimer = useCallback(() => {
-    if (!modalForCardId) return;
-    setTimersById((prev) => {
-      const next = { ...prev };
-      delete next[modalForCardId];
-      return next;
-    });
-  }, [modalForCardId]);
+    if (!modalForName) return;
+    clearTimer(modalForName);
+  }, [modalForName, clearTimer]);
 
-  const activeAppointment = APPOINTMENTS.find((a) => a.id === modalForCardId);
-  const activeRunningState = modalForCardId ? liveTimers[modalForCardId] : null;
+  const activeAppointment = APPOINTMENTS.find((a) => a.name === modalForName);
+  const activeRunningState = modalForName ? liveTimers[modalForName] : null;
 
   return (
     <div style={wrapperStyle}>
       {APPOINTMENTS.map((a) => (
         <ClientCard
           key={a.id}
-          cardId={a.id}
+          cardId={a.name}
           name={a.name}
           time={a.time}
           service={a.service}
           isActive
-          timerState={liveTimers[a.id]}
+          timerState={liveTimers[a.name]}
           onTimerBoxClick={handleTimerBoxClick}
           onCardClick={a.payload ? () => handleClientClick(a.payload) : undefined}
         />
       ))}
 
       <TimerModal
-        open={modalForCardId !== null}
+        open={modalForName !== null}
         clientName={activeAppointment?.name || ''}
         runningState={activeRunningState}
-        onClose={() => setModalForCardId(null)}
+        onClose={() => setModalForName(null)}
         onStartTimer={handleStartTimer}
         onStartStopwatch={handleStartStopwatch}
         onStopStopwatch={handleStopStopwatch}
