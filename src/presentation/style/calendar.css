@@ -209,6 +209,11 @@
   display:flex;
   height: calc(100% - 84px - 52px - 32px);
   padding: 0 16px 14px;
+  /* Allow native vertical scrolling inside .cal-day__scroll while letting JS
+     handle horizontal swipe gestures. Without this, mobile browsers consume
+     horizontal touches as part of the global pan and pointerup never fires
+     on this element. */
+  touch-action: pan-y;
 }
 
 .cal-day__scroll{
@@ -1064,17 +1069,18 @@
   z-index: 1;
 }
 .cal-deco__stampDow {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: rgba(255, 120, 25, 0.65);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: #ffffff;
   text-transform: uppercase;
 }
 .cal-deco__stampNum {
-  font-size: 18px;
-  font-weight: 800;
-  color: rgba(255, 120, 25, 0.85);
+  font-size: 22px;
+  font-weight: 900;
+  color: #ffffff;
   line-height: 1;
+  letter-spacing: -0.01em;
 }
 
 /* Phase 5 — service-timer alarm icon on appointment cards

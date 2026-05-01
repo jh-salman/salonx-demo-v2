@@ -12,4 +12,14 @@ body,
   width: 100%;
   overflow: hidden;
   background: #121212;
+  /* Prevent rubber-band scrolling on iOS Safari */
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  /* Stop browser pinch-zoom from breaking the responsive transform scale */
+  touch-action: pan-x pan-y;
+}
+
+body {
+  /* Fall back chain: dvh (modern), svh, then percentage */
+  min-height: 100dvh;
 }

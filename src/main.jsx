@@ -16,16 +16,27 @@ function ResponsivePhoneShell({ children }) {
     const compute = () => {
       const w = window.innerWidth
       const h = window.innerHeight
-      // Fit by either dimension; never up-scale past native size
-      const next = Math.min(w / SHELL_W, h / SHELL_H, 1)
-      setScale(next)
+      // Leave a small breathing margin so the mockup doesn't touch device edges
+      const PAD = w < 480 ? 0 : 16 // mobile: edge-to-edge; desktop/tablet: 16px gap
+      const availW = Math.max(0, w - PAD * 2)
+      const availH = Math.max(0, h - PAD * 2)
+      // Fit by the smaller dimension — scale up on big screens too
+      const next = Math.min(availW / SHELL_W, availH / SHELL_H)
+      setScale(Number.isFinite(next) && next > 0 ? next : 1)
     }
     compute()
     window.addEventListener('resize', compute)
     window.addEventListener('orientationchange', compute)
+    // Mobile browsers fire visualViewport resize on URL-bar show/hide
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', compute)
+    }
     return () => {
       window.removeEventListener('resize', compute)
       window.removeEventListener('orientationchange', compute)
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', compute)
+      }
     }
   }, [])
 
@@ -40,13 +51,11 @@ function ResponsivePhoneShell({ children }) {
         alignItems: 'center',
         width: '100vw',
         height: '100dvh',
-        minHeight: '100vh',
         backgroundColor: '#121212',
         overflow: 'hidden',
         position: 'relative',
       }}
     >
-      {/* Outer footprint — exact scaled size, lets siblings center cleanly */}
       <div
         style={{
           width: `${scaledW}px`,
@@ -54,7 +63,6 @@ function ResponsivePhoneShell({ children }) {
           position: 'relative',
         }}
       >
-        {/* Inner shell at native 393×852 — content stays pixel-perfect, shell scales */}
         <div
           style={{
             width: `${SHELL_W}px`,
@@ -64,10 +72,10 @@ function ResponsivePhoneShell({ children }) {
             position: 'absolute',
             top: 0,
             left: 0,
-            borderRadius: '24px',
+            borderRadius: scale >= 1 ? '0px' : '24px',
             overflow: 'hidden',
             backgroundColor: '#0a0a0c',
-            boxShadow: '0 12px 48px rgba(0, 0, 0, 0.55)',
+            boxShadow: scale >= 1 ? 'none' : '0 12px 48px rgba(0, 0, 0, 0.55)',
           }}
         >
           {children}

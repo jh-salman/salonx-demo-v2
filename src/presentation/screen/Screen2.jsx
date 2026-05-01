@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Butterfly,
   CalendarBlank,
@@ -12,6 +12,7 @@ import {
   User,
   X,
 } from 'phosphor-react';
+import { MOCK_CLIENTS } from '../../data/mockClients';
 import { MOCK_PRODUCTS } from '../../data/mockProducts';
 import { MOCK_SERVICES } from '../../data/mockServices';
 import './s2.css';
@@ -23,7 +24,7 @@ const TOOLBAR_ACTIVE = 1;
 const TOOLBAR_ITEMS = [
   { Icon: Scissors, label: 'Stylist', to: '/screen1' },
   { Icon: User, label: 'Client details', to: '/screen2' },
-  { Icon: Lightning, label: 'Checkout', to: '/checkout' },
+  { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
   { Icon: X, label: 'Home', to: '/' },
 ];
@@ -62,8 +63,6 @@ const ADJ_RATE_MAX = 310;
 
 const SVC_HOURLY_BASE = { id: 'SVC-HOURLY', name: 'Hourly (stylist rate)', kind: 'hourly' };
 const SVC_CONSULT_BASE = { id: 'SVC-CONSULT', name: 'Consultation', kind: 'consult' };
-
-const SVC_PICK_INITIAL_REST_IDS = ['SVC-014', 'SVC-015', 'SVC-019', 'SVC-027'];
 
 function clampAdjustableRate(n) {
   const v = Math.round(Number(n));
@@ -109,30 +108,431 @@ function productVisualGradient(color) {
   return `linear-gradient(165deg, ${color} 0%, #0a0a0c 85%)`;
 }
 
+// ---------- Consultation persistence (per-client, localStorage) ----------
+const CONSULT_STORAGE_KEY = '@salonx/consultations/v1';
+const CONSULT_DEFAULT_TEXT = {
+  LIFE: 'Sister-in-law expecting twins · cabin rebuild · Jennifer→FSU',
+  CHAIR: 'Redken Shades EQ 7N · 7WB · use more 7N next time',
+  PATH: 'Keep dimension · low maintenance · natural grow-out',
+};
+
+function loadConsultStore() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(CONSULT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+function saveConsultStore(store) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(CONSULT_STORAGE_KEY, JSON.stringify(store));
+  } catch (_) {
+    /* noop */
+  }
+}
+function clientKey(name) {
+  return (name || '').trim().toLowerCase();
+}
+// Each pane (LIFE/CHAIR/PATH) stores a chronological log of notes — newest
+// entry first. The legacy single-string field (e.g. `rec.LIFE`) is kept for
+// backward compatibility and migrated into the entries array on first read.
+function migratePaneEntries(rec, key) {
+  const arr = rec[key + '_entries'];
+  if (Array.isArray(arr) && arr.length) {
+    return arr
+      .filter((e) => e && typeof e.text === 'string' && e.text.trim())
+      .map((e) => ({ text: e.text, ts: typeof e.ts === 'number' ? e.ts : Date.now() }));
+  }
+  const legacy = typeof rec[key] === 'string' ? rec[key].trim() : '';
+  if (legacy) {
+    return [{ text: legacy, ts: typeof rec.updatedAt === 'number' ? rec.updatedAt : Date.now() }];
+  }
+  return [];
+}
+
+function getConsultRecord(store, name) {
+  const key = clientKey(name);
+  const rec = store[key] || {};
+  return {
+    LIFE: typeof rec.LIFE === 'string' ? rec.LIFE : CONSULT_DEFAULT_TEXT.LIFE,
+    CHAIR: typeof rec.CHAIR === 'string' ? rec.CHAIR : CONSULT_DEFAULT_TEXT.CHAIR,
+    PATH: typeof rec.PATH === 'string' ? rec.PATH : CONSULT_DEFAULT_TEXT.PATH,
+    LIFE_entries: migratePaneEntries(rec, 'LIFE'),
+    CHAIR_entries: migratePaneEntries(rec, 'CHAIR'),
+    PATH_entries: migratePaneEntries(rec, 'PATH'),
+    photos: Array.isArray(rec.photos) ? rec.photos : [], // [{ url, ts, label }]
+    avatar: typeof rec.avatar === 'string' && rec.avatar ? rec.avatar : null,
+    updatedAt: rec.updatedAt || null,
+  };
+}
+
+// Format a timestamp like "MAY 1 · 9:42 PM"
+function formatNoteStamp(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  return `${months[d.getMonth()]} ${d.getDate()} · ${h}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+// ---------- Per-appointment services/products persistence ----------
+// Each appointment has its own unique services + products + rate state, keyed
+// by the appointment id from the Calendar event store. Nothing is shared
+// between appointments — every appointment starts with an empty queue.
+const APPT_STATE_STORAGE_KEY = '@salonx/appointmentState/v1';
+
+function loadApptStateStore() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(APPT_STATE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    return {};
+  }
+}
+function saveApptStateStore(store) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(APPT_STATE_STORAGE_KEY, JSON.stringify(store));
+  } catch (_) {
+    /* noop */
+  }
+}
+function apptStateKey(apt) {
+  if (!apt) return '';
+  if (apt.id) return String(apt.id);
+  // Fallback for legacy nav payloads without an id
+  const start = apt.start ? new Date(apt.start).getTime() : '';
+  return `${(apt.clientName || '').toLowerCase()}|${start}`;
+}
+function makeEmptySvcQueue() {
+  return [
+    { ...SVC_HOURLY_BASE, price: 0, kind: 'hourly' },
+    { ...SVC_CONSULT_BASE, price: 0, kind: 'consult' },
+  ];
+}
+function getApptState(store, apt) {
+  const key = apptStateKey(apt);
+  const rec = (key && store[key]) || {};
+  return {
+    svcQueue: Array.isArray(rec.svcQueue) && rec.svcQueue.length ? rec.svcQueue : makeEmptySvcQueue(),
+    productQueue: Array.isArray(rec.productQueue) ? rec.productQueue : [],
+    hourlyRate: typeof rec.hourlyRate === 'number' ? rec.hourlyRate : 0,
+    consultRate: typeof rec.consultRate === 'number' ? rec.consultRate : 0,
+  };
+}
+
+// Web Speech API factory — returns recognition instance or null if unsupported
+function createRecognition() {
+  if (typeof window === 'undefined') return null;
+  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Ctor) return null;
+  const r = new Ctor();
+  r.continuous = true;
+  r.interimResults = true;
+  r.lang = 'en-US';
+  return r;
+}
+
 export default function Screen2() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Resolve appointment + client from nav state (Calendar single-tap passes `apt`)
+  const activeApt = location?.state?.apt || null;
+
+  const activeClientName = useMemo(() => {
+    const fromNav = activeApt?.clientName;
+    return (fromNav && String(fromNav).trim()) || CLIENT.name;
+  }, [activeApt]);
+
+  // Match against owner's MOCK_CLIENTS by case-insensitive name to enrich
+  // the header (phone / email / etc). Falls back gracefully if not found.
+  const activeClient = useMemo(() => {
+    const target = activeClientName.toLowerCase();
+    const match = MOCK_CLIENTS.find(
+      (c) => (c.name || '').toLowerCase() === target,
+    );
+    return match || { name: activeClientName, phone: '', email: '' };
+  }, [activeClientName]);
+
+  // Derived display values for the appointment we navigated from
+  const activeApptInfo = useMemo(() => {
+    if (!activeApt || !activeApt.start || !activeApt.end) return null;
+    const start = new Date(activeApt.start);
+    const end = new Date(activeApt.end);
+    const dur = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+    const dateShort = `${start.getMonth() + 1}.${start.getDate()}.${String(start.getFullYear()).slice(-2)}`;
+    return {
+      dateShort,
+      durationLabel: dur ? `${dur} min` : '',
+      service: activeApt.service || '',
+    };
+  }, [activeApt]);
+
+  const isNewClient = useMemo(() => {
+    const target = activeClientName.toLowerCase();
+    return !MOCK_CLIENTS.some((c) => (c.name || '').toLowerCase() === target);
+  }, [activeClientName]);
+
+  // Consultation notes per client, persisted to localStorage
+  const [consultRecord, setConsultRecord] = useState(() =>
+    getConsultRecord(loadConsultStore(), activeClientName),
+  );
+
+  // Reload record if active client changes
+  useEffect(() => {
+    setConsultRecord(getConsultRecord(loadConsultStore(), activeClientName));
+  }, [activeClientName]);
+
+  // Debounced persistence
+  const consultRecordRef = useRef(consultRecord);
+  consultRecordRef.current = consultRecord;
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const store = loadConsultStore();
+      store[clientKey(activeClientName)] = {
+        ...consultRecordRef.current,
+        updatedAt: Date.now(),
+      };
+      saveConsultStore(store);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [consultRecord, activeClientName]);
+
+  // ---------- New-note popup (per pane) ----------
+  // Tap the mic on a pane → opens a modal where the user composes a brand-new
+  // note (typed and/or dictated). Pressing "Update" prepends it to the pane's
+  // entries log. The pane area itself stays read-only & scrollable so the
+  // stylist can swipe to see older notes without touching them.
+  const [noteEditOpen, setNoteEditOpen] = useState(null); // 'LIFE' | 'CHAIR' | 'PATH' | null
+  const [noteDraft, setNoteDraft] = useState('');
+
+  const openNoteEditor = useCallback((paneKey) => {
+    setNoteDraft('');
+    setNoteEditOpen(paneKey);
+  }, []);
+
+  // ---------- Voice recording (Web Speech API) — into the new-note draft ----
+  const [recordingPane, setRecordingPane] = useState(null); // pane key being dictated
+  const recognitionRef = useRef(null);
+  const recordBaselineRef = useRef(''); // draft text before recording started
+
+  const stopVoice = useCallback(() => {
+    const rec = recognitionRef.current;
+    if (rec) {
+      try { rec.onresult = null; rec.onerror = null; rec.onend = null; rec.stop(); } catch (_) { /* noop */ }
+    }
+    recognitionRef.current = null;
+    setRecordingPane(null);
+  }, []);
+
+  const startVoice = useCallback((paneKey) => {
+    const rec = createRecognition();
+    if (!rec) return; // browser doesn't support — silently no-op
+    recordBaselineRef.current = '';
+    setNoteDraft((d) => {
+      recordBaselineRef.current = d || '';
+      return d;
+    });
+    rec.onresult = (e) => {
+      let interim = '';
+      let final = '';
+      for (let i = e.resultIndex; i < e.results.length; i += 1) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t;
+        else interim += t;
+      }
+      const baseline = recordBaselineRef.current || '';
+      const sep = baseline && !baseline.endsWith(' ') ? ' ' : '';
+      const next = baseline + sep + (final || interim);
+      setNoteDraft(next.trim());
+      if (final) recordBaselineRef.current = next.trim();
+    };
+    rec.onerror = () => stopVoice();
+    rec.onend = () => {
+      recognitionRef.current = null;
+      setRecordingPane(null);
+    };
+    try {
+      rec.start();
+      recognitionRef.current = rec;
+      setRecordingPane(paneKey);
+    } catch (_) {
+      stopVoice();
+    }
+  }, [stopVoice]);
+
+  const toggleVoice = useCallback((paneKey) => {
+    if (recordingPane === paneKey) {
+      stopVoice();
+    } else {
+      if (recognitionRef.current) stopVoice();
+      startVoice(paneKey);
+    }
+  }, [recordingPane, startVoice, stopVoice]);
+
+  // Append the draft as a new entry on the active pane and close the editor.
+  const submitNoteDraft = useCallback(() => {
+    if (!noteEditOpen) return;
+    const text = (noteDraft || '').trim();
+    if (!text) {
+      stopVoice();
+      setNoteEditOpen(null);
+      return;
+    }
+    const ts = Date.now();
+    const key = noteEditOpen + '_entries';
+    setConsultRecord((prev) => {
+      const existing = Array.isArray(prev[key]) ? prev[key] : [];
+      // Newest first
+      return { ...prev, [key]: [{ text, ts }, ...existing] };
+    });
+    stopVoice();
+    setNoteDraft('');
+    setNoteEditOpen(null);
+  }, [noteDraft, noteEditOpen, stopVoice]);
+
+  const cancelNoteDraft = useCallback(() => {
+    stopVoice();
+    setNoteDraft('');
+    setNoteEditOpen(null);
+  }, [stopVoice]);
+
+  // Stop recording when consult popup unmounts
+  useEffect(() => {
+    if (!recognitionRef.current) return;
+    return () => stopVoice();
+  }, [stopVoice]);
+
+  // ---------- Photo capture (LOOK pane) ----------
+  const photoInputRef = useRef(null);
+  const photoSlotRef = useRef(null); // index of slot being filled, or null = next free
+
+  const openPhotoPicker = useCallback((slotIndex) => {
+    photoSlotRef.current = typeof slotIndex === 'number' ? slotIndex : null;
+    if (photoInputRef.current) {
+      photoInputRef.current.value = '';
+      photoInputRef.current.click();
+    }
+  }, []);
+
+  const handlePhotoChosen = useCallback((e) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result;
+      setConsultRecord((prev) => {
+        const photos = Array.isArray(prev.photos) ? [...prev.photos] : [];
+        const slot = photoSlotRef.current;
+        const item = { url, ts: Date.now() };
+        if (typeof slot === 'number' && slot >= 0 && slot < photos.length) {
+          photos[slot] = { ...photos[slot], ...item };
+        } else {
+          photos.push(item);
+        }
+        return { ...prev, photos };
+      });
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  // ---------- Avatar capture (header circle) ----------
+  const avatarInputRef = useRef(null);
+
+  const openAvatarPicker = useCallback(() => {
+    if (avatarInputRef.current) {
+      avatarInputRef.current.value = '';
+      avatarInputRef.current.click();
+    }
+  }, []);
+
+  const handleAvatarChosen = useCallback((e) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result;
+      setConsultRecord((prev) => ({ ...prev, avatar: typeof url === 'string' ? url : null }));
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
   const [consultOpen, setConsultOpen] = useState(false);
   const [addServicesOpen, setAddServicesOpen] = useState(false);
   const [addProductsOpen, setAddProductsOpen] = useState(false);
-  const [hourlyRate, setHourlyRate] = useState(0);
-  const [consultRate, setConsultRate] = useState(0);
   const [rateEditOpen, setRateEditOpen] = useState(null);
-  const [svcQueue, setSvcQueue] = useState(() => {
-    const rest = SVC_PICK_INITIAL_REST_IDS.map((id) => MOCK_SERVICES.find((x) => x.id === id)).filter(Boolean);
-    return [
-      { ...SVC_HOURLY_BASE, price: 0, kind: 'hourly' },
-      { ...SVC_CONSULT_BASE, price: 0, kind: 'consult' },
-      ...rest,
-    ];
-  });
-  const [productQueue, setProductQueue] = useState([]);
+
+  // Per-appointment state (services / products / rates). Initialized from the
+  // appointment id passed via location.state — every appointment has its own
+  // unique queue. New (untracked) appointments start with an empty queue
+  // (Hourly + Consultation only, both at $0).
+  const initialApptState = useMemo(
+    () => getApptState(loadApptStateStore(), activeApt),
+    // We only read this once per apt id change. The effect below handles
+    // refreshing state when navigating between appointments.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const [hourlyRate, setHourlyRate] = useState(initialApptState.hourlyRate);
+  const [consultRate, setConsultRate] = useState(initialApptState.consultRate);
+  const [svcQueue, setSvcQueue] = useState(initialApptState.svcQueue);
+  const [productQueue, setProductQueue] = useState(initialApptState.productQueue);
+
+  // Reload per-appointment state whenever the active appointment id changes
+  // (e.g. user taps a different appointment in the Calendar without unmounting
+  // Screen2). Falls back to an empty queue for first-time appointments.
+  const apptKey = apptStateKey(activeApt);
+  useEffect(() => {
+    const rec = getApptState(loadApptStateStore(), activeApt);
+    setHourlyRate(rec.hourlyRate);
+    setConsultRate(rec.consultRate);
+    setSvcQueue(rec.svcQueue);
+    setProductQueue(rec.productQueue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apptKey]);
+
+  // Persist on any change (debounced) — but only when we have a key to persist
+  // against. Visiting Screen2 without an appointment shouldn't pollute storage.
+  useEffect(() => {
+    if (!apptKey) return undefined;
+    const handle = setTimeout(() => {
+      const store = loadApptStateStore();
+      store[apptKey] = {
+        svcQueue,
+        productQueue,
+        hourlyRate,
+        consultRate,
+        updatedAt: Date.now(),
+      };
+      saveApptStateStore(store);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [apptKey, svcQueue, productQueue, hourlyRate, consultRate]);
   const [dockOpen, setDockOpen] = useState(false);
   const [removeConfirm, setRemoveConfirm] = useState(null);
 
   const grabberTouch = useRef({ y: 0 });
   const navTouch = useRef({ x: 0, y: 0, skipFilmNav: false });
 
-  const initials = useMemo(() => CLIENT.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase(), []);
+  const initials = useMemo(
+    () =>
+      (activeClient.name || '')
+        .split(' ')
+        .filter(Boolean)
+        .map((w) => w[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase(),
+    [activeClient.name],
+  );
 
   const displaySvcQueue = useMemo(() => sortSvcQueueForDisplay(svcQueue), [svcQueue]);
 
@@ -239,7 +639,44 @@ export default function Screen2() {
 
       {/* AVATAR + IDENTITY */}
       <div className="s2-identity">
-        <div className="s2-avatar">{initials}</div>
+        <button
+          type="button"
+          className="s2-avatar"
+          onClick={openAvatarPicker}
+          aria-label={consultRecord.avatar ? 'Change client photo' : 'Add client photo'}
+        >
+          {consultRecord.avatar ? (
+            <img
+              src={consultRecord.avatar}
+              alt={`${activeClient.name} photo`}
+              className="s2-avatar__img"
+              draggable={false}
+            />
+          ) : (
+            <span className="s2-avatar__initials">{initials}</span>
+          )}
+        </button>
+        <input
+          ref={avatarInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          aria-hidden
+          tabIndex={-1}
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            border: 0,
+            clip: 'rect(0 0 0 0)',
+            overflow: 'hidden',
+            opacity: 0,
+            pointerEvents: 'none',
+          }}
+          onChange={handleAvatarChosen}
+        />
 
         <div className="s2-identityRow">
           <div className="s2-msgBadges" aria-label="Unread messages">
@@ -247,8 +684,10 @@ export default function Screen2() {
               💬<span className="s2-msgBadge__count">{META.msgCount}</span>
             </div>
           </div>
-          <div className="s2-clientName">{CLIENT.name}</div>
-          <div className="s2-clientPhone">{CLIENT.phone}</div>
+          <div className="s2-clientName">{activeClient.name}</div>
+          <div className="s2-clientPhone">
+            {activeClient.phone || (isNewClient ? 'New client' : '')}
+          </div>
           <button className="s2-kebabText" aria-label="More">⋮</button>
         </div>
 
@@ -281,8 +720,16 @@ export default function Screen2() {
           <button type="button" className="s2-card s2-card--v13 s2-consultCard" onClick={() => setConsultOpen(true)} aria-label="Open consultation">
             <div className="s2-royBand is-yellow" aria-hidden />
             <div className="s2-consultHeader">
-              <div className="s2-consultHeader__left">Last visit · {CONSULT.lastVisitShort} · {CONSULT.duration}</div>
-              <div className="s2-consultHeader__right">{CONSULT.noteTag} · {CONSULT.noteHint} note</div>
+              <div className="s2-consultHeader__left">
+                {activeApptInfo
+                  ? `Appointment · ${activeApptInfo.dateShort}${
+                      activeApptInfo.durationLabel ? ' · ' + activeApptInfo.durationLabel : ''
+                    }`
+                  : `Last visit · ${CONSULT.lastVisitShort} · ${CONSULT.duration}`}
+              </div>
+              <div className="s2-consultHeader__right">
+                {activeApptInfo?.service ? activeApptInfo.service : `${CONSULT.noteTag} · ${CONSULT.noteHint} note`}
+              </div>
             </div>
 
             <div className="s2-consultScroll">
@@ -290,15 +737,45 @@ export default function Screen2() {
                 <div key={p.key} className="s2-pane">
                   <div className={`s2-paneLabel ${p.colorClass}`}>{p.key}</div>
                   {p.key !== 'LOOK' ? (
-                    <div className="s2-paneContent">{p.text}</div>
+                    <div className="s2-paneContent">
+                      {(consultRecord[p.key] || '').trim() || p.text || ''}
+                    </div>
                   ) : (
                     <div className="s2-paneContent s2-lookStrip">
-                      {CONSULT.lookThumbs.map((t) => (
-                        <div key={t.label} className={`s2-lookThumb is-${t.tone}`}>
-                          <div className="s2-lookThumb__tag">{t.label}</div>
-                        </div>
-                      ))}
-                      <div className="s2-lookMore">+{CONSULT.lookExtraCount}</div>
+                      {(() => {
+                        const photos = Array.isArray(consultRecord.photos)
+                          ? consultRecord.photos
+                          : [];
+                        const tones = ['now', 'want', 'last'];
+                        const items = [0, 1, 2].map((i) => ({
+                          tone: tones[i],
+                          label: tones[i].toUpperCase(),
+                          url: photos[i]?.url || null,
+                        }));
+                        const extra = Math.max(0, photos.length - 3);
+                        return (
+                          <>
+                            {items.map((t) => (
+                              <div
+                                key={t.label}
+                                className={`s2-lookThumb is-${t.tone}`}
+                                style={
+                                  t.url
+                                    ? {
+                                        backgroundImage: `url(${t.url})`,
+                                        backgroundSize: 'cover',
+                                        backgroundPosition: 'center',
+                                      }
+                                    : undefined
+                                }
+                              >
+                                <div className="s2-lookThumb__tag">{t.label}</div>
+                              </div>
+                            ))}
+                            {extra > 0 ? <div className="s2-lookMore">+{extra}</div> : null}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -487,7 +964,7 @@ export default function Screen2() {
               <div className="s2-ctaIcon" aria-hidden>↻</div>
               <div className="s2-ctaLabel">Rebook</div>
             </button>
-            <button type="button" className="s2-cta is-checkout" onClick={() => navigate('/checkout')}>
+            <button type="button" className="s2-cta is-checkout" onClick={() => navigate('/climax')}>
               <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
               <div className="s2-ctaLabel">Check out</div>
             </button>
@@ -518,52 +995,215 @@ export default function Screen2() {
 
       {consultOpen ? (
         <div className="s2-popupOverlay" role="dialog" aria-modal="true" aria-label="Consultation overlay">
-          <button type="button" className="s2-popupBackdrop" aria-label="Close" onClick={() => setConsultOpen(false)} />
+          <button type="button" className="s2-popupBackdrop" aria-label="Close" onClick={() => { stopVoice(); setConsultOpen(false); }} />
           <div className="s2-popup">
             <div className="s2-popupTopbar">
-              <button type="button" className="s2-popupClose" aria-label="Close" onClick={() => setConsultOpen(false)}>×</button>
-              <div className="s2-popupTitle">{CLIENT.name.toUpperCase()}</div>
+              <button type="button" className="s2-popupClose" aria-label="Close" onClick={() => { stopVoice(); setConsultOpen(false); }}>×</button>
+              <div className="s2-popupTitle">{activeClientName.toUpperCase()}</div>
               <div className="s2-popupSpacer" aria-hidden />
             </div>
 
             <div className="s2-popupBody">
-              {CONSULT.panes.map((p) => (
-                <div key={p.key} className="s2-popPane">
-                  <div className="s2-popPaneHeader">
-                    <div className={`s2-popPaneLabel ${p.colorClass}`}>{p.key}</div>
-                    {p.key === 'LOOK' ? (
-                      <button type="button" className="s2-popCam is-look" aria-label="Capture photo">
-                        <Camera size={16} weight="fill" aria-hidden />
-                      </button>
+              {CONSULT.panes.map((p) => {
+                const isLook = p.key === 'LOOK';
+                return (
+                  <div key={p.key} className="s2-popPane">
+                    <div className="s2-popPaneHeader">
+                      <div className={`s2-popPaneLabel ${p.colorClass}`}>{p.key}</div>
+                      {isLook ? (
+                        <button
+                          type="button"
+                          className="s2-popCam is-look"
+                          aria-label="Capture photo"
+                          onClick={() => openPhotoPicker(null)}
+                        >
+                          <Camera size={16} weight="fill" aria-hidden />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`s2-popMic ${p.colorClass}`}
+                          aria-label={`Add new ${p.key} note`}
+                          onClick={() => openNoteEditor(p.key)}
+                        >
+                          <Microphone size={16} weight="fill" aria-hidden />
+                        </button>
+                      )}
+                    </div>
+
+                    {!isLook ? (
+                      (() => {
+                        const entries = consultRecord[p.key + '_entries'] || [];
+                        const fallback =
+                          (consultRecord[p.key] || '').trim() ||
+                          CONSULT_DEFAULT_TEXT[p.key] ||
+                          '';
+                        if (entries.length === 0) {
+                          // Render legacy / default seed text inside the same
+                          // scrollable container so the visual stays consistent.
+                          return (
+                            <div className="s2-popPaneContent s2-popPaneLog">
+                              <div className="s2-popPaneLogEntry">
+                                <div className="s2-popPaneLogText">{fallback}</div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="s2-popPaneContent s2-popPaneLog">
+                            {entries.map((entry, idx) => (
+                              <div
+                                key={`${entry.ts}-${idx}`}
+                                className={`s2-popPaneLogEntry${idx === 0 ? ' is-latest' : ''}`}
+                              >
+                                <div className="s2-popPaneLogStamp">{formatNoteStamp(entry.ts)}</div>
+                                <div className="s2-popPaneLogText">{entry.text}</div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()
                     ) : (
-                      <button type="button" className={`s2-popMic ${p.colorClass}`} aria-label={`Record to ${p.key}`}>
-                        <Microphone size={16} weight="fill" aria-hidden />
-                      </button>
+                      <div className="s2-popLook">
+                        <div className="s2-popLookGrid">
+                          {[0, 1, 2, 3, 4, 5].map((slotIx) => {
+                            const photo = consultRecord.photos?.[slotIx];
+                            const baseTone = ['is-now', 'is-want', 'is-last'][slotIx];
+                            if (photo?.url) {
+                              return (
+                                <button
+                                  key={slotIx}
+                                  type="button"
+                                  className="s2-popLookCell s2-popLookCell--photo"
+                                  aria-label={`Replace photo ${slotIx + 1}`}
+                                  onClick={() => openPhotoPicker(slotIx)}
+                                >
+                                  <img
+                                    src={photo.url}
+                                    alt={`Look ${['NOW', 'WANT', 'LAST'][slotIx] || slotIx + 1}`}
+                                    className="s2-popLookCell__img"
+                                    draggable={false}
+                                  />
+                                </button>
+                              );
+                            }
+                            if (slotIx < 3) {
+                              return (
+                                <button
+                                  key={slotIx}
+                                  type="button"
+                                  className={`s2-popLookCell ${baseTone}`}
+                                  aria-label={`Add ${['NOW', 'WANT', 'LAST'][slotIx]} photo`}
+                                  onClick={() => openPhotoPicker(slotIx)}
+                                />
+                              );
+                            }
+                            return (
+                              <button
+                                key={slotIx}
+                                type="button"
+                                className="s2-popLookCell is-add"
+                                aria-label="Add photo"
+                                onClick={() => openPhotoPicker(slotIx)}
+                              >
+                                + ADD
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="s2-popLookTags">
+                          <div className="s2-popLookTag">NOW</div>
+                          <div className="s2-popLookTag">WANT</div>
+                          <div className="s2-popLookTag">LAST</div>
+                        </div>
+                        <input
+                          ref={photoInputRef}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          aria-hidden
+                          tabIndex={-1}
+                          style={{
+                            position: 'absolute',
+                            width: 1,
+                            height: 1,
+                            padding: 0,
+                            margin: -1,
+                            border: 0,
+                            clip: 'rect(0 0 0 0)',
+                            overflow: 'hidden',
+                            opacity: 0,
+                            pointerEvents: 'none',
+                          }}
+                          onChange={handlePhotoChosen}
+                        />
+                      </div>
                     )}
                   </div>
-
-                  {p.key !== 'LOOK' ? (
-                    <div className="s2-popPaneContent">{p.text}</div>
-                  ) : (
-                    <div className="s2-popLook">
-                      <div className="s2-popLookGrid">
-                        <div className="s2-popLookCell is-now" />
-                        <div className="s2-popLookCell is-want" />
-                        <div className="s2-popLookCell is-last" />
-                        <div className="s2-popLookCell is-add">+ ADD</div>
-                        <div className="s2-popLookCell is-add">+ ADD</div>
-                        <div className="s2-popLookCell is-add">+ ADD</div>
-                      </div>
-                      <div className="s2-popLookTags">
-                        <div className="s2-popLookTag">NOW</div>
-                        <div className="s2-popLookTag">WANT</div>
-                        <div className="s2-popLookTag">LAST</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* New-note composer — opens when the mic on a pane is tapped */}
+      {noteEditOpen ? (
+        <div className="s2-noteOverlay" role="dialog" aria-modal="true" aria-label={`New ${noteEditOpen} note`}>
+          <button
+            type="button"
+            className="s2-noteBackdrop"
+            aria-label="Cancel"
+            onClick={cancelNoteDraft}
+          />
+          <div className="s2-noteSheet">
+            <header className="s2-noteHeader">
+              <div className={`s2-noteLabel ${
+                noteEditOpen === 'LIFE' ? 'is-pink'
+                : noteEditOpen === 'CHAIR' ? 'is-yellow'
+                : 'is-green'
+              }`}>{noteEditOpen}</div>
+              <div className="s2-noteTitle">New note</div>
+              <button
+                type="button"
+                className="s2-noteClose"
+                aria-label="Cancel"
+                onClick={cancelNoteDraft}
+              >
+                <X size={18} weight="regular" aria-hidden />
+              </button>
+            </header>
+
+            <div className="s2-noteBody">
+              <textarea
+                className="s2-noteInput"
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder={`Tap mic to dictate, or type a new ${noteEditOpen.toLowerCase()} note…`}
+                autoFocus
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                className={`s2-noteMic${recordingPane === noteEditOpen ? ' is-recording' : ''}`}
+                aria-label={recordingPane === noteEditOpen ? 'Stop dictation' : 'Start dictation'}
+                aria-pressed={recordingPane === noteEditOpen}
+                onClick={() => toggleVoice(noteEditOpen)}
+              >
+                <Microphone size={18} weight="fill" aria-hidden />
+              </button>
+            </div>
+
+            <footer className="s2-noteFooter">
+              <button
+                type="button"
+                className="s2-noteUpdate"
+                disabled={!noteDraft.trim()}
+                onClick={submitNoteDraft}
+              >
+                Update
+              </button>
+            </footer>
           </div>
         </div>
       ) : null}

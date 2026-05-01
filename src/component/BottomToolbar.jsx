@@ -5,7 +5,7 @@ import { Scissors, User, Lightning, CalendarBlank, X } from 'phosphor-react';
 const BOTTOM_TOOLBAR_ITEMS = [
   { Icon: Scissors, label: 'Stylist', to: '/screen1' },
   { Icon: User, label: 'Client details', to: '/screen2' },
-  { Icon: Lightning, label: 'Checkout', to: '/checkout' },
+  { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
   { Icon: X, label: 'Home', to: '/' },
 ];

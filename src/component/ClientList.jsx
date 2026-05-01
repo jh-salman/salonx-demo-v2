@@ -1,6 +1,12 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AppContext } from '../context/AppContext';
 import { useTimers } from '../context/TimersContext';
+import {
+  formatTimeShort,
+  isSameLocalDay,
+  useCalendarEvents,
+} from '../data/calendarEventsStore';
+import { MOCK_CLIENTS } from '../data/mockClients';
 import TimerModal from './TimerModal';
 
 const ACCENT = '#ff7819';
@@ -193,138 +199,37 @@ const ClientCard = ({
   );
 };
 
-const APPOINTMENTS = [
-  {
-    id: 'cristi',
-    name: 'Cristi Curls',
-    time: '8:00 AM – 9:10 AM',
-    service: 'Extension install',
-    payload: {
-      name: 'Cristi Curls',
-      service: 'Extension install',
-      price: 300,
-      consultationDate: '7.2.2025',
-      duration: '30 min',
-      notes:
-        'Redken shades EQ 7N. 7WB. No left developer.\n Next time use more 7N \n A Kool dude!!! \n Sister in law is pregnant and expecting twins. They just \n started rebuilding the cabin. Jennifer is going to FSU',
-      services: [
-        { name: 'Hair Gloss Treatment', price: 70 },
-        { name: 'Blonding Service', price: 120 },
-      ],
-      recommendations: [{ name: 'Blonding Service', price: 120 }],
-      homeCare: 'Use sulfate-free shampoo and conditioner. Apply hair mask weekly.',
-    },
-  },
-  {
-    id: 'jon',
-    name: 'Jon Klein',
-    time: '9:15 AM – 10:00 AM',
-    service: 'Full lived-in color',
-    payload: {
-      name: 'Jon Klein',
-      service: 'Full lived-in color',
-      price: 220,
-      consultationDate: '8.15.2025',
-      duration: '45 min',
-      notes:
-        'Redken shades EQ 7N. 7WB. No left developer.\nNext time use more 7N\nA Kool dude!!!\nSister in law is pregnant and expecting twins. They just\n started rebuilding the cabin. Jennifer is going to FSU',
-      services: [
-        { name: 'Balayage', price: 150 },
-        { name: 'Toner Application', price: 60 },
-      ],
-      recommendations: [{ name: 'Deep Conditioning Treatment', price: 50 }],
-      homeCare: [
-        { name: 'Rusk: Rusk COLORxConditioner', price: 25, img: './img1.png' },
-        { name: 'Rusk: Rusk VHAB Shampoo', price: 30, img: './img2.png' },
-      ],
-    },
-  },
-  {
-    id: 'joe',
-    name: 'Joe Styles',
-    time: '10:15 AM – 10:55 AM',
-    service: 'Men’s haircut and color',
-    initialState: { kind: 'completed' },
-    payload: {
-      name: 'Joe Styles',
-      service: 'Men’s haircut and color',
-      price: 125,
-      consultationDate: '9.5.2025',
-      duration: '40 min',
-      notes:
-        'Used Redken for men’s color.\nTrimmed sides and blended top.\nClient prefers natural look.',
-      services: [
-        { name: 'Haircut', price: 60 },
-        { name: 'Color Touch-up', price: 65 },
-      ],
-      recommendations: [{ name: 'Scalp Treatment', price: 40 }],
-      homeCare: 'Use moisturizing shampoo. Avoid heavy styling products.',
-    },
-  },
-  {
-    id: 'nita',
-    name: 'Nita Haredoo',
-    time: '11:00 AM – 11:45 AM',
-    service: 'Extensions and color consultation',
-  },
-  {
-    id: 'sara',
-    name: 'Sara Bloom',
-    time: '12:00 PM – 1:00 PM',
-    service: 'Partial highlights',
-    payload: {
-      name: 'Sara Bloom',
-      service: 'Partial highlights',
-      price: 185,
-      consultationDate: '10.4.2025',
-      duration: '60 min',
-      notes: 'Wheat-blonde balayage maintenance.\nAvoid going lighter at temples.',
-      services: [
-        { name: 'Partial Highlights', price: 130 },
-        { name: 'Toner', price: 55 },
-      ],
-      recommendations: [{ name: 'Bond Repair', price: 40 }],
-      homeCare: 'Use violet shampoo 1× per week.',
-    },
-  },
-  {
-    id: 'mark',
-    name: 'Mark Rivera',
-    time: '1:15 PM – 1:45 PM',
-    service: 'Beard sculpt + cut',
-    payload: {
-      name: 'Mark Rivera',
-      service: 'Beard sculpt + cut',
-      price: 55,
-      consultationDate: '10.18.2025',
-      duration: '30 min',
-      notes: 'Keep #2 fade on sides, scissor crown.\nHot towel + balm.',
-      services: [
-        { name: "Men's Cut", price: 35 },
-        { name: 'Beard Trim', price: 20 },
-      ],
-      recommendations: [],
-      homeCare: 'Beard oil 2× daily.',
-    },
-  },
-  {
-    id: 'ava',
-    name: 'Ava Chen',
-    time: '2:00 PM – 3:15 PM',
-    service: 'Bridal trial',
-    payload: {
-      name: 'Ava Chen',
-      service: 'Bridal trial',
-      price: 150,
-      consultationDate: '11.2.2025',
-      duration: '75 min',
-      notes: 'Soft updo, off-center part. Reference photo on file.',
-      services: [{ name: 'Bridal Trial', price: 150 }],
-      recommendations: [{ name: 'Day-of Bridal Hair', price: 200 }],
-      homeCare: 'Avoid heavy styling night before.',
-    },
-  },
-];
+// ClientList renders the appointments scheduled for *today*, sourced from the
+// Calendar screen's events store (the single source of truth for all
+// appointment data across the app). When the user adds, moves, cancels, or
+// resizes an appointment in Calendar, the persisted store dispatches a
+// "salonx:calendar-updated" event and this list re-renders automatically.
+
+function buildPayloadFromEvent(ev) {
+  if (!ev) return null;
+  const target = (ev.clientName || '').toLowerCase();
+  const knownClient = MOCK_CLIENTS.find(
+    (c) => (c.name || '').toLowerCase() === target,
+  );
+  const durationMin = Math.max(
+    0,
+    Math.round((ev.end.getTime() - ev.start.getTime()) / 60000),
+  );
+  const consultationDate = `${ev.start.getMonth() + 1}.${ev.start.getDate()}.${ev.start.getFullYear()}`;
+  return {
+    name: ev.clientName || '',
+    service: ev.service || '',
+    price: typeof ev.price === 'number' ? ev.price : 0,
+    consultationDate,
+    duration: durationMin ? `${durationMin} min` : '',
+    notes: ev.notes || '',
+    phone: knownClient?.phone || '',
+    email: knownClient?.email || '',
+    services: [],
+    recommendations: [],
+    homeCare: '',
+  };
+}
 
 const ClientList = () => {
   const wrapperStyle = {
@@ -335,17 +240,23 @@ const ClientList = () => {
 
   const { setSelectedClientData } = useContext(AppContext);
   const { timers, setTimer, clearTimer } = useTimers();
+  const calendarEvents = useCalendarEvents();
 
-  // Seed any "initialState" markers (e.g., Joe Styles starts as 'completed')
-  // into the global timers store on first render — only if not already set.
-  useEffect(() => {
-    APPOINTMENTS.forEach((a) => {
-      if (a.initialState && !timers[a.name]) {
-        setTimer(a.name, a.initialState);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Derive today's appointments from the Calendar event store. Sorted by start
+  // time so the list matches the calendar day view top-to-bottom.
+  const todaysAppointments = useMemo(() => {
+    const today = new Date();
+    return calendarEvents
+      .filter((ev) => isSameLocalDay(ev.start, today))
+      .sort((a, b) => a.start.getTime() - b.start.getTime())
+      .map((ev) => ({
+        id: ev.id,
+        name: ev.clientName || '',
+        time: `${formatTimeShort(ev.start)} – ${formatTimeShort(ev.end)}`,
+        service: ev.service || '',
+        payload: buildPayloadFromEvent(ev),
+      }));
+  }, [calendarEvents]);
 
   const [now, setNow] = useState(() => Date.now());
   const [modalForName, setModalForName] = useState(null);
@@ -438,12 +349,12 @@ const ClientList = () => {
     clearTimer(modalForName);
   }, [modalForName, clearTimer]);
 
-  const activeAppointment = APPOINTMENTS.find((a) => a.name === modalForName);
+  const activeAppointment = todaysAppointments.find((a) => a.name === modalForName);
   const activeRunningState = modalForName ? liveTimers[modalForName] : null;
 
   return (
     <div style={wrapperStyle}>
-      {APPOINTMENTS.map((a) => (
+      {todaysAppointments.map((a) => (
         <ClientCard
           key={a.id}
           cardId={a.name}
@@ -459,7 +370,7 @@ const ClientList = () => {
 
       <TimerModal
         open={modalForName !== null}
-        clientName={activeAppointment?.name || ''}
+        clientName={activeAppointment?.name || modalForName || ''}
         runningState={activeRunningState}
         onClose={() => setModalForName(null)}
         onStartTimer={handleStartTimer}

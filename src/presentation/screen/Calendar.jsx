@@ -17,7 +17,7 @@ import {
 } from "date-fns";
 import { Bell, ClipboardText, PencilSimpleLine, Plus, UserList, X } from "phosphor-react";
 import BottomToolbar from "../../component/BottomToolbar";
-import { useRunningTimers } from "../../context/TimersContext";
+import { useRunningTimers, useTimers } from "../../context/TimersContext";
 import {
   NewCustomerScreen,
   NewServiceScreen,
@@ -78,40 +78,48 @@ const initialToolbarEvents = [
   { id: "wl-6", title: "Zara Khan", waitlistAddedAt: new Date(2026, 3, 7, 9, 5), service: "Bridal Trial", color: "#FA1BFE" },
 ];
 
-const initialMockAppointments = [
-  {
-    id: "ev-1",
-    clientName: "Cristi Curls",
-    service: "Extension Install",
-    start: new Date(2025, 6, 28, 10, 0),
-    end: new Date(2025, 6, 28, 11, 0),
-    color: "pink",
-  },
-  {
-    id: "ev-2",
-    clientName: "Jon Klein",
-    service: "Full lived-in colour",
-    start: new Date(2025, 6, 28, 10, 30),
-    end: new Date(2025, 6, 28, 11, 15),
-    color: "blue",
-  },
-  {
-    id: "ev-3",
-    clientName: "Joe Styles",
-    service: "Men's haircut & color",
-    start: new Date(2025, 6, 28, 12, 45),
-    end: new Date(2025, 6, 28, 13, 45),
-    color: "gray",
-  },
-  {
-    id: "ev-4",
-    clientName: "Nita Haredoo",
-    service: "Extensions and colour",
-    start: new Date(2025, 6, 28, 15, 30),
-    end: new Date(2025, 6, 28, 16, 0),
-    color: "green",
-  },
-];
+// Seeded appointments are anchored to *today* so first-time users immediately
+// see the Calendar and Stylist screens populated with example data. Existing
+// users keep their persisted events untouched (this seed only runs when no
+// localStorage state exists yet).
+function buildInitialMockAppointments() {
+  const t = new Date();
+  const at = (h, m) => new Date(t.getFullYear(), t.getMonth(), t.getDate(), h, m);
+  return [
+    {
+      id: "ev-1",
+      clientName: "Cristi Curls",
+      service: "Extension Install",
+      start: at(10, 0),
+      end: at(11, 0),
+      color: "pink",
+    },
+    {
+      id: "ev-2",
+      clientName: "Jon Klein",
+      service: "Full lived-in colour",
+      start: at(10, 30),
+      end: at(11, 15),
+      color: "blue",
+    },
+    {
+      id: "ev-3",
+      clientName: "Joe Styles",
+      service: "Men's haircut & color",
+      start: at(12, 45),
+      end: at(13, 45),
+      color: "gray",
+    },
+    {
+      id: "ev-4",
+      clientName: "Nita Haredoo",
+      service: "Extensions and colour",
+      start: at(15, 30),
+      end: at(16, 0),
+      color: "green",
+    },
+  ];
+}
 
 function minutesSinceStart(d) {
   return (d.getHours() - DAY_START_HOUR) * 60 + d.getMinutes();
@@ -321,6 +329,13 @@ function persistCalendar(state) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(CALENDAR_STORAGE_KEY, serializeCalendarState(state));
+    // Notify in-tab subscribers (Stylist screen, etc.) since `storage` events
+    // do not fire for same-tab writes.
+    try {
+      window.dispatchEvent(new CustomEvent("salonx:calendar-updated"));
+    } catch {
+      // ignore environments without CustomEvent
+    }
   } catch (err) {
     console.warn("[Calendar] failed to persist state", err);
   }
@@ -329,14 +344,20 @@ function persistCalendar(state) {
 export default function CalendarScreenWeb() {
   const persisted = useMemo(() => loadPersistedCalendar(), []);
   const runningTimers = useRunningTimers();
+  const { clearTimer } = useTimers();
   const navigate = useNavigate();
 
   // Tap dispatcher — distinguish single (→ client details) from double (→ modify modal)
   const tapRef = useRef({ aptId: null, lastTapTs: 0, pendingTimer: null });
 
   const [viewMode, setViewMode] = useState("day");
-  const [currentDate, setCurrentDate] = useState(() => new Date(2025, 6, 28));
-  const [events, setEvents] = useState(() => persisted?.events || initialMockAppointments);
+  const [currentDate, setCurrentDate] = useState(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  });
+  const [events, setEvents] = useState(
+    () => persisted?.events || buildInitialMockAppointments(),
+  );
   const [now, setNow] = useState(() => new Date());
 
   // Customer + service catalog state (mutable; new entries appended)
@@ -798,6 +819,11 @@ export default function CalendarScreenWeb() {
           durationMinutes,
         },
       ]);
+      // Reset the running/completed timer for this client when parked — the
+      // appointment is no longer on the schedule, so any in-flight timer or
+      // "completed" indicator should be cleared. The timer can be set again
+      // when (and if) the appointment is un-parked back to a slot.
+      if (apt.clientName) clearTimer(apt.clientName);
       clientName = apt.clientName || "";
       action = "parked";
     } else if (moveConfirm.kind === "move" || moveConfirm.kind === "resize") {
@@ -1487,6 +1513,8 @@ export default function CalendarScreenWeb() {
     (e) => {
       if (viewMode === "month") return;
       if (swipeAnim) return;
+      // Only accept primary mouse / touch / pen — ignore secondary buttons
+      if (e.pointerType === "mouse" && e.button !== 0) return;
       if (
         e.target &&
         e.target.closest &&
@@ -1502,9 +1530,38 @@ export default function CalendarScreenWeb() {
         ts: Date.now(),
         active: true,
         pointerId: e.pointerId ?? null,
+        captureEl: e.currentTarget || null,
       };
     },
     [swipeAnim, viewMode],
+  );
+
+  // PointerMove: once horizontal intent is clear, capture the pointer so the
+  // pointerup is guaranteed to fire on this element even if the gesture
+  // continues over scrolling children. Without this, mobile browsers can
+  // hand off the gesture to the inner scroll container and pointerup never
+  // arrives at our handler.
+  const handleSwipePointerMove = useCallback(
+    (e) => {
+      const ref = swipeRef.current;
+      if (!ref.active || swipeAnim) return;
+      if (ref.pointerId != null && e.pointerId !== ref.pointerId) return;
+      const dx = e.clientX - ref.x;
+      const dy = e.clientY - ref.y;
+      // If user moved meaningfully horizontal & not strongly vertical, lock pointer
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) && !ref.captured) {
+        const el = ref.captureEl;
+        if (el && typeof el.setPointerCapture === "function") {
+          try {
+            el.setPointerCapture(e.pointerId);
+            ref.captured = true;
+          } catch {
+            // ignore — capture may fail on some browsers
+          }
+        }
+      }
+    },
+    [swipeAnim],
   );
 
   const handleSwipePointerUp = useCallback(
@@ -1519,18 +1576,39 @@ export default function CalendarScreenWeb() {
       ) {
         return;
       }
+      // Release capture if we had taken it
+      if (ref.captured && ref.captureEl) {
+        try {
+          ref.captureEl.releasePointerCapture(e.pointerId);
+        } catch {
+          /* noop */
+        }
+      }
       const dx = e.clientX - ref.x;
       const dy = e.clientY - ref.y;
       const dt = Date.now() - ref.ts;
       swipeRef.current.active = false;
-      if (Math.abs(dx) < 50 || Math.abs(dy) > 80 || dt > 1000) return;
+      // Touch-friendly thresholds: 40px horizontal, allow up to 90px vertical
+      // drift, generous 1.2s window so slow swipes still register on mobile.
+      if (Math.abs(dx) < 40 || Math.abs(dy) > 90 || dt > 1200) return;
+      // Require horizontal dominance (dx more than 1.4× dy) so vertical scroll
+      // intents don't accidentally trigger a day change.
+      if (Math.abs(dx) < Math.abs(dy) * 1.4) return;
       beginSwipeNav(dx > 0 ? "prev" : "next");
     },
     [beginSwipeNav, swipeAnim, viewMode],
   );
 
-  const handleSwipePointerCancel = useCallback(() => {
-    swipeRef.current.active = false;
+  const handleSwipePointerCancel = useCallback((e) => {
+    const ref = swipeRef.current;
+    if (ref.captured && ref.captureEl) {
+      try {
+        ref.captureEl.releasePointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+    }
+    swipeRef.current = { x: 0, y: 0, ts: 0, active: false, pointerId: null };
   }, []);
 
   // Save handler from NewAppt overlay
@@ -1608,7 +1686,7 @@ export default function CalendarScreenWeb() {
 
   return (
     <div className="cal-root">
-      <CalendarDecorations date={currentDate} />
+      <CalendarDecorations />
       <div className="cal-header">
         <div className="cal-tabs" role="tablist" aria-label="Calendar view">
           <button className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`} onClick={() => setViewMode("day")}>
@@ -1909,6 +1987,7 @@ export default function CalendarScreenWeb() {
                 swipeAnim ? " is-swiping" : ""
               }`}
               onPointerDown={handleSwipePointerDown}
+              onPointerMove={handleSwipePointerMove}
               onPointerUp={handleSwipePointerUp}
               onPointerCancel={handleSwipePointerCancel}
             >
@@ -2868,11 +2947,15 @@ function ConflictResolverModal({ item, onPick, onSkip, onCancelAll }) {
 
 // ---------- Phase 4 — Decorative right-side date stamp + soft accents ----------
 
-function CalendarDecorations({ date }) {
+// The right-side date stamp is fixed to *today's* actual date — it does not
+// follow the navigated date in the calendar header. Acts as a permanent
+// "today" reference regardless of what the user is browsing.
+function CalendarDecorations() {
+  const today = new Date();
   return (
     <div className="cal-deco cal-deco--rightStamp" aria-hidden>
-      <div className="cal-deco__stampDow">{format(date, "EEE")}</div>
-      <div className="cal-deco__stampNum">{format(date, "d")}</div>
+      <div className="cal-deco__stampDow">{format(today, "EEE")}</div>
+      <div className="cal-deco__stampNum">{format(today, "d")}</div>
     </div>
   );
 }
