@@ -1,12 +1,15 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { AppContext } from '../context/AppContext';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTimers } from '../context/TimersContext';
+import {
+  buildAptNavPayload,
+  writePersistedScreen2Apt,
+} from '../data/appointmentStateStore';
 import {
   formatTimeShort,
   isSameLocalDay,
   useCalendarEvents,
 } from '../data/calendarEventsStore';
-import { MOCK_CLIENTS } from '../data/mockClients';
 import TimerModal from './TimerModal';
 
 const ACCENT = '#ff7819';
@@ -204,32 +207,12 @@ const ClientCard = ({
 // appointment data across the app). When the user adds, moves, cancels, or
 // resizes an appointment in Calendar, the persisted store dispatches a
 // "salonx:calendar-updated" event and this list re-renders automatically.
-
-function buildPayloadFromEvent(ev) {
-  if (!ev) return null;
-  const target = (ev.clientName || '').toLowerCase();
-  const knownClient = MOCK_CLIENTS.find(
-    (c) => (c.name || '').toLowerCase() === target,
-  );
-  const durationMin = Math.max(
-    0,
-    Math.round((ev.end.getTime() - ev.start.getTime()) / 60000),
-  );
-  const consultationDate = `${ev.start.getMonth() + 1}.${ev.start.getDate()}.${ev.start.getFullYear()}`;
-  return {
-    name: ev.clientName || '',
-    service: ev.service || '',
-    price: typeof ev.price === 'number' ? ev.price : 0,
-    consultationDate,
-    duration: durationMin ? `${durationMin} min` : '',
-    notes: ev.notes || '',
-    phone: knownClient?.phone || '',
-    email: knownClient?.email || '',
-    services: [],
-    recommendations: [],
-    homeCare: '',
-  };
-}
+//
+// Tapping a card navigates to Screen2 (client details) for *that* appointment.
+// The same `apt` payload is also stashed in sessionStorage so a full refresh
+// (which drops `location.state`) still resumes the correct appointment.
+// Screen2 -> Climax then propagates the apt so checkout reads the per-
+// appointment service / product queue from `appointmentStateStore`.
 
 const ClientList = () => {
   const wrapperStyle = {
@@ -238,12 +221,13 @@ const ClientList = () => {
     boxSizing: 'border-box',
   };
 
-  const { setSelectedClientData } = useContext(AppContext);
+  const navigate = useNavigate();
   const { timers, setTimer, clearTimer } = useTimers();
   const calendarEvents = useCalendarEvents();
 
   // Derive today's appointments from the Calendar event store. Sorted by start
-  // time so the list matches the calendar day view top-to-bottom.
+  // time so the list matches the calendar day view top-to-bottom. The full
+  // event is stashed on each row so card tap can hand it to Screen2 verbatim.
   const todaysAppointments = useMemo(() => {
     const today = new Date();
     return calendarEvents
@@ -254,7 +238,7 @@ const ClientList = () => {
         name: ev.clientName || '',
         time: `${formatTimeShort(ev.start)} – ${formatTimeShort(ev.end)}`,
         service: ev.service || '',
-        payload: buildPayloadFromEvent(ev),
+        apt: buildAptNavPayload(ev),
       }));
   }, [calendarEvents]);
 
@@ -300,10 +284,14 @@ const ClientList = () => {
   }, [liveTimers, timers, setTimer]);
 
   const handleClientClick = useCallback(
-    (clientData) => {
-      setSelectedClientData({ ...clientData, color: ACCENT });
+    (apt) => {
+      if (!apt) return;
+      // Persist for refresh-survival (Screen2 reads it back if `state` is gone),
+      // including the origin so Screen2's Back button returns to Stylist.
+      writePersistedScreen2Apt(apt, '/screen1');
+      navigate('/screen2', { state: { apt, from: '/screen1' } });
     },
-    [setSelectedClientData],
+    [navigate],
   );
 
   const handleTimerBoxClick = useCallback((name) => {
@@ -364,7 +352,7 @@ const ClientList = () => {
           isActive
           timerState={liveTimers[a.name]}
           onTimerBoxClick={handleTimerBoxClick}
-          onCardClick={a.payload ? () => handleClientClick(a.payload) : undefined}
+          onCardClick={a.apt ? () => handleClientClick(a.apt) : undefined}
         />
       ))}
 

@@ -6,6 +6,7 @@ import Screen3 from "../presentation/screen/Screen3";
 import Climax from "../presentation/screen/Climax";
 import Calendar from "../presentation/screen/Calendar";
 import CheckOut from "../presentation/screen/CheckOut";
+import Clients from "../presentation/screen/Clients";
 
 
 export const router = createBrowserRouter([
@@ -36,6 +37,10 @@ export const router = createBrowserRouter([
   {
     path:"/checkout",
     element:<CheckOut />
+  },
+  {
+    path:"/clients",
+    element:<Clients />
   }
   
 ]);

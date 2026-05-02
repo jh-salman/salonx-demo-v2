@@ -59,6 +59,21 @@
   flex: 0 1 auto;
   overflow: auto;
   padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.climax-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.climax-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.climax-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+.climax-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .climax-footer {
@@ -330,4 +345,124 @@
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.92);
   font-weight: 600;
+}
+
+/* ─── Hourly / Consultation rate-edit popup ──────────────────────────────
+   Sits ABOVE the regular climax-modal stack (z-index 60 vs 50) so it
+   layers on top of the Add-service catalog popup. */
+.climax-rateEdit {
+  z-index: 60;
+}
+.climax-rateEdit__panel {
+  width: min(320px, 90vw);
+  text-align: center;
+}
+.climax-rateEdit__body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.climax-rateEdit__big {
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--climax-accent);
+  text-shadow: 0 2px 12px rgba(255, 120, 25, 0.25);
+}
+.climax-rateEdit__suffix {
+  margin-left: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  opacity: 0.75;
+  color: rgba(255, 255, 255, 0.85);
+}
+.climax-rateEdit__slider {
+  --rate-fill: 0%;
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  height: 26px;
+  margin: 0;
+}
+.climax-rateEdit__slider:focus {
+  outline: none;
+}
+.climax-rateEdit__slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--climax-accent) 0%,
+    var(--climax-accent) var(--rate-fill),
+    rgba(255, 255, 255, 0.18) var(--rate-fill),
+    rgba(255, 255, 255, 0.18) 100%
+  );
+}
+.climax-rateEdit__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  margin-top: -7px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid var(--climax-accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+.climax-rateEdit__slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.climax-rateEdit__slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--climax-accent);
+}
+.climax-rateEdit__slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid var(--climax-accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+.climax-rateEdit__field {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.22);
+}
+.climax-rateEdit__fieldLabel {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+.climax-rateEdit__input {
+  flex: 1 1 auto;
+  width: 100%;
+  text-align: right;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.climax-rateEdit__input::-webkit-outer-spin-button,
+.climax-rateEdit__input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

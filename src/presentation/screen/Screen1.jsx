@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react'
+import React, { useContext, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { Scissors, User, Lightning, CalendarBlank, X } from 'phosphor-react';
 import CurvedLine from '../../component/CurvedLine'
@@ -10,13 +10,22 @@ import SetTimmer from '../../component/SetTimmer';
 import WaitingList from '../../component/WaitingList';
 import DynamicDate from '../../component/DynamicDate';
 import TopStats from '../../component/TopStats';
+import {
+  buildAptNavPayload,
+  readPersistedScreen2Apt,
+} from '../../data/appointmentStateStore';
+import {
+  isSameLocalDay,
+  useCalendarEvents,
+} from '../../data/calendarEventsStore';
 import '../style/screen1.css';
 
 const SCREEN1_ACTIVE = 0;
 const SCREEN1_TOOLBAR_ITEMS = [
   { Icon: Scissors, label: 'Stylist', to: '/screen1' },
-  { Icon: User, label: 'Client details', to: '/screen2' },
-  { Icon: Lightning, label: 'Checkout', to: '/checkout' },
+  // Profile icon → Clients picker (selects a client → Screen2 details).
+  { Icon: User, label: 'Clients', to: '/clients' },
+  { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
   { Icon: X, label: 'Home', to: '/' },
 ];
@@ -24,10 +33,26 @@ const SCREEN1_TOOLBAR_ITEMS = [
 
 function Screen1() {
     const navigate = useNavigate();
+    const calendarEvents = useCalendarEvents();
     const {
         selectSlider,
         isTimer,
     } = useContext(AppContext);
+
+    // Resolve the appointment the bottom-toolbar buttons should hand off to
+    // Client Details / Checkout / Calendar:
+    //   1. session-restored (last apt the user opened)
+    //   2. earliest of today's appointments
+    // Anything still null just navigates without context (legacy behavior).
+    const toolbarApt = useMemo(() => {
+      const session = readPersistedScreen2Apt();
+      if (session) return session;
+      const today = new Date();
+      const todays = calendarEvents
+        .filter((ev) => isSameLocalDay(ev.start, today))
+        .sort((a, b) => a.start.getTime() - b.start.getTime());
+      return todays.length ? buildAptNavPayload(todays[0]) : null;
+    }, [calendarEvents]);
 
     return (
         <div className="screen1-container">
@@ -83,7 +108,18 @@ function Screen1() {
                                         className={`screen1-toolbar__btn${isActive ? ' screen1-toolbar__btn--solid' : ''}`}
                                         aria-label={label}
                                         aria-current={isActive ? 'page' : undefined}
-                                        onClick={() => navigate(to)}
+                                        onClick={() => {
+                                            if (to === '/clients') {
+                                                navigate(to, { state: { from: '/screen1' } });
+                                                return;
+                                            }
+                                            navigate(
+                                                to,
+                                                toolbarApt && (to === '/screen2' || to === '/climax')
+                                                    ? { state: { apt: toolbarApt } }
+                                                    : undefined,
+                                            );
+                                        }}
                                     >
                                         <Icon
                                             size={isActive ? 26 : 24}

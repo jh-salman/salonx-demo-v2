@@ -4,7 +4,9 @@ import { Scissors, User, Lightning, CalendarBlank, X } from 'phosphor-react';
 
 const BOTTOM_TOOLBAR_ITEMS = [
   { Icon: Scissors, label: 'Stylist', to: '/screen1' },
-  { Icon: User, label: 'Client details', to: '/screen2' },
+  // Profile icon now opens the Clients picker; tapping a client there forwards
+  // to Screen2 with the proper apt payload.
+  { Icon: User, label: 'Clients', to: '/clients' },
   { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
   { Icon: X, label: 'Home', to: '/' },
@@ -40,7 +42,11 @@ const buttonBase = {
   WebkitTapHighlightColor: 'transparent',
 };
 
-function BottomToolbar({ activeIndex = -1, style }) {
+// `originPath` is the route the consuming screen lives on. When the toolbar
+// navigates to a screen that needs to know where the user came from (e.g. the
+// Clients picker uses it to decide what its X button should close back to), we
+// forward `state: { from: originPath }`.
+function BottomToolbar({ activeIndex = -1, style, originPath }) {
   const navigate = useNavigate();
   return (
     <div style={{ ...wrapperStyle, ...style }} role="toolbar" aria-label="Screen toolbar">
@@ -52,7 +58,13 @@ function BottomToolbar({ activeIndex = -1, style }) {
             type="button"
             aria-label={label}
             aria-current={isActive ? 'page' : undefined}
-            onClick={() => navigate(to)}
+            onClick={() => {
+              if (to === '/clients' && originPath) {
+                navigate(to, { state: { from: originPath } });
+                return;
+              }
+              navigate(to);
+            }}
             style={{
               ...buttonBase,
               opacity: isActive ? 1 : 0.48,

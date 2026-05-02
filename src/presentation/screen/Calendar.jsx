@@ -704,7 +704,8 @@ export default function CalendarScreenWeb() {
           tapRef.current.pendingTimer = setTimeout(() => {
             tapRef.current.aptId = null;
             tapRef.current.pendingTimer = null;
-            navigate("/screen2", { state: { apt } });
+            // `from` lets Screen2's top-left Back button return to Calendar
+            navigate("/screen2", { state: { apt, from: "/calendar" } });
           }, DOUBLE_TAP_MS);
         }
         return;
@@ -2511,7 +2512,7 @@ export default function CalendarScreenWeb() {
         />
       ) : null}
 
-      <BottomToolbar activeIndex={3} />
+      <BottomToolbar activeIndex={3} originPath="/calendar" />
     </div>
   );
 }

@@ -5,7 +5,8 @@ import { Scissors, User, Lightning, CalendarBlank, X } from 'phosphor-react';
 const CHECKOUT_ACTIVE = 2;
 const CHECKOUT_TOOLBAR_ITEMS = [
     { Icon: Scissors, label: 'Stylist', to: '/screen1' },
-    { Icon: User, label: 'Client details', to: '/screen2' },
+    // Profile icon → Clients picker.
+    { Icon: User, label: 'Clients', to: '/clients' },
     { Icon: Lightning, label: 'Checkout', to: '/checkout' },
     { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
     { Icon: X, label: 'Home', to: '/' },

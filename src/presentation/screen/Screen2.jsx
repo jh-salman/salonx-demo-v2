@@ -17,6 +17,18 @@ import {
 import { MOCK_CLIENTS } from '../../data/mockClients';
 import { MOCK_PRODUCTS } from '../../data/mockProducts';
 import { MOCK_SERVICES } from '../../data/mockServices';
+import {
+  apptStateKey,
+  buildAptNavPayload,
+  getApptState,
+  loadApptStateStore,
+  readPersistedScreen2Apt,
+  readPersistedScreen2From,
+  saveApptStateStore,
+  SVC_CONSULT_BASE,
+  SVC_HOURLY_BASE,
+  writePersistedScreen2Apt,
+} from '../../data/appointmentStateStore';
 import './s2.css';
 import './consultationBrief.css';
 
@@ -26,7 +38,9 @@ const S2_ICON_TOOLBAR_ACTIVE = 26;
 const TOOLBAR_ACTIVE = 1;
 const TOOLBAR_ITEMS = [
   { Icon: Scissors, label: 'Stylist', to: '/screen1' },
-  { Icon: User, label: 'Client details', to: '/screen2' },
+  // Profile icon → Clients picker. Marked active on Screen2 since this screen
+  // is the "client" half of the Profile flow.
+  { Icon: User, label: 'Clients', to: '/clients' },
   { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
   { Icon: X, label: 'Home', to: '/' },
@@ -63,9 +77,6 @@ const CONSULT = {
 /** Adjustable dollar fields: $0–$310, $1 steps (hourly + consultation use same slider pattern) */
 const ADJ_RATE_MIN = 0;
 const ADJ_RATE_MAX = 310;
-
-const SVC_HOURLY_BASE = { id: 'SVC-HOURLY', name: 'Hourly (stylist rate)', kind: 'hourly' };
-const SVC_CONSULT_BASE = { id: 'SVC-CONSULT', name: 'Consultation', kind: 'consult' };
 
 function clampAdjustableRate(n) {
   const v = Math.round(Number(n));
@@ -219,29 +230,10 @@ function clientKey(name) {
   return (name || '').trim().toLowerCase();
 }
 
-/** React Router drops `location.state` on full page refresh — keep last apt in-session so LOOK photos / consult load the right client. */
-const SCREEN2_APT_SESSION_KEY = '@salonx/screen2LastApt/v1';
+// React Router drops `location.state` on full page refresh — Screen2 falls back
+// to `readPersistedScreen2Apt()` (sessionStorage) so LOOK photos / consult /
+// per-appointment service+product queues all stay tied to the right appointment.
 
-function readPersistedScreen2Apt() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = sessionStorage.getItem(SCREEN2_APT_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && parsed.apt ? parsed.apt : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-function writePersistedScreen2Apt(apt) {
-  if (typeof window === 'undefined' || !apt) return;
-  try {
-    sessionStorage.setItem(SCREEN2_APT_SESSION_KEY, JSON.stringify({ apt }));
-  } catch (_) {
-    /* noop */
-  }
-}
 // Each pane (LIFE/CHAIR/PATH) stores a chronological log of notes — newest
 // entry first. The legacy single-string field (e.g. `rec.LIFE`) is kept for
 // backward compatibility and migrated into the entries array on first read.
@@ -348,52 +340,8 @@ function loadServiceCatalogFromCalendarStorage() {
   }
 }
 
-// ---------- Per-appointment services/products persistence ----------
-// Each appointment has its own unique services + products + rate state, keyed
-// by the appointment id from the Calendar event store. Nothing is shared
-// between appointments — every appointment starts with an empty queue.
-const APPT_STATE_STORAGE_KEY = '@salonx/appointmentState/v1';
-
-function loadApptStateStore() {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(APPT_STATE_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch (_) {
-    return {};
-  }
-}
-function saveApptStateStore(store) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(APPT_STATE_STORAGE_KEY, JSON.stringify(store));
-  } catch (_) {
-    /* noop */
-  }
-}
-function apptStateKey(apt) {
-  if (!apt) return '';
-  if (apt.id) return String(apt.id);
-  // Fallback for legacy nav payloads without an id
-  const start = apt.start ? new Date(apt.start).getTime() : '';
-  return `${(apt.clientName || '').toLowerCase()}|${start}`;
-}
-function makeEmptySvcQueue() {
-  return [
-    { ...SVC_HOURLY_BASE, price: 0, kind: 'hourly' },
-    { ...SVC_CONSULT_BASE, price: 0, kind: 'consult' },
-  ];
-}
-function getApptState(store, apt) {
-  const key = apptStateKey(apt);
-  const rec = (key && store[key]) || {};
-  return {
-    svcQueue: Array.isArray(rec.svcQueue) && rec.svcQueue.length ? rec.svcQueue : makeEmptySvcQueue(),
-    productQueue: Array.isArray(rec.productQueue) ? rec.productQueue : [],
-    hourlyRate: typeof rec.hourlyRate === 'number' ? rec.hourlyRate : 0,
-    consultRate: typeof rec.consultRate === 'number' ? rec.consultRate : 0,
-  };
-}
+// Per-appointment services/products live in `data/appointmentStateStore.js`.
+// Imported above so Climax + Stylist share the exact same source of truth.
 
 // Web Speech API factory — returns recognition instance or null if unsupported
 function createRecognition() {
@@ -416,9 +364,15 @@ export default function Screen2() {
   const activeAptFromNav = location?.state?.apt || null;
   const activeApt = activeAptFromNav || readPersistedScreen2Apt() || null;
 
+  // Where the user came from — used by the top-left Back button so it returns
+  // to the right origin (Calendar vs Stylist). Persisted in session so a full
+  // refresh on Screen2 still routes Back to the correct screen.
+  const fromFromNav = (location?.state?.from && String(location.state.from)) || null;
+  const backTarget = fromFromNav || readPersistedScreen2From() || '/screen1';
+
   useEffect(() => {
-    if (activeAptFromNav) writePersistedScreen2Apt(activeAptFromNav);
-  }, [activeAptFromNav]);
+    if (activeAptFromNav) writePersistedScreen2Apt(activeAptFromNav, fromFromNav);
+  }, [activeAptFromNav, fromFromNav]);
 
   const activeClientName = useMemo(() => {
     const fromNav = activeApt?.clientName;
@@ -921,7 +875,7 @@ export default function Screen2() {
 
       {/* TOP BAR */}
       <div className="s2-topbar">
-        <button className="s2-back" onClick={() => navigate('/screen1')}>
+        <button className="s2-back" onClick={() => navigate(backTarget)}>
           <span className="s2-back__chev" aria-hidden>‹</span>
           <span className="s2-back__label">Back</span>
         </button>
@@ -1307,7 +1261,11 @@ export default function Screen2() {
               <div className="s2-ctaIcon" aria-hidden>↻</div>
               <div className="s2-ctaLabel">Rebook</div>
             </button>
-            <button type="button" className="s2-cta is-checkout" onClick={() => navigate('/climax')}>
+            <button
+              type="button"
+              className="s2-cta is-checkout"
+              onClick={() => navigate('/climax', { state: { apt: activeApt } })}
+            >
               <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
               <div className="s2-ctaLabel">Check out</div>
                 </button>
@@ -1322,7 +1280,13 @@ export default function Screen2() {
                   className={`s2-toolbar__btn${isActive ? ' s2-toolbar__btn--solid' : ''}`}
                   aria-label={label}
                   aria-current={isActive ? 'page' : undefined}
-                  onClick={() => navigate(to)}
+                  onClick={() => {
+                    if (to === '/clients') {
+                      navigate(to, { state: { from: '/screen2' } });
+                      return;
+                    }
+                    navigate(to, activeApt ? { state: { apt: activeApt } } : undefined);
+                  }}
                 >
                   <Icon
                     size={isActive ? S2_ICON_TOOLBAR_ACTIVE : S2_ICON_TOOLBAR}
