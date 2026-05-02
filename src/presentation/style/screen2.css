@@ -1,7 +1,10 @@
 .screen2-container {
     position: relative;
-    height: 852px;
-    width: 393px;
+    min-height: 100dvh;
+    height: auto;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
 }
 
 .half-pink-container {

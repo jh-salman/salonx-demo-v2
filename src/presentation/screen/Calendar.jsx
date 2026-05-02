@@ -686,6 +686,13 @@ export default function CalendarScreenWeb() {
           }
           tapRef.current.aptId = null;
           tapRef.current.lastTapTs = 0;
+          try {
+            if (typeof e.currentTarget.releasePointerCapture === "function") {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            }
+          } catch {
+            /* already released */
+          }
           setAptOptionsApt(apt); // Modify / Reschedule / Cancel modal
         } else {
           // Defer single-tap nav so a 2nd tap can pre-empt it
@@ -2021,19 +2028,26 @@ export default function CalendarScreenWeb() {
       {/* Appointment options (single tap on appointment) */}
       {aptOptionsApt ? (
         <div className="cal-modal" role="dialog" aria-modal="true">
-          <button className="cal-modal__backdrop" onClick={() => setAptOptionsApt(null)} aria-label="Close" />
+          <button
+            type="button"
+            className="cal-modal__backdrop"
+            onClick={() => setAptOptionsApt(null)}
+            aria-label="Close"
+          />
           <div className="cal-modal__card">
             <div className="cal-modal__title">Appointment Options</div>
             <div className="cal-modal__subtitle">
               {aptOptionsApt.clientName} • {format(aptOptionsApt.start, "h:mm a")} – {format(aptOptionsApt.end, "h:mm a")}
             </div>
             <button
+              type="button"
               className="cal-modal__btn"
               onClick={() => openModifyForApt(aptOptionsApt)}
             >
               Modify appointment
             </button>
             <button
+              type="button"
               className="cal-modal__btn"
               onClick={() => {
                 setRescheduleApt(aptOptionsApt);
@@ -2043,12 +2057,13 @@ export default function CalendarScreenWeb() {
               Reschedule appointment
             </button>
             <button
+              type="button"
               className="cal-modal__btn cal-modal__btn--danger"
               onClick={() => setConfirmCancelApt(aptOptionsApt)}
             >
               Cancel appointment
             </button>
-            <button className="cal-modal__close" onClick={() => setAptOptionsApt(null)}>
+            <button type="button" className="cal-modal__close" onClick={() => setAptOptionsApt(null)}>
               Close
             </button>
           </div>
@@ -2594,7 +2609,7 @@ function NewAppointmentOverlay({
   return (
     <>
       <div className="cal-modal cal-modal--full" role="dialog" aria-modal="true">
-        <button className="cal-modal__backdrop" onClick={onCancel} aria-label="Close" />
+        <button type="button" className="cal-modal__backdrop" onClick={onCancel} aria-label="Close" />
         <form className="cal-modal__card cal-modal__card--form" onSubmit={handleSubmit}>
           <div className="cal-modal__formHead">
             <div className="cal-modal__title">
@@ -2835,7 +2850,7 @@ function RescheduleModal({ apt, onCancel, onConfirm }) {
 
   return (
     <div className="cal-modal cal-modal--full" role="dialog" aria-modal="true">
-      <button className="cal-modal__backdrop" onClick={onCancel} aria-label="Close" />
+      <button type="button" className="cal-modal__backdrop" onClick={onCancel} aria-label="Close" />
       <form className="cal-modal__card cal-modal__card--form" onSubmit={handleSubmit}>
         <div className="cal-modal__formHead">
           <div className="cal-modal__title">Reschedule appointment</div>

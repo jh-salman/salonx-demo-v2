@@ -11,7 +11,7 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: #121212;
+  background: #000;
   /* Prevent rubber-band scrolling on iOS Safari */
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;

@@ -1,13 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Butterfly,
   CalendarBlank,
   Camera,
+  Clock,
   Lightning,
   Microphone,
   Minus,
   PencilSimple,
+  Plus,
   Scissors,
   User,
   X,
@@ -16,6 +18,7 @@ import { MOCK_CLIENTS } from '../../data/mockClients';
 import { MOCK_PRODUCTS } from '../../data/mockProducts';
 import { MOCK_SERVICES } from '../../data/mockServices';
 import './s2.css';
+import './consultationBrief.css';
 
 const S2_ICON_TOOLBAR = 24;
 const S2_ICON_TOOLBAR_ACTIVE = 26;
@@ -88,6 +91,85 @@ function svcGradientForPickerId(id, pickerList) {
   return svcGradientForIndex(ix >= 0 ? ix : 0);
 }
 
+/** Queue “deck” cards (reference UI): category line + duration heuristics from name */
+function inferSvcDeckCategory(name) {
+  const lower = String(name || '').toLowerCase();
+  if (lower.includes('haircut') || lower.includes("kids'")) return 'CUT';
+  if (
+    lower.includes('color') ||
+    lower.includes('balayage') ||
+    lower.includes('highlight') ||
+    lower.includes('gloss') ||
+    lower.includes('toner') ||
+    lower.includes('camouflage')
+  ) {
+    return 'COLOR';
+  }
+  if (lower.includes('blowout') || lower.includes('iron') || lower.includes('upd')) return 'STYLE';
+  if (
+    lower.includes('treatment') ||
+    lower.includes('repair') ||
+    lower.includes('keratin') ||
+    lower.includes('brazilian') ||
+    lower.includes('scalp') ||
+    lower.includes('perm') ||
+    lower.includes('conditioning')
+  ) {
+    return 'TREAT';
+  }
+  if (lower.includes('beard') || lower.includes('buzz') || lower.includes('bang')) return 'GROOM';
+  if (lower.includes('extension') || lower.includes('bridal') || lower.includes('trial')) return 'EVENT';
+  return 'SERVICE';
+}
+
+/** Short primary label (orange in quad tiles) — matches reference “COLOR SERVICE” style */
+function svcRefHeadline(name) {
+  const c = inferSvcDeckCategory(name);
+  const labels = {
+    CUT: 'CUT',
+    COLOR: 'COLOR',
+    STYLE: 'STYLE',
+    TREAT: 'TREATMENT',
+    GROOM: 'GROOM',
+    EVENT: 'EVENT',
+    SERVICE: 'SERVICE',
+  };
+  return labels[c] || c;
+}
+
+function svcQuadHeadline(s) {
+  if (!s) return '';
+  if (s.id === 'SVC-HOURLY' || s.kind === 'hourly') return 'HOURLY';
+  if (s.id === 'SVC-CONSULT' || s.kind === 'consult') return 'CONSULT';
+  return svcRefHeadline(s.name);
+}
+
+function inferSvcDurationMinutes(name) {
+  const lower = String(name || '').toLowerCase();
+  if ((lower.includes('bang') || lower.includes('beard')) && !lower.includes('haircut')) return 20;
+  if (lower.includes('kids')) return 30;
+  if (lower.includes('buzz')) return 25;
+  if (lower.includes('full balayage') || lower.includes('keratin') || lower.includes('brazilian') || lower.includes('tape-in')) {
+    return 180;
+  }
+  if (lower.includes('partial high') || lower.includes('full high') || lower.includes('double process')) return 150;
+  if (lower.includes('haircut') && !lower.includes('style')) return 45;
+  if (lower.includes('haircut')) return 60;
+  if (lower.includes('color') || lower.includes('blowout')) return 75;
+  return 60;
+}
+
+function formatSvcDurationShort(name) {
+  const m = inferSvcDurationMinutes(name);
+  if (m >= 60 && m % 60 === 0) return `${m / 60}h`;
+  if (m > 60) {
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    return r ? `${h}h${r}m` : `${h}h`;
+  }
+  return `${m}m`;
+}
+
 /** Hourly + consultation always first on card + queue footer */
 function sortSvcQueueForDisplay(queue) {
   const hourly = queue.find((s) => s.id === 'SVC-HOURLY');
@@ -136,6 +218,30 @@ function saveConsultStore(store) {
 function clientKey(name) {
   return (name || '').trim().toLowerCase();
 }
+
+/** React Router drops `location.state` on full page refresh — keep last apt in-session so LOOK photos / consult load the right client. */
+const SCREEN2_APT_SESSION_KEY = '@salonx/screen2LastApt/v1';
+
+function readPersistedScreen2Apt() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(SCREEN2_APT_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && parsed.apt ? parsed.apt : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writePersistedScreen2Apt(apt) {
+  if (typeof window === 'undefined' || !apt) return;
+  try {
+    sessionStorage.setItem(SCREEN2_APT_SESSION_KEY, JSON.stringify({ apt }));
+  } catch (_) {
+    /* noop */
+  }
+}
 // Each pane (LIFE/CHAIR/PATH) stores a chronological log of notes — newest
 // entry first. The legacy single-string field (e.g. `rec.LIFE`) is kept for
 // backward compatibility and migrated into the entries array on first read.
@@ -179,6 +285,67 @@ function formatNoteStamp(ts) {
   const ampm = h >= 12 ? 'PM' : 'AM';
   h = h % 12; if (h === 0) h = 12;
   return `${months[d.getMonth()]} ${d.getDate()} · ${h}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+/** Compact date for note rows: 3.18.25 */
+function formatNoteDateShort(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}.${d.getDate()}.${String(d.getFullYear()).slice(-2)}`;
+}
+
+function monthsSinceOldestEntry(entries) {
+  if (!Array.isArray(entries) || !entries.length) return null;
+  const oldest = entries.reduce((min, e) => Math.min(min, e.ts || Date.now()), entries[0].ts);
+  const mo = (Date.now() - oldest) / (1000 * 60 * 60 * 24 * 30);
+  return Math.max(1, Math.round(mo));
+}
+
+function visitOrdinalLabel(lifeEntryCount, isNewClient) {
+  if (isNewClient) return '1ST VISIT';
+  const n = Math.min(99, Math.max(2, 2 + lifeEntryCount));
+  const map = { 1: '1ST', 2: '2ND', 3: '3RD', 4: '4TH', 5: '5TH', 6: '6TH', 7: '7TH', 8: '8TH', 9: '9TH', 10: '10TH' };
+  return `${map[n] || `${n}TH`} VISIT`;
+}
+
+/** Storage is newest-first; prototype shows oldest→newest with latest at bottom */
+function chronologicalForFeed(entries, fallbackText) {
+  if (Array.isArray(entries) && entries.length) {
+    return [...entries].reverse();
+  }
+  if (fallbackText && String(fallbackText).trim()) {
+    return [{ text: String(fallbackText).trim(), ts: null }];
+  }
+  return [];
+}
+
+// Same key / event as Calendar.jsx — service list in picker stays in sync when
+// catalog changes (new service from Calendar, etc.).
+const CALENDAR_V1_STORAGE_KEY = '@salonx/calendar/v1';
+const CALENDAR_UPDATED_EVENT = 'salonx:calendar-updated';
+
+function normalizeServiceCatalogEntry(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = raw.id != null ? String(raw.id) : '';
+  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+  if (!id || !name) return null;
+  const price = typeof raw.price === 'number' && !Number.isNaN(raw.price) ? raw.price : 0;
+  return { id, name, price };
+}
+
+function loadServiceCatalogFromCalendarStorage() {
+  if (typeof window === 'undefined') return MOCK_SERVICES;
+  try {
+    const json = window.localStorage.getItem(CALENDAR_V1_STORAGE_KEY);
+    if (!json) return MOCK_SERVICES;
+    const data = JSON.parse(json);
+    const cat = data?.serviceCatalog;
+    if (!Array.isArray(cat) || !cat.length) return MOCK_SERVICES;
+    const normalized = cat.map(normalizeServiceCatalogEntry).filter(Boolean);
+    return normalized.length ? normalized : MOCK_SERVICES;
+  } catch {
+    return MOCK_SERVICES;
+  }
 }
 
 // ---------- Per-appointment services/products persistence ----------
@@ -244,8 +411,14 @@ export default function Screen2() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Resolve appointment + client from nav state (Calendar single-tap passes `apt`)
-  const activeApt = location?.state?.apt || null;
+  // Resolve appointment + client from nav state (Calendar single-tap passes `apt`).
+  // After a full refresh, `state` is gone — fall back to last apt saved for this tab.
+  const activeAptFromNav = location?.state?.apt || null;
+  const activeApt = activeAptFromNav || readPersistedScreen2Apt() || null;
+
+  useEffect(() => {
+    if (activeAptFromNav) writePersistedScreen2Apt(activeAptFromNav);
+  }, [activeAptFromNav]);
 
   const activeClientName = useMemo(() => {
     const fromNav = activeApt?.clientName;
@@ -313,6 +486,13 @@ export default function Screen2() {
   // stylist can swipe to see older notes without touching them.
   const [noteEditOpen, setNoteEditOpen] = useState(null); // 'LIFE' | 'CHAIR' | 'PATH' | null
   const [noteDraft, setNoteDraft] = useState('');
+
+  const [consultOpen, setConsultOpen] = useState(false);
+  const [preBriefOpen, setPreBriefOpen] = useState(false);
+  const lifeFeedRef = useRef(null);
+  const chairFeedRef = useRef(null);
+  const pathFeedRef = useRef(null);
+  const lookGalleryRef = useRef(null);
 
   const openNoteEditor = useCallback((paneKey) => {
     setNoteDraft('');
@@ -405,6 +585,101 @@ export default function Screen2() {
     setNoteEditOpen(null);
   }, [stopVoice]);
 
+  const closeConsultBrief = useCallback(() => {
+    stopVoice();
+    setNoteDraft('');
+    setNoteEditOpen(null);
+    setPreBriefOpen(false);
+    setConsultOpen(false);
+  }, [stopVoice]);
+
+  useEffect(() => {
+    if (consultOpen) setPreBriefOpen(false);
+  }, [consultOpen]);
+
+  const lifeChron = useMemo(
+    () =>
+      chronologicalForFeed(
+        consultRecord.LIFE_entries,
+        !consultRecord.LIFE_entries?.length
+          ? (consultRecord.LIFE || '').trim() || CONSULT_DEFAULT_TEXT.LIFE
+          : '',
+      ),
+    [consultRecord],
+  );
+
+  const chairChron = useMemo(
+    () =>
+      chronologicalForFeed(
+        consultRecord.CHAIR_entries,
+        !consultRecord.CHAIR_entries?.length
+          ? (consultRecord.CHAIR || '').trim() || CONSULT_DEFAULT_TEXT.CHAIR
+          : '',
+      ),
+    [consultRecord],
+  );
+
+  const pathChron = useMemo(
+    () =>
+      chronologicalForFeed(
+        consultRecord.PATH_entries,
+        !consultRecord.PATH_entries?.length
+          ? (consultRecord.PATH || '').trim() || CONSULT_DEFAULT_TEXT.PATH
+          : '',
+      ),
+    [consultRecord],
+  );
+
+  const photosChron = useMemo(() => {
+    const p = [...(consultRecord.photos || [])].filter((x) => x && x.url);
+    p.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    return p;
+  }, [consultRecord.photos]);
+
+  const preSummary = useMemo(() => {
+    const n = (activeApt?.notes && String(activeApt.notes).trim()) || '';
+    const svc = activeApt?.service ? String(activeApt.service).trim() : '';
+    let s = '';
+    if (n && svc) s = `${n} · ${svc}`;
+    else s = n || svc || (isNewClient ? 'New appointment — screening & intake' : 'No pre-visit notes yet');
+    return s.length > 64 ? `${s.slice(0, 64)}…` : s;
+  }, [activeApt, isNewClient]);
+
+  const prePillKind = CONSULT.noteTag === 'YELLOW' ? 'alert' : isNewClient ? 'new' : 'returning';
+
+  const returningSuffix = useMemo(() => {
+    const mo = monthsSinceOldestEntry(consultRecord.LIFE_entries);
+    if (isNewClient || !mo) return '';
+    return ` · ${mo}MO`;
+  }, [consultRecord.LIFE_entries, isNewClient]);
+
+  const visitMetaLine = useMemo(
+    () =>
+      `${activeClient.phone || '—'} · ${visitOrdinalLabel(consultRecord.LIFE_entries?.length || 0, isNewClient)}`,
+    [activeClient.phone, consultRecord.LIFE_entries, isNewClient],
+  );
+
+  const todayBriefLine = useMemo(() => {
+    if (!activeApt?.start) return null;
+    const s = new Date(activeApt.start);
+    const parts = [activeApt.service || 'Appointment', activeApptInfo?.durationLabel, formatNoteStamp(s.getTime())].filter(
+      Boolean,
+    );
+    return parts.join(' · ');
+  }, [activeApt, activeApptInfo]);
+
+  useLayoutEffect(() => {
+    if (!consultOpen) return;
+    requestAnimationFrame(() => {
+      [lifeFeedRef, chairFeedRef, pathFeedRef].forEach((r) => {
+        const el = r.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+      const g = lookGalleryRef.current;
+      if (g) g.scrollLeft = g.scrollWidth;
+    });
+  }, [consultOpen, consultRecord.LIFE_entries, consultRecord.CHAIR_entries, consultRecord.PATH_entries, consultRecord.photos, preBriefOpen]);
+
   // Stop recording when consult popup unmounts
   useEffect(() => {
     if (!recognitionRef.current) return;
@@ -465,10 +740,27 @@ export default function Screen2() {
     reader.readAsDataURL(file);
   }, []);
 
-  const [consultOpen, setConsultOpen] = useState(false);
   const [addServicesOpen, setAddServicesOpen] = useState(false);
   const [addProductsOpen, setAddProductsOpen] = useState(false);
   const [rateEditOpen, setRateEditOpen] = useState(null);
+
+  const [serviceCatalogList, setServiceCatalogList] = useState(loadServiceCatalogFromCalendarStorage);
+  useEffect(() => {
+    const sync = () => setServiceCatalogList(loadServiceCatalogFromCalendarStorage());
+    window.addEventListener(CALENDAR_UPDATED_EVENT, sync);
+    const onStorage = (e) => {
+      if (e.key === CALENDAR_V1_STORAGE_KEY || e.key === null) sync();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(CALENDAR_UPDATED_EVENT, sync);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (addServicesOpen) setServiceCatalogList(loadServiceCatalogFromCalendarStorage());
+  }, [addServicesOpen]);
 
   // Per-appointment state (services / products / rates). Initialized from the
   // appointment id passed via location.state — every appointment has its own
@@ -536,10 +828,12 @@ export default function Screen2() {
 
   const displaySvcQueue = useMemo(() => sortSvcQueueForDisplay(svcQueue), [svcQueue]);
 
-  const displaySvcRestQueue = useMemo(
-    () => displaySvcQueue.filter((s) => s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT'),
+  const svcQuadPair = useMemo(
+    () => [displaySvcQueue[0] ?? null, displaySvcQueue[1] ?? null],
     [displaySvcQueue],
   );
+
+  const prdQuadPair = useMemo(() => [productQueue[0] ?? null, productQueue[1] ?? null], [productQueue]);
 
   const hourlySvc = useMemo(
     () => ({ ...SVC_HOURLY_BASE, price: hourlyRate, kind: 'hourly' }),
@@ -549,10 +843,12 @@ export default function Screen2() {
     () => ({ ...SVC_CONSULT_BASE, price: consultRate, kind: 'consult' }),
     [consultRate],
   );
-  const svcPickerList = useMemo(() => [hourlySvc, consultSvc, ...MOCK_SERVICES], [hourlySvc, consultSvc]);
-
-  const hourlyInQueue = useMemo(() => svcQueue.some((q) => q.id === 'SVC-HOURLY'), [svcQueue]);
-  const consultInQueue = useMemo(() => svcQueue.some((q) => q.id === 'SVC-CONSULT'), [svcQueue]);
+  const svcPickerList = useMemo(() => {
+    const rest = serviceCatalogList.filter(
+      (s) => s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT',
+    );
+    return [hourlySvc, consultSvc, ...rest];
+  }, [hourlySvc, consultSvc, serviceCatalogList]);
 
   useEffect(() => {
     setSvcQueue((prev) =>
@@ -563,12 +859,6 @@ export default function Screen2() {
       }),
     );
   }, [hourlyRate, consultRate]);
-
-  const toggleSvcInQueue = useCallback((svc) => {
-    setSvcQueue((prev) =>
-      prev.some((q) => q.id === svc.id) ? prev.filter((q) => q.id !== svc.id) : [...prev, svc],
-    );
-  }, []);
 
   const openRemoveConfirm = useCallback((kind, id, label) => {
     setRemoveConfirm({ kind, id, label });
@@ -602,7 +892,7 @@ export default function Screen2() {
     const skipFilmNav =
       el &&
       typeof el.closest === 'function' &&
-      Boolean(el.closest('.s2-filmCluster--queue'));
+      Boolean(el.closest('.s2-filmCluster--queue') || el.closest('.s2-quadRow'));
     navTouch.current = { x: t.clientX, y: t.clientY, skipFilmNav };
   }, [addProductsOpen, addServicesOpen, consultOpen, rateEditOpen, removeConfirm]);
 
@@ -682,14 +972,14 @@ export default function Screen2() {
           <div className="s2-msgBadges" aria-label="Unread messages">
             <div className="s2-msgBadge" aria-hidden>
               💬<span className="s2-msgBadge__count">{META.msgCount}</span>
-            </div>
           </div>
+        </div>
           <div className="s2-clientName">{activeClient.name}</div>
           <div className="s2-clientPhone">
             {activeClient.phone || (isNewClient ? 'New client' : '')}
-          </div>
-          <button className="s2-kebabText" aria-label="More">⋮</button>
         </div>
+          <button className="s2-kebabText" aria-label="More">⋮</button>
+      </div>
 
         <div className="s2-progress" aria-label="Progress">
           <div className="s2-progressDots" aria-hidden>
@@ -805,78 +1095,29 @@ export default function Screen2() {
         <div className="s2-section">
           <div className="s2-pill s2-pill--neutral">Services</div>
           <div className="s2-card s2-card--v13 s2-svcCard">
-            <div className="s2-filmRow s2-filmRow--services" aria-label="Services">
-              <div className="s2-filmCluster s2-filmCluster--queue">
-                <div className="s2-filmPinWrap">
-                  <button
-                    type="button"
-                    className={`s2-filmPill s2-filmPill--svc s2-filmPill--hourly${hourlyInQueue ? ' is-svcPicked' : ''}`}
-                    title={hourlySvc.name}
-                    aria-pressed={hourlyInQueue}
-                    aria-label={`${hourlySvc.name}, ${hourlyInQueue ? 'selected' : 'not selected'}`}
-                    onClick={() => toggleSvcInQueue(hourlySvc)}
-                  >
-                    <span className="s2-filmPill__mono">{queuePriceLabel(hourlySvc)}</span>
-                  </button>
-                  {hourlyInQueue ? (
+            <div className="s2-quadRow" aria-label="Services">
+              {[0, 1].map((ix) => {
+                const s = svcQuadPair[ix];
+                if (!s) {
+                  return (
                     <button
+                      key={`svc-slot-${ix}`}
                       type="button"
-                      className="s2-filmRemoveBtn"
-                      aria-label={`Remove ${hourlySvc.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openRemoveConfirm('svc', 'SVC-HOURLY', hourlySvc.name);
-                      }}
+                      className="s2-quadCell s2-refTile s2-refTile--empty"
+                      onClick={() => setAddServicesOpen(true)}
+                      aria-label="Add service to this slot"
                     >
-                      <Minus size={11} weight="bold" aria-hidden />
+                      <span className="s2-refTile__emptyLabel">Tap to add</span>
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="s2-filmPinWrap__edit"
-                    aria-label="Set hourly rate"
-                    onClick={() => setRateEditOpen('hourly')}
-                  >
-                    <PencilSimple size={11} weight="bold" aria-hidden />
-                  </button>
-                </div>
-                <div className="s2-filmPinWrap">
-                  <button
-                    type="button"
-                    className={`s2-filmPill s2-filmPill--svc s2-filmPill--consult${consultInQueue ? ' is-svcPicked' : ''}`}
-                    title={consultSvc.name}
-                    aria-pressed={consultInQueue}
-                    aria-label={`${consultSvc.name}, ${consultInQueue ? 'selected' : 'not selected'}`}
-                    onClick={() => toggleSvcInQueue(consultSvc)}
-                  >
-                    <span className="s2-filmPill__mono">{queuePriceLabel(consultSvc)}</span>
-                  </button>
-                  {consultInQueue ? (
-                    <button
-                      type="button"
-                      className="s2-filmRemoveBtn"
-                      aria-label={`Remove ${consultSvc.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openRemoveConfirm('svc', 'SVC-CONSULT', consultSvc.name);
-                      }}
-                    >
-                      <Minus size={11} weight="bold" aria-hidden />
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="s2-filmPinWrap__edit"
-                    aria-label="Set consultation fee"
-                    onClick={() => setRateEditOpen('consult')}
-                  >
-                    <PencilSimple size={11} weight="bold" aria-hidden />
-                  </button>
-                </div>
-                {displaySvcRestQueue.map((s, i) => (
-                  <div key={`${s.id}-row-${i}`} className="s2-filmItemWrap">
-                    <button
-                      type="button"
+                  );
+                }
+                const deckGrad = svcGradientForPickerId(s.id, svcPickerList);
+                const isHourly = s.id === 'SVC-HOURLY' || s.kind === 'hourly';
+                const isConsult = s.id === 'SVC-CONSULT' || s.kind === 'consult';
+                return (
+                  <div key={`${s.id}-quad-${ix}`} className="s2-quadCell s2-quadCell--filled">
+            <button
+              type="button"
                       className="s2-filmRemoveBtn"
                       aria-label={`Remove ${s.name}`}
                       onClick={(e) => {
@@ -886,33 +1127,102 @@ export default function Screen2() {
                     >
                       <Minus size={11} weight="bold" aria-hidden />
                     </button>
-                    <div className="s2-filmPill s2-filmPill--svc s2-filmPill--queueExtra is-svcPicked" title={s.name}>
-                      <span className="s2-filmPill__mono">{queuePriceLabel(s)}</span>
+                    <div className="s2-svcDeckCard s2-svcDeckCard--quad" title={s.name}>
+                      <button
+                        type="button"
+                        className="s2-svcDeckCard__edit"
+                        aria-label={
+                          isHourly
+                            ? 'Set hourly rate'
+                            : isConsult
+                              ? 'Set consultation fee'
+                              : `Edit services (${s.name})`
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isHourly) setRateEditOpen('hourly');
+                          else if (isConsult) setRateEditOpen('consult');
+                          else setAddServicesOpen(true);
+                        }}
+                      >
+                        <PencilSimple size={9} weight="bold" aria-hidden />
+                      </button>
+                      <div className="s2-svcDeckCard__hero" style={{ background: deckGrad }} />
+                      <span className="s2-svcDeckCard__accentBar" aria-hidden />
+                      <div className="s2-svcDeckCard__body">
+                        <div className="s2-svcDeckCard__headline">{svcQuadHeadline(s)}</div>
+                        <div className="s2-svcDeckCard__subtitle">{s.name}</div>
+                        <div className="s2-svcDeckCard__metaRow">
+                          {isHourly ? (
+                            <span className="s2-svcDeckCard__dur s2-svcDeckCard__dur--label">Time-based</span>
+                          ) : isConsult ? (
+                            <span className="s2-svcDeckCard__dur s2-svcDeckCard__dur--label">Session fee</span>
+                          ) : (
+                            <span className="s2-svcDeckCard__dur">
+                              <Clock size={9} weight="bold" aria-hidden />
+                              {formatSvcDurationShort(s.name)}
+                            </span>
+                          )}
+        </div>
+                      </div>
+                      <span className="s2-svcDeckCard__bottomTick" aria-hidden />
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
               <button
                 type="button"
-                className="s2-filmPlus s2-filmPlus--rail"
-                aria-label="Add services"
+                className="s2-quadCell s2-refTile s2-refTile--suggested"
                 onClick={() => setAddServicesOpen(true)}
+                aria-label="Suggested services from catalog"
               >
-                +
+                <span className="s2-refTile__badgeSuggested">SUGGESTED</span>
+                <div className="s2-refTile__silhouette" aria-hidden />
+                <div className="s2-refTile__suggestedMeta">
+                  <span className="s2-refTile__suggestedTitle">From catalog</span>
+                  <span className="s2-refTile__suggestedSub">Tap to browse</span>
+                </div>
+                <span className="s2-refTile__plusCorner" aria-hidden>
+                  <Plus size={14} weight="bold" />
+                </span>
+              </button>
+              <button
+                type="button"
+                className="s2-quadCell s2-refTile s2-refTile--add"
+                onClick={() => setAddServicesOpen(true)}
+                aria-label="Add service"
+              >
+                <Plus size={22} weight="regular" className="s2-refTile__addGlyph" aria-hidden />
+                <span className="s2-refTile__addLabel">ADD SERVICE</span>
               </button>
             </div>
           </div>
         </div>
 
         <div className="s2-section">
-          <div className="s2-pill s2-pill--neutral">Home Care</div>
+          <div className="s2-pill s2-pill--neutral">BackBar / Finish</div>
           <div className="s2-card s2-card--v13 s2-hcCard">
-            <div className="s2-filmRow s2-filmRow--products" aria-label="Home care products">
-              <div className="s2-filmCluster s2-filmCluster--queue">
-                {productQueue.map((p, i) => (
-                  <div key={`${p.id}-row-${i}`} className="s2-filmItemWrap">
+            <div className="s2-quadRow" aria-label="Back bar and finish products">
+              {[0, 1].map((ix) => {
+                const p = prdQuadPair[ix];
+                if (!p) {
+                  return (
                     <button
+                      key={`prd-slot-${ix}`}
                       type="button"
+                      className="s2-quadCell s2-refTile s2-refTile--empty"
+                      onClick={() => setAddProductsOpen(true)}
+                      aria-label="Add product to this slot"
+                    >
+                      <span className="s2-refTile__emptyLabel">Tap to add</span>
+                    </button>
+                  );
+                }
+                const prdGrad = productVisualGradient(p.color || '#1a1612');
+                return (
+                  <div key={`${p.id}-pquad-${ix}`} className="s2-quadCell s2-quadCell--filled">
+                <button
+                  type="button"
                       className="s2-filmRemoveBtn"
                       aria-label={`Remove ${p.name}`}
                       onClick={(e) => {
@@ -922,30 +1232,63 @@ export default function Screen2() {
                     >
                       <Minus size={11} weight="bold" aria-hidden />
                     </button>
-                    <div className="s2-filmPill s2-filmPill--prd" title={p.name}>
-                      <span className="s2-filmPill__brand">{p.brand}</span>
-                      <span className="s2-filmPill__mono">${p.price}</span>
-                    </div>
+                    <div className="s2-svcDeckCard s2-svcDeckCard--quad s2-svcDeckCard--product" title={p.name}>
+                      <button
+                        type="button"
+                        className="s2-svcDeckCard__edit"
+                        aria-label={`Edit products (${p.name})`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAddProductsOpen(true);
+                        }}
+                      >
+                        <PencilSimple size={9} weight="bold" aria-hidden />
+                      </button>
+                      <div className="s2-svcDeckCard__hero" style={{ background: prdGrad }} />
+                      <span className="s2-svcDeckCard__accentBar" aria-hidden />
+                      <div className="s2-svcDeckCard__body">
+                        <div className="s2-svcDeckCard__headline">{p.brand}</div>
+                        <div className="s2-svcDeckCard__subtitle">{p.name}</div>
+                      </div>
+                      <span className="s2-svcDeckCard__bottomTick" aria-hidden />
+                      </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
               <button
                 type="button"
-                className="s2-filmPlus s2-filmPlus--rail"
-                aria-label="Add products"
+                className="s2-quadCell s2-refTile s2-refTile--suggested"
                 onClick={() => setAddProductsOpen(true)}
+                aria-label="Suggested back bar / finish"
               >
-                +
+                <span className="s2-refTile__badgeSuggested">SUGGESTED</span>
+                <div className="s2-refTile__silhouette" aria-hidden />
+                <div className="s2-refTile__suggestedMeta">
+                  <span className="s2-refTile__suggestedTitle">From catalog</span>
+                  <span className="s2-refTile__suggestedSub">Tap to browse</span>
+                </div>
+                <span className="s2-refTile__plusCorner" aria-hidden>
+                  <Plus size={14} weight="bold" />
+                </span>
               </button>
-            </div>
+              <button
+                type="button"
+                className="s2-quadCell s2-refTile s2-refTile--add"
+                onClick={() => setAddProductsOpen(true)}
+                aria-label="Add product"
+              >
+                <Plus size={22} weight="regular" className="s2-refTile__addGlyph" aria-hidden />
+                <span className="s2-refTile__addLabel">ADD PRODUCT</span>
+                </button>
+              </div>
           </div>
         </div>
       </div>
 
       {/* End-of-visit: swipe up on grabber (or tap) — Rebook, Checkout, toolbar */}
       <div className={`s2-bottomDock${dockOpen ? ' is-expanded' : ' is-collapsed'}`}>
-        <button
-          type="button"
+                <button
+                  type="button"
           className="s2-bottomDock__grabber"
           aria-expanded={dockOpen}
           aria-label={dockOpen ? 'Collapse actions' : 'Expand Rebook, Checkout, and toolbar'}
@@ -967,8 +1310,8 @@ export default function Screen2() {
             <button type="button" className="s2-cta is-checkout" onClick={() => navigate('/climax')}>
               <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
               <div className="s2-ctaLabel">Check out</div>
-            </button>
-          </div>
+                </button>
+                      </div>
           <div className="s2-toolbar">
             {TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
               const isActive = i === TOOLBAR_ACTIVE;
@@ -989,161 +1332,307 @@ export default function Screen2() {
                 </button>
               );
             })}
-          </div>
-        </div>
+                      </div>
+                      </div>
       </div>
 
       {consultOpen ? (
-        <div className="s2-popupOverlay" role="dialog" aria-modal="true" aria-label="Consultation overlay">
-          <button type="button" className="s2-popupBackdrop" aria-label="Close" onClick={() => { stopVoice(); setConsultOpen(false); }} />
-          <div className="s2-popup">
-            <div className="s2-popupTopbar">
-              <button type="button" className="s2-popupClose" aria-label="Close" onClick={() => { stopVoice(); setConsultOpen(false); }}>×</button>
-              <div className="s2-popupTitle">{activeClientName.toUpperCase()}</div>
-              <div className="s2-popupSpacer" aria-hidden />
+        <div className="nc-popup" role="dialog" aria-modal="true" aria-label="Consultation brief">
+          <div className="nc-pu-top">
+            <button type="button" className="nc-close-x" aria-label="Close" onClick={closeConsultBrief}>
+              ✕
+            </button>
+            <div className="nc-pu-id">
+              <div className="nc-pu-id-mini">
+                {consultRecord.avatar ? (
+                  <img src={consultRecord.avatar} alt="" draggable={false} />
+                ) : (
+                  initials
+                )}
+              </div>
+              <div>
+                <div className="nc-pu-name">{activeClient.name}</div>
+                <div className="nc-pu-meta">{visitMetaLine}</div>
+              </div>
             </div>
+            <div className="nc-pu-spacer" aria-hidden />
+          </div>
 
-            <div className="s2-popupBody">
-              {CONSULT.panes.map((p) => {
-                const isLook = p.key === 'LOOK';
-                return (
-                  <div key={p.key} className="s2-popPane">
-                    <div className="s2-popPaneHeader">
-                      <div className={`s2-popPaneLabel ${p.colorClass}`}>{p.key}</div>
-                      {isLook ? (
-                        <button
-                          type="button"
-                          className="s2-popCam is-look"
-                          aria-label="Capture photo"
-                          onClick={() => openPhotoPicker(null)}
-                        >
-                          <Camera size={16} weight="fill" aria-hidden />
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className={`s2-popMic ${p.colorClass}`}
-                          aria-label={`Add new ${p.key} note`}
-                          onClick={() => openNoteEditor(p.key)}
-                        >
-                          <Microphone size={16} weight="fill" aria-hidden />
-                        </button>
-                      )}
-                    </div>
-
-                    {!isLook ? (
-                      (() => {
-                        const entries = consultRecord[p.key + '_entries'] || [];
-                        const fallback =
-                          (consultRecord[p.key] || '').trim() ||
-                          CONSULT_DEFAULT_TEXT[p.key] ||
-                          '';
-                        if (entries.length === 0) {
-                          // Render legacy / default seed text inside the same
-                          // scrollable container so the visual stays consistent.
-                          return (
-                            <div className="s2-popPaneContent s2-popPaneLog">
-                              <div className="s2-popPaneLogEntry">
-                                <div className="s2-popPaneLogText">{fallback}</div>
-                              </div>
-                            </div>
-                          );
-                        }
-                        return (
-                          <div className="s2-popPaneContent s2-popPaneLog">
-                            {entries.map((entry, idx) => (
-                              <div
-                                key={`${entry.ts}-${idx}`}
-                                className={`s2-popPaneLogEntry${idx === 0 ? ' is-latest' : ''}`}
-                              >
-                                <div className="s2-popPaneLogStamp">{formatNoteStamp(entry.ts)}</div>
-                                <div className="s2-popPaneLogText">{entry.text}</div>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <div className="s2-popLook">
-                        <div className="s2-popLookGrid">
-                          {[0, 1, 2, 3, 4, 5].map((slotIx) => {
-                            const photo = consultRecord.photos?.[slotIx];
-                            const baseTone = ['is-now', 'is-want', 'is-last'][slotIx];
-                            if (photo?.url) {
-                              return (
-                                <button
-                                  key={slotIx}
-                                  type="button"
-                                  className="s2-popLookCell s2-popLookCell--photo"
-                                  aria-label={`Replace photo ${slotIx + 1}`}
-                                  onClick={() => openPhotoPicker(slotIx)}
-                                >
-                                  <img
-                                    src={photo.url}
-                                    alt={`Look ${['NOW', 'WANT', 'LAST'][slotIx] || slotIx + 1}`}
-                                    className="s2-popLookCell__img"
-                                    draggable={false}
-                                  />
-                                </button>
-                              );
-                            }
-                            if (slotIx < 3) {
-                              return (
-                                <button
-                                  key={slotIx}
-                                  type="button"
-                                  className={`s2-popLookCell ${baseTone}`}
-                                  aria-label={`Add ${['NOW', 'WANT', 'LAST'][slotIx]} photo`}
-                                  onClick={() => openPhotoPicker(slotIx)}
-                                />
-                              );
-                            }
-                            return (
-                              <button
-                                key={slotIx}
-                                type="button"
-                                className="s2-popLookCell is-add"
-                                aria-label="Add photo"
-                                onClick={() => openPhotoPicker(slotIx)}
-                              >
-                                + ADD
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="s2-popLookTags">
-                          <div className="s2-popLookTag">NOW</div>
-                          <div className="s2-popLookTag">WANT</div>
-                          <div className="s2-popLookTag">LAST</div>
-                        </div>
-                        <input
-                          ref={photoInputRef}
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          aria-hidden
-                          tabIndex={-1}
-                          style={{
-                            position: 'absolute',
-                            width: 1,
-                            height: 1,
-                            padding: 0,
-                            margin: -1,
-                            border: 0,
-                            clip: 'rect(0 0 0 0)',
-                            overflow: 'hidden',
-                            opacity: 0,
-                            pointerEvents: 'none',
-                          }}
-                          onChange={handlePhotoChosen}
-                        />
+          <div
+            className={`nc-preconsult${preBriefOpen ? ' open' : ''}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => setPreBriefOpen((o) => !o)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setPreBriefOpen((o) => !o);
+              }
+            }}
+          >
+            <div className="nc-pc-row">
+              <div className="nc-pc-left">
+                <div
+                  className={`nc-pc-pill ${
+                    prePillKind === 'alert' ? 'alert' : prePillKind === 'new' ? 'new' : 'returning'
+                  }`}
+                >
+                  <span className="nc-dot" aria-hidden />
+                  {prePillKind === 'alert'
+                    ? 'ALERT · REVIEW'
+                    : prePillKind === 'new'
+                      ? 'NEW · INTAKE'
+                      : `RETURNING${returningSuffix}`}
+                </div>
+                <div className="nc-pc-summary">{preSummary}</div>
+              </div>
+              <div className="nc-pc-icons">
+                {photosChron.length > 0 ? (
+                  <span className="nc-ico" aria-hidden>
+                    📷 {photosChron.length}
+                  </span>
+                ) : null}
+                <span className="nc-pc-chev" aria-hidden>
+                  ▾
+                </span>
+              </div>
+            </div>
+            <div className="nc-pc-expand">
+              <div
+                className="nc-pc-expand-inner"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                role="presentation"
+              >
+                {photosChron.length > 0 ? (
+                  <>
+                    <div className="nc-pc-line">
+                      <div className="nc-pc-glyph" aria-hidden>
+                        📷
                       </div>
-                    )}
+                      <div>
+                        <b>{photosChron.length} photos</b>
+                        <span className="nc-meta">
+                          {photosChron.map((ph) => formatNoteDateShort(ph.ts)).join(' · ')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="nc-pc-thumbs">
+                      {photosChron.map((ph, i) => (
+                        <div
+                          key={`${ph.ts}-${i}`}
+                          className="nc-pc-thumb"
+                          style={{ backgroundImage: ph.url ? `url(${ph.url})` : undefined }}
+                          aria-hidden
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                {activeApt?.notes ? (
+                  <div className="nc-pc-line" style={{ marginTop: photosChron.length ? 6 : 0 }}>
+                    <div className="nc-pc-glyph" aria-hidden>
+                      ✎
+                    </div>
+                    <div>
+                      <b>Booking:</b> {String(activeApt.notes)}
+                    </div>
                   </div>
-                );
-              })}
+                ) : null}
+                {CONSULT.noteTag === 'YELLOW' && CONSULT.noteHint ? (
+                  <div className="nc-pc-line" style={{ marginTop: 6 }}>
+                    <div className="nc-pc-glyph" style={{ color: 'var(--nc-alert-yellow)' }} aria-hidden>
+                      ⚑
+                    </div>
+                    <div>
+                      <div className="nc-pc-flag">
+                        {CONSULT.noteTag} · {CONSULT.noteHint}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {todayBriefLine ? (
+                  <div className="nc-pc-line" style={{ marginTop: 6 }}>
+                    <div className="nc-pc-glyph" aria-hidden>
+                      📅
+                    </div>
+                    <div>
+                      <b>Today:</b> {todayBriefLine}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
+
+          <div className="nc-fields">
+            <div className="nc-field">
+              <div className="nc-f-head">
+                <div className="nc-f-title">
+                  <span className="nc-f-label life">LIFE</span>
+                  <span className="nc-f-count">
+                    {lifeChron.length} · {monthsSinceOldestEntry(consultRecord.LIFE_entries) || '—'}MO
+                  </span>
+                </div>
+                <div className="nc-f-actions">
+                  <button type="button" className="nc-f-btn" aria-label="Add LIFE note" onClick={() => openNoteEditor('LIFE')}>
+                    <PencilSimple size={14} weight="bold" aria-hidden />
+                  </button>
+                  <button type="button" className="nc-f-btn" aria-label="Voice LIFE note" onClick={() => openNoteEditor('LIFE')}>
+                    <Microphone size={14} weight="fill" aria-hidden />
+                </button>
+              </div>
+            </div>
+              <div className="nc-f-feed" ref={lifeFeedRef}>
+                <div className="nc-f-spacer" aria-hidden />
+                {lifeChron.length === 0 ? (
+                  <div className="nc-note">
+                    <div className="nc-ts">—</div>
+                    <div className="nc-body">No notes yet — tap pencil or mic.</div>
+                  </div>
+                ) : (
+                  lifeChron.map((entry, idx) => (
+                    <div key={`${entry.ts}-${idx}`} className={`nc-note${idx === lifeChron.length - 1 ? ' latest' : ''}`}>
+                      <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
+                      <div className="nc-body">{entry.text}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+        </div>
+
+            <div className="nc-field">
+              <div className="nc-f-head">
+                <div className="nc-f-title">
+                  <span className="nc-f-label chair">CHAIR</span>
+                  <span className="nc-f-count">FORMULA · {chairChron.length}</span>
+                </div>
+                <div className="nc-f-actions">
+                  <button type="button" className="nc-f-btn" aria-label="Add CHAIR note" onClick={() => openNoteEditor('CHAIR')}>
+                    <PencilSimple size={14} weight="bold" aria-hidden />
+                  </button>
+                  <button type="button" className="nc-f-btn" aria-label="Voice CHAIR note" onClick={() => openNoteEditor('CHAIR')}>
+                    <Microphone size={14} weight="fill" aria-hidden />
+                  </button>
+                </div>
+              </div>
+              <div className="nc-f-feed" ref={chairFeedRef}>
+                <div className="nc-f-spacer" aria-hidden />
+                {chairChron.length === 0 ? (
+                  <div className="nc-note">
+                    <div className="nc-ts">—</div>
+                    <div className="nc-body">No notes yet — tap pencil or mic.</div>
+                  </div>
+                ) : (
+                  chairChron.map((entry, idx) => (
+                    <div key={`${entry.ts}-${idx}`} className={`nc-note${idx === chairChron.length - 1 ? ' latest' : ''}`}>
+                      <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
+                      <div className="nc-body">{entry.text}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+      </div>
+
+            <div className="nc-field">
+              <div className="nc-f-head">
+                <div className="nc-f-title">
+                  <span className="nc-f-label path">PATH</span>
+                  <span className="nc-f-count">DIRECTION</span>
+                </div>
+                <div className="nc-f-actions">
+                  <button type="button" className="nc-f-btn" aria-label="Add PATH note" onClick={() => openNoteEditor('PATH')}>
+                    <PencilSimple size={14} weight="bold" aria-hidden />
+        </button>
+                  <button type="button" className="nc-f-btn" aria-label="Voice PATH note" onClick={() => openNoteEditor('PATH')}>
+                    <Microphone size={14} weight="fill" aria-hidden />
+        </button>
+                </div>
+              </div>
+              <div className="nc-f-feed" ref={pathFeedRef}>
+                <div className="nc-f-spacer" aria-hidden />
+                {pathChron.length === 0 ? (
+                  <div className="nc-note">
+                    <div className="nc-ts">—</div>
+                    <div className="nc-body">No notes yet — tap pencil or mic.</div>
+                  </div>
+                ) : (
+                  pathChron.map((entry, idx) => (
+                    <div key={`${entry.ts}-${idx}`} className={`nc-note${idx === pathChron.length - 1 ? ' latest' : ''}`}>
+                      <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
+                      <div className="nc-body">{entry.text}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+      </div>
+
+            <div className="nc-field nc-field--look">
+              <div className="nc-f-head">
+                <div className="nc-f-title">
+                  <span className="nc-f-label look">LOOK</span>
+                  <span className="nc-f-count">
+                    {photosChron.length} PHOTOS · ↔ SCROLL
+                  </span>
+                </div>
+                <div className="nc-f-actions">
+                  <button type="button" className="nc-f-btn" aria-label="Add LOOK photo" onClick={() => openPhotoPicker(null)}>
+                    <Camera size={14} weight="fill" aria-hidden />
+                  </button>
+                </div>
+              </div>
+              <div className="nc-look-gallery" ref={lookGalleryRef}>
+                {photosChron.length === 0 ? (
+                  <button type="button" className="nc-photo-card" onClick={() => openPhotoPicker(null)} aria-label="Add photo">
+                    <div className="nc-photo-img nc-photo-add">+</div>
+                    <div className="nc-photo-cap">add</div>
+                  </button>
+                ) : (
+                  photosChron.map((ph, idx) => (
+          <button
+                      key={`${ph.ts}-${idx}`}
+            type="button"
+                      className={`nc-photo-card${idx === photosChron.length - 1 ? ' latest' : ''}`}
+            onClick={() => {
+                        const origIx = (consultRecord.photos || []).findIndex(
+                          (p) => p && p.url === ph.url && (p.ts || 0) === (ph.ts || 0),
+                        );
+                        openPhotoPicker(origIx >= 0 ? origIx : null);
+                      }}
+                      aria-label={`Photo ${idx + 1}`}
+                    >
+                      <div className="nc-photo-img">
+                        <img src={ph.url} alt="" draggable={false} />
+                      </div>
+                      <div className="nc-photo-cap">{ph.ts ? formatNoteDateShort(ph.ts) : '—'}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+              aria-hidden
+            tabIndex={-1}
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              border: 0,
+              clip: 'rect(0 0 0 0)',
+              overflow: 'hidden',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+            onChange={handlePhotoChosen}
+          />
         </div>
       ) : null}
 
@@ -1171,7 +1660,7 @@ export default function Screen2() {
                 onClick={cancelNoteDraft}
               >
                 <X size={18} weight="regular" aria-hidden />
-              </button>
+          </button>
             </header>
 
             <div className="s2-noteBody">
@@ -1192,7 +1681,7 @@ export default function Screen2() {
               >
                 <Microphone size={18} weight="fill" aria-hidden />
               </button>
-            </div>
+      </div>
 
             <footer className="s2-noteFooter">
               <button
@@ -1202,7 +1691,7 @@ export default function Screen2() {
                 onClick={submitNoteDraft}
               >
                 Update
-              </button>
+            </button>
             </footer>
           </div>
         </div>
@@ -1238,7 +1727,7 @@ export default function Screen2() {
                   const inQueue = svcQueue.some((q) => q.id === s.id);
                   const rowSvc =
                     s.id === 'SVC-HOURLY' ? hourlySvc : s.id === 'SVC-CONSULT' ? consultSvc : s;
-                  return (
+                return (
                     <button
                       key={s.id}
                       type="button"
@@ -1260,11 +1749,11 @@ export default function Screen2() {
                         <div className="s2-addProdCard__name s2-addProdCard__name--service">{rowSvc.name}</div>
                         <div className="s2-addProdCard__price">{queuePriceLabel(rowSvc)}</div>
                       </div>
-                    </button>
-                  );
-                })}
-              </div>
+                  </button>
+                );
+              })}
             </div>
+          </div>
             <footer className="s2-svcPickQueue">
               <div className="s2-svcPickQueue__label">S2 QUEUE</div>
               <div className="s2-svcPickQueue__row">
@@ -1286,8 +1775,8 @@ export default function Screen2() {
                     <div className="s2-svcPickQueueCard__meta">
                       <div className="s2-svcPickQueueCard__name">{s.name}</div>
                       <div className="s2-svcPickQueueCard__price">{queuePriceLabel(s)}</div>
-                    </div>
-                  </div>
+        </div>
+            </div>
                 ))}
                 <button
                   type="button"
@@ -1303,8 +1792,8 @@ export default function Screen2() {
                     +
                   </span>
                   <span className="s2-svcPickQueueAdd__text">ADD CUSTOM SERVICE</span>
-                </button>
-              </div>
+            </button>
+          </div>
             </footer>
           </div>
         </div>
@@ -1335,8 +1824,8 @@ export default function Screen2() {
               <div className="s2-addProdGrid">
                 {MOCK_PRODUCTS.map((p) => {
                   const inQueue = productQueue.some((q) => q.id === p.id);
-                  return (
-                    <button
+                return (
+                  <button
                       key={p.id}
                       type="button"
                       className={`s2-addProdCard${inQueue ? ' is-inQueue' : ''}`}
@@ -1357,14 +1846,14 @@ export default function Screen2() {
                         <div className="s2-addProdCard__brand">{p.brand}</div>
                         <div className="s2-addProdCard__name">{p.name}</div>
                         <div className="s2-addProdCard__price">${p.price}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+          </div>
             <footer className="s2-svcPickQueue s2-prodPickQueue">
-              <div className="s2-svcPickQueue__label">HOME CARE</div>
+              <div className="s2-svcPickQueue__label">BACKBAR / FINISH</div>
               <div className="s2-svcPickQueue__row">
                 {productQueue.map((p, qi) => (
                   <div key={`${p.id}-${qi}`} className="s2-svcPickQueueCard">
@@ -1385,7 +1874,7 @@ export default function Screen2() {
                       <div className="s2-svcPickQueueCard__brand">{p.brand}</div>
                       <div className="s2-svcPickQueueCard__name">{p.name}</div>
                       <div className="s2-svcPickQueueCard__price">${p.price}</div>
-                    </div>
+        </div>
                   </div>
                 ))}
               </div>

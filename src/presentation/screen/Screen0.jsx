@@ -20,7 +20,6 @@ function Screen0() {
                 // boxSizing: 'border-box',
                 // overflow: 'hidden',
                 // position: 'relative'
-                marginLeft:"-20px"
             }}
         >
             {/* <CurvedLine /> */}

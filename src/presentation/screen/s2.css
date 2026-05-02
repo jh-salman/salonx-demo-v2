@@ -33,8 +33,10 @@
   --s2-page-gutter: 14px;
   /* Bottom dock peek when collapsed (must match transform) */
   --s2-dock-collapsed-peek: 46px;
-  /* Services + Home Care film cards: identical fixed footprint */
+  /* Services + BackBar / Finish film cards: identical fixed footprint (do not grow — S2 is no-scroll) */
   --s2-film-card-height: 122px;
+  /* Queued service “deck” width — portrait card, same row height as pills */
+  --s2-svc-deck-width: 72px;
   /* Inner strip: every pill and + box share the same width (height = row stretch) */
   --s2-film-box-size: 46px;
   /* Add-services / add-products grid: uniform card footprint */
@@ -581,7 +583,7 @@
 .s2-actionBtn.is-mic .s2-actionBtn__label { color: #ff8ec1; }
 .s2-actionBtn.is-cam .s2-actionBtn__label { color: #4eebd0; }
 
-/* Services + Home Care outer cards: same width (100%) + fixed height */
+/* Services + BackBar / Finish outer cards: same width (100%) + fixed height */
 .s2-card.s2-card--v13.s2-svcCard,
 .s2-card.s2-card--v13.s2-hcCard {
   width: 100%;
@@ -597,7 +599,140 @@
   overflow-x: hidden;
 }
 
-/* Services / Home Care — left cluster: all pills + SET + inline + (card outer unchanged) */
+/* Four-up grid (reference): no horizontal scroll, equal columns */
+.s2-quadRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-items: stretch;
+}
+
+.s2-quadCell {
+  min-width: 0;
+  min-height: 0;
+}
+
+.s2-quadCell--filled {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.s2-refTile {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  border-radius: 10px;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+}
+
+.s2-refTile--empty {
+  border: 1px dashed rgba(255, 120, 25, 0.38);
+  background: rgba(255, 255, 255, 0.03);
+  justify-content: center;
+  align-items: center;
+  padding: 6px 4px;
+}
+
+.s2-refTile__emptyLabel {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 7.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.s2-refTile--suggested {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #080808;
+  padding: 5px 5px 6px;
+  align-items: stretch;
+  text-align: left;
+}
+
+.s2-refTile__badgeSuggested {
+  font-size: 6.5px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  color: #5dd5d0;
+  margin-bottom: 4px;
+}
+
+.s2-refTile__silhouette {
+  flex: 1 1 auto;
+  min-height: 34px;
+  border-radius: 6px;
+  background: linear-gradient(165deg, #2a2832 0%, #0a0a0c 92%);
+  margin-bottom: 5px;
+}
+
+.s2-refTile__suggestedMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.s2-refTile__suggestedTitle {
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+
+.s2-refTile__suggestedSub {
+  font-size: 6.5px;
+  color: rgba(196, 181, 253, 0.9);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.s2-refTile__plusCorner {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  color: var(--s2-accent);
+  display: flex;
+  pointer-events: none;
+}
+
+.s2-refTile--add {
+  border: 1px dashed rgba(255, 120, 25, 0.45);
+  background: rgba(255, 255, 255, 0.03);
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 3px;
+}
+
+.s2-refTile__addGlyph {
+  color: var(--s2-accent);
+  flex-shrink: 0;
+}
+
+.s2-refTile__addLabel {
+  font-size: 6.5px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.52);
+}
+
+/* Services / BackBar / Finish — left cluster: all pills + SET + inline + (card outer unchanged) */
 .s2-filmRow {
   display: flex;
   flex-direction: row;
@@ -839,6 +974,155 @@ button.s2-filmPill {
   min-height: 0;
   min-width: 0;
   width: 100%;
+}
+
+.s2-svcDeckCard {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.s2-svcDeckCard__hero {
+  flex: 0 0 44%;
+  min-height: 0;
+  position: relative;
+  background-size: 200% 200%;
+  background-position: 50% 28%;
+}
+
+.s2-svcDeckCard__hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 10%, rgba(0, 0, 0, 0.4) 52%, #000 100%);
+  pointer-events: none;
+}
+
+.s2-svcDeckCard__accentBar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 54%;
+  background: rgba(255, 255, 255, 0.24);
+  border-radius: 0 2px 2px 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.s2-svcDeckCard__edit {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 4;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.52);
+  color: var(--s2-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.s2-svcDeckCard__edit:active {
+  opacity: 0.88;
+  transform: scale(0.94);
+}
+
+.s2-svcDeckCard__body {
+  flex: 1 1 auto;
+  padding: 3px 5px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.s2-svcDeckCard__headline {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 7.5px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  line-height: 1.15;
+  color: var(--s2-accent);
+  text-transform: uppercase;
+}
+
+.s2-svcDeckCard__subtitle {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 7px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.48);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  word-break: break-word;
+  margin-top: 3px;
+}
+
+.s2-svcDeckCard--product .s2-svcDeckCard__headline {
+  letter-spacing: 0.06em;
+}
+
+.s2-svcDeckCard--product .s2-svcDeckCard__subtitle {
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.s2-svcDeckCard__metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  margin-top: auto;
+}
+
+.s2-svcDeckCard__dur {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.85);
+  flex-shrink: 0;
+}
+
+.s2-svcDeckCard__dur--label {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 6.5px;
+}
+
+.s2-svcDeckCard__bottomTick {
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  width: 14px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .s2-filmPill--prd {
