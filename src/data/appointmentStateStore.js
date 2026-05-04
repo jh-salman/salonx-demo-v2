@@ -27,6 +27,39 @@ export const SCREEN2_APT_SESSION_KEY = '@salonx/screen2LastApt/v1';
 // refresh when paired with navigation state from Screen2 / toolbar.
 export const CLIMAX_BACK_SESSION_KEY = '@salonx/climaxBack/v1';
 
+/** Per-appointment Screen2 step-through (CHECK→…→REBOOK); session-only. */
+export const SCREEN2_WORKFLOW_SESSION_KEY = '@salonx/screen2Workflow/v1';
+
+function readScreen2WorkflowStore() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = sessionStorage.getItem(SCREEN2_WORKFLOW_SESSION_KEY);
+    const o = raw ? JSON.parse(raw) : {};
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+/** @returns {{ check?: boolean, consult?: boolean, services?: boolean, lift?: boolean, booking?: boolean } | null} */
+export function readScreen2WorkflowForApt(aptKey) {
+  if (!aptKey) return null;
+  const rec = readScreen2WorkflowStore()[aptKey];
+  if (!rec || typeof rec !== 'object') return null;
+  return rec;
+}
+
+export function writeScreen2WorkflowForApt(aptKey, data) {
+  if (typeof window === 'undefined' || !aptKey || !data || typeof data !== 'object') return;
+  try {
+    const store = readScreen2WorkflowStore();
+    store[aptKey] = { ...data };
+    sessionStorage.setItem(SCREEN2_WORKFLOW_SESSION_KEY, JSON.stringify(store));
+  } catch {
+    /* noop */
+  }
+}
+
 // Anchor entries every queue starts with — Hourly + Consultation rows whose
 // price is driven by hourlyRate / consultRate, not stored per-row.
 export const SVC_HOURLY_BASE = { id: 'SVC-HOURLY', name: 'Hourly (stylist rate)', kind: 'hourly' };

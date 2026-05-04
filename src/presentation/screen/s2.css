@@ -437,19 +437,23 @@
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.16);
 }
-.s2-pdot.is-done { background: var(--s2-text-primary); }
-.s2-pdot.is-active {
+/* Completed step — matches theme primary (“color wand”) */
+.s2-pdot.is-lit {
   background: rgb(var(--salonx-primary-soft-rgb));
-  box-shadow: 0 0 8px rgba(var(--salonx-primary-soft-rgb), 0.35);
-  position: relative;
+  box-shadow: 0 0 6px rgba(var(--salonx-primary-rgb), 0.35);
 }
-.s2-pdot.is-active::after {
+/* Next step in the sequence (not yet completed) */
+.s2-pdot.is-current {
+  position: relative;
+  background: rgba(255, 255, 255, 0.2);
+}
+.s2-pdot.is-current::after {
   content: '';
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  border: 1px solid rgba(var(--salonx-primary-soft-rgb), 0.4);
-  opacity: 0.45;
+  border: 1px solid rgba(var(--salonx-primary-soft-rgb), 0.45);
+  opacity: 0.55;
 }
 .s2-pdotLabels {
   width: 100%;
@@ -466,7 +470,8 @@
   letter-spacing: 0.1em;
   color: var(--s2-text-muted);
 }
-.s2-pdotLabel.is-active { color: rgb(var(--salonx-primary-soft-rgb)); }
+.s2-pdotLabel.is-lit { color: rgb(var(--salonx-primary-soft-rgb)); }
+.s2-pdotLabel.is-current { color: rgba(var(--salonx-primary-soft-rgb), 0.92); }
 
 /* BODY — flex column: equal gap between all three sections; extra height → What We Know only */
 .s2-body {
@@ -3692,6 +3697,17 @@ button.s2-filmPill {
   box-shadow: none;
 }
 
+/* Step-through: surface has been interacted with (theme primary hairline) */
+.s2-card.s2-card--v13.s2-workflowSurface--visited:not(.s2-consultCard) {
+  box-shadow:
+    0 0 0 1px rgba(var(--salonx-primary-rgb), 0.55),
+    var(--s2-glass-panel-shadow);
+}
+.s2-card.s2-card--v13.s2-consultCard.s2-workflowSurface--visited {
+  border-color: rgba(var(--salonx-primary-rgb), 0.58);
+  box-shadow: 0 0 0 1px rgba(var(--salonx-primary-rgb), 0.28);
+}
+
 .s2-body > .s2-section:first-child .s2-pill {
   color: var(--s2-accent);
   border: 1px solid rgba(var(--salonx-primary-rgb), 0.5);
@@ -3712,6 +3728,41 @@ button.s2-filmPill {
   font-weight: 800;
   letter-spacing: 0.16em;
   padding: 4px 18px;
+}
+
+/* Section chips: white until the step is done; then match themed card outline */
+.s2-body > .s2-section:first-child .s2-pill.s2-pill--consult:not(.s2-pill--workflowComplete) {
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(6, 6, 8, 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.s2-body > .s2-section:first-child .s2-pill.s2-pill--consult.s2-pill--workflowComplete {
+  color: var(--s2-accent);
+  border: 1px solid rgba(var(--salonx-primary-rgb), 0.55);
+  background: rgba(var(--salonx-primary-rgb), 0.1);
+  backdrop-filter: blur(16px) saturate(110%);
+  -webkit-backdrop-filter: blur(16px) saturate(110%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 14px rgba(var(--salonx-primary-rgb), 0.12);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.s2-body > .s2-section:nth-child(2) .s2-pill.s2-pill--neutral.s2-pill--workflowComplete,
+.s2-body > .s2-section:nth-child(3) .s2-pill.s2-pill--neutral.s2-pill--workflowComplete {
+  color: rgb(var(--salonx-primary-soft-rgb));
+  border: 1px solid rgba(var(--salonx-primary-rgb), 0.52);
+  background: rgba(var(--salonx-primary-rgb), 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 14px rgba(var(--salonx-primary-rgb), 0.12);
 }
 
 .s2-consultCard .s2-royBand {

@@ -27,10 +27,12 @@ import {
   loadApptStateStore,
   readPersistedScreen2Apt,
   readPersistedScreen2From,
+  readScreen2WorkflowForApt,
   saveApptStateStore,
   SVC_CONSULT_BASE,
   SVC_HOURLY_BASE,
   writePersistedScreen2Apt,
+  writeScreen2WorkflowForApt,
 } from '../../data/appointmentStateStore';
 import { useTimers } from '../../context/TimersContext';
 import AppointmentTimerBox from '../../component/AppointmentTimerBox';
@@ -40,6 +42,19 @@ import './consultationBrief.css';
 
 const S2_ICON_TOOLBAR = 24;
 const S2_ICON_TOOLBAR_ACTIVE = 26;
+
+/** Screen2 header progress: CHECK → CONSULT → SERVICE → LIFT → REBOOK */
+const S2_WORKFLOW_STEPS = [
+  ['check', 'CHECK'],
+  ['consult', 'CONSULT'],
+  ['services', 'SERVICE'],
+  ['lift', 'LIFT'],
+  ['booking', 'REBOOK'],
+];
+
+function emptyS2Workflow() {
+  return { check: false, consult: false, services: false, lift: false, booking: false };
+}
 
 const TOOLBAR_ACTIVE = 1;
 const TOOLBAR_ITEMS = [
@@ -537,6 +552,10 @@ export default function Screen2() {
   const [noteDraft, setNoteDraft] = useState('');
   const noteDraftRef = useRef('');
   const noteEditOpenRef = useRef(null);
+  // Step-through: some progress markers are decided by actions that happen
+  // earlier in the file than the workflow state is declared (hook order).
+  // We bridge via a ref so "Update note" can light CONSULT.
+  const s2WorkflowMarkRef = useRef({ consult: () => {} });
   useEffect(() => {
     noteDraftRef.current = noteDraft;
   }, [noteDraft]);
@@ -675,6 +694,8 @@ export default function Screen2() {
         return next;
       });
     }
+    // A real interaction occurred (added/updated a note) — now light CONSULT.
+    s2WorkflowMarkRef.current.consult?.();
     stopVoice();
     setNoteDraft('');
     setNoteEditOpen(null);
@@ -920,6 +941,10 @@ export default function Screen2() {
   const [svcQueue, setSvcQueue] = useState(initialApptState.svcQueue);
   const [productQueue, setProductQueue] = useState(initialApptState.productQueue);
 
+  /** Snapshot when hourly/consult rate sheet opens — used to detect a real edit on dismiss. */
+  const rateEditBaselineRef = useRef({ hourly: 0, consult: 0 });
+  const rateEditOpenKindRef = useRef(null);
+
   // Reload per-appointment state whenever the active appointment id changes
   // (e.g. user taps a different appointment in the Calendar without unmounting
   // Screen2). Falls back to an empty queue for first-time appointments.
@@ -932,6 +957,61 @@ export default function Screen2() {
     setProductQueue(rec.productQueue);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apptKey]);
+
+  // Step-through progress (dots + visited rims). CHECK completes when the user
+  // lands on this screen with an appointment (e.g. tapped client card on S1).
+  const [s2Workflow, setS2Workflow] = useState(emptyS2Workflow);
+  useLayoutEffect(() => {
+    if (!apptKey) {
+      setS2Workflow(emptyS2Workflow());
+      return;
+    }
+    const saved = readScreen2WorkflowForApt(apptKey);
+    setS2Workflow({
+      check: true,
+      consult: !!saved?.consult,
+      services: !!saved?.services,
+      lift: !!saved?.lift,
+      booking: !!saved?.booking,
+    });
+  }, [apptKey]);
+
+  useEffect(() => {
+    if (!apptKey) return undefined;
+    const t = setTimeout(() => {
+      writeScreen2WorkflowForApt(apptKey, s2Workflow);
+    }, 120);
+    return () => clearTimeout(t);
+  }, [apptKey, s2Workflow]);
+
+  const markS2ConsultVisited = useCallback(() => {
+    setS2Workflow((w) => (w.consult ? w : { ...w, consult: true }));
+  }, []);
+
+  const markS2ServicesVisited = useCallback(() => {
+    setS2Workflow((w) => (w.services ? w : { ...w, services: true }));
+  }, []);
+  const markS2LiftVisited = useCallback(() => {
+    setS2Workflow((w) => (w.lift ? w : { ...w, lift: true }));
+  }, []);
+  const markS2BookingVisited = useCallback(() => {
+    setS2Workflow((w) => (w.booking ? w : { ...w, booking: true }));
+  }, []);
+  s2WorkflowMarkRef.current.consult = markS2ConsultVisited;
+
+  const dismissRateEdit = useCallback(() => {
+    if (rateEditOpen === 'hourly' && hourlyRate !== rateEditBaselineRef.current.hourly) {
+      markS2ServicesVisited();
+    } else if (rateEditOpen === 'consult' && consultRate !== rateEditBaselineRef.current.consult) {
+      markS2ServicesVisited();
+    }
+    setRateEditOpen(null);
+  }, [rateEditOpen, hourlyRate, consultRate, markS2ServicesVisited]);
+
+  const s2WorkflowNextIndex = useMemo(() => {
+    const ix = S2_WORKFLOW_STEPS.findIndex(([key]) => !s2Workflow[key]);
+    return ix < 0 ? -1 : ix;
+  }, [s2Workflow]);
 
   // Persist on any change (debounced) — but only when we have a key to persist
   // against. Visiting Screen2 without an appointment shouldn't pollute storage.
@@ -1055,6 +1135,21 @@ export default function Screen2() {
     );
   }, [hourlyRate, consultRate]);
 
+  useLayoutEffect(() => {
+    if (!rateEditOpen) {
+      rateEditOpenKindRef.current = null;
+      return;
+    }
+    if (rateEditOpen !== rateEditOpenKindRef.current) {
+      if (rateEditOpen === 'hourly') {
+        rateEditBaselineRef.current.hourly = hourlyRate;
+      } else if (rateEditOpen === 'consult') {
+        rateEditBaselineRef.current.consult = consultRate;
+      }
+      rateEditOpenKindRef.current = rateEditOpen;
+    }
+  }, [rateEditOpen, hourlyRate, consultRate]);
+
   const openRemoveConfirm = useCallback((kind, id, label) => {
     setRemoveConfirm({ kind, id, label });
   }, []);
@@ -1063,11 +1158,13 @@ export default function Screen2() {
     if (!removeConfirm) return;
     if (removeConfirm.kind === 'svc') {
       setSvcQueue((prev) => prev.filter((q) => q.id !== removeConfirm.id));
+      markS2ServicesVisited();
     } else {
       setProductQueue((prev) => prev.filter((q) => q.id !== removeConfirm.id));
+      markS2LiftVisited();
     }
     setRemoveConfirm(null);
-  }, [removeConfirm]);
+  }, [removeConfirm, markS2ServicesVisited, markS2LiftVisited]);
 
   return (
     <div className="s2-root">
@@ -1192,22 +1289,32 @@ export default function Screen2() {
 
         <div className="s2-progress" aria-label="Progress">
           <div className="s2-progressDots" aria-hidden>
-            <span className="s2-pdot is-done" />
-            <span className="s2-dotLine" />
-            <span className="s2-pdot is-active" />
-            <span className="s2-dotLine" />
-            <span className="s2-pdot" />
-            <span className="s2-dotLine" />
-            <span className="s2-pdot" />
-            <span className="s2-dotLine" />
-            <span className="s2-pdot" />
+            {S2_WORKFLOW_STEPS.flatMap(([key], i) => {
+              const lit = s2Workflow[key];
+              const isCurrent = i === s2WorkflowNextIndex && s2WorkflowNextIndex >= 0;
+              const dot = (
+                <span
+                  key={key}
+                  className={`s2-pdot${lit ? ' is-lit' : ''}${!lit && isCurrent ? ' is-current' : ''}`}
+                />
+              );
+              if (i === 0) return [dot];
+              return [<span key={`s2-wf-line-${i}`} className="s2-dotLine" />, dot];
+            })}
           </div>
           <div className="s2-pdotLabels">
-            <div className="s2-pdotLabel">CHECK</div>
-            <div className="s2-pdotLabel is-active">CONSULT</div>
-            <div className="s2-pdotLabel">SERVICE</div>
-            <div className="s2-pdotLabel">LIFT</div>
-            <div className="s2-pdotLabel">REBOOK</div>
+            {S2_WORKFLOW_STEPS.map(([key, label], i) => {
+              const lit = s2Workflow[key];
+              const isCurrent = i === s2WorkflowNextIndex && s2WorkflowNextIndex >= 0;
+              return (
+                <div
+                  key={key}
+                  className={`s2-pdotLabel${lit ? ' is-lit' : ''}${!lit && isCurrent ? ' is-current' : ''}`}
+                >
+                  {label}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -1215,8 +1322,17 @@ export default function Screen2() {
       {/* MAIN CONTENT — v1.3 stack */}
       <div className="s2-body">
         <div className="s2-section">
-          <div className="s2-pill s2-pill--neutral s2-pill--consult">Consultation</div>
-          <button type="button" className="s2-card s2-card--v13 s2-consultCard" onClick={() => setConsultOpen(true)} aria-label="Open consultation">
+          <div
+            className={`s2-pill s2-pill--neutral s2-pill--consult${s2Workflow.consult ? ' s2-pill--workflowComplete' : ''}`}
+          >
+            Consultation
+          </div>
+          <button
+            type="button"
+            className={`s2-card s2-card--v13 s2-consultCard${s2Workflow.consult ? ' s2-workflowSurface--visited' : ''}`}
+            onClick={() => setConsultOpen(true)}
+            aria-label="Open consultation"
+          >
             <div className="s2-royBand is-yellow" aria-hidden />
             <div className="s2-consultHeader">
               <div className="s2-consultHeader__cluster">
@@ -1334,8 +1450,8 @@ export default function Screen2() {
         </div>
 
         <div className="s2-section">
-          <div className="s2-pill s2-pill--neutral">Services</div>
-          <div className="s2-card s2-card--v13 s2-svcCard">
+          <div className={`s2-pill s2-pill--neutral${s2Workflow.services ? ' s2-pill--workflowComplete' : ''}`}>Services</div>
+          <div className={`s2-card s2-card--v13 s2-svcCard${s2Workflow.services ? ' s2-workflowSurface--visited' : ''}`}>
             <div className="s2-quadRow" aria-label="Services">
               {[0, 1].map((ix) => {
                 const s = svcQuadPair[ix];
@@ -1467,8 +1583,8 @@ export default function Screen2() {
         </div>
 
         <div className="s2-section">
-          <div className="s2-pill s2-pill--neutral">BACK BAR</div>
-          <div className="s2-card s2-card--v13 s2-hcCard">
+          <div className={`s2-pill s2-pill--neutral${s2Workflow.lift ? ' s2-pill--workflowComplete' : ''}`}>BACK BAR</div>
+          <div className={`s2-card s2-card--v13 s2-hcCard${s2Workflow.lift ? ' s2-workflowSurface--visited' : ''}`}>
             <div className="s2-quadRow" aria-label="Back bar products">
               {[0, 1].map((ix) => {
                 const p = prdQuadPair[ix];
@@ -1582,16 +1698,17 @@ export default function Screen2() {
         <div className="s2-bottomDock s2-bottomDock--inline">
           <div className="s2-bottomDock__content">
             <div className="s2-ctaRow">
-              <button type="button" className="s2-cta is-rebook">
+              <button type="button" className="s2-cta is-rebook" onClick={markS2BookingVisited}>
                 <div className="s2-ctaIcon" aria-hidden>↻</div>
                 <div className="s2-ctaLabel">Rebook</div>
         </button>
               <button
                 type="button"
                 className="s2-cta is-checkout"
-                onClick={() =>
-                  navigate('/climax', { state: { apt: activeApt, from: '/screen2' } })
-                }
+                onClick={() => {
+                  markS2BookingVisited();
+                  navigate('/climax', { state: { apt: activeApt, from: '/screen2' } });
+                }}
               >
                 <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
                 <div className="s2-ctaLabel">Check out</div>
@@ -2141,6 +2258,7 @@ export default function Screen2() {
                             ? prev.filter((q) => q.id !== s.id)
                             : [...prev, rowSvc],
                         );
+                        markS2ServicesVisited();
                       }}
                     >
                       <S2ProductPhoto
@@ -2188,12 +2306,13 @@ export default function Screen2() {
                 <button
                   type="button"
                   className="s2-svcPickQueueAdd"
-                  onClick={() =>
+                  onClick={() => {
                     setSvcQueue((prev) => [
                       ...prev,
                       { id: `SVC-C-${Date.now()}`, name: 'Custom service', price: 0 },
-                    ])
-                  }
+                    ]);
+                    markS2ServicesVisited();
+                  }}
                 >
                   <span className="s2-svcPickQueueAdd__plus" aria-hidden>
                     +
@@ -2242,6 +2361,7 @@ export default function Screen2() {
                             ? prev.filter((q) => q.id !== p.id)
                             : [...prev, p],
                         );
+                        markS2LiftVisited();
                       }}
                     >
                       <S2ProductPhoto
@@ -2373,11 +2493,11 @@ export default function Screen2() {
             type="button"
             className="s2-addProdBackdrop"
             aria-label="Close"
-            onClick={() => setRateEditOpen(null)}
+            onClick={dismissRateEdit}
           />
           <div className="s2-rateEditSheet">
             <header className="s2-rateEditHeader">
-              <button type="button" className="s2-rateEditClose" aria-label="Close" onClick={() => setRateEditOpen(null)}>
+              <button type="button" className="s2-rateEditClose" aria-label="Close" onClick={dismissRateEdit}>
                 <X size={18} weight="regular" aria-hidden />
               </button>
               <h2 className="s2-rateEditTitle">{rateEditOpen === 'hourly' ? 'Hourly rate' : 'Consultation fee'}</h2>
@@ -2429,7 +2549,7 @@ export default function Screen2() {
                           onChange={(e) => setRateVal(clampAdjustableRate(e.target.value))}
                         />
                       </label>
-                      <button type="button" className="s2-rateEditDone" onClick={() => setRateEditOpen(null)}>
+                      <button type="button" className="s2-rateEditDone" onClick={dismissRateEdit}>
                         Done
                       </button>
                     </>
