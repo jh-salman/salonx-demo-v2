@@ -1,6 +1,6 @@
 import React, { useContext, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom';
-import { Scissors, User, Lightning, CalendarBlank, X } from 'phosphor-react';
+import { Scissors, User, Lightning, CalendarBlank, X, CaretRight } from 'phosphor-react';
 import CurvedLine from '../../component/CurvedLine'
 import Profile from '../../component/Profile';
 import { AppContext } from '../../context/AppContext';
@@ -36,8 +36,17 @@ function Screen1() {
     const calendarEvents = useCalendarEvents();
     const {
         selectSlider,
+        setSelectSlider,
+        setBallAtRight,
+        setIsTimer,
         isTimer,
     } = useContext(AppContext);
+
+    const showProfileAgain = () => {
+        setSelectSlider(false);
+        setBallAtRight(false);
+        setIsTimer(false);
+    };
 
     // Resolve the appointment the bottom-toolbar buttons should hand off to
     // Client Details / Checkout / Calendar:
@@ -64,9 +73,16 @@ function Screen1() {
 
             <div className="layout-wrapper">
                 <div className="screen1-background">
-                    <div className="curvedline-container">
-                        <CurvedLine />
-                    </div>
+                    {selectSlider ? (
+                        <button
+                            type="button"
+                            className="screen1-profilePeek"
+                            onClick={showProfileAgain}
+                            aria-label="Show profile and muse slider"
+                        >
+                            <CaretRight size={22} weight="bold" aria-hidden />
+                        </button>
+                    ) : null}
                     <div>
                         <div className="profile-panel" style={{transform: selectSlider ? "translateX(-100%)" : "translateX(0)"}}>
 
@@ -137,6 +153,9 @@ function Screen1() {
                                 );
                             })}
                         </div>
+                    </div>
+                    <div className="curvedline-container" aria-hidden>
+                        <CurvedLine />
                     </div>
                 </div>
 

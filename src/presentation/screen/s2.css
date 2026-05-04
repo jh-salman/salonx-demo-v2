@@ -64,6 +64,8 @@
   --s2-film-box-size: 46px;
   /* Add-services / add-products grid: uniform card footprint */
   --s2-addProd-card-min-h: 236px;
+  /* Fixed image band so titles align across cards (no flex-grow on photo area). */
+  --s2-addProd-visual-h: 116px;
   /* Popup bottom queue chips: uniform height */
   --s2-queue-chip-h: 122px;
   /* Consultation preview card: height follows content (no dead band below LOOK) */
@@ -168,6 +170,25 @@
     linear-gradient(180deg, #050607 0%, #0a0d10 45%, #030405 100%);
 }
 
+/* Decorative curve — top-right (header / identity zone) */
+.s2-topRightCurve {
+  position: absolute;
+  top: -10px;
+  right: -5px;
+  z-index: 15;
+  width: 99px;
+  height: 216px;
+  pointer-events: none;
+  line-height: 0;
+  filter: drop-shadow(0 0 3px rgba(255, 119, 25, 0.45));
+}
+
+.s2-topRightCurve svg {
+  display: block;
+  width: 99px;
+  height: 216px;
+}
+
 /* No photo BG — scrim disabled */
 .s2-root::before {
   content: '';
@@ -270,6 +291,16 @@
   justify-content: center;
   pointer-events: none;
 }
+.s2-avatar__empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: rgba(245, 245, 247, 0.38);
+}
+.s2-avatar__empty svg {
+  flex-shrink: 0;
+}
 .s2-avatar__img {
   position: absolute;
   inset: 0;
@@ -293,6 +324,27 @@
   flex: 0 1 auto;
   min-width: 0;
   max-width: calc(100% - 68px);
+}
+
+.s2-identityText {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.s2-identityNameRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.s2-identityNameRow .s2-clientName {
+  flex: 1 1 auto;
 }
 
 .s2-msgBadges { display: flex; gap: 3px; }
@@ -337,8 +389,10 @@
   font-size: 11px;
   color: var(--s2-text-muted);
   letter-spacing: 0.02em;
-  flex-shrink: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .s2-kebabText {
@@ -1742,12 +1796,24 @@ button.s2-filmPill {
   content: '';
   position: absolute;
   inset: 0;
+  z-index: 1;
   background: linear-gradient(
     to bottom,
     rgba(0, 0, 0, 0) 8%,
     rgba(12, 15, 18, 0.55) 55%,
     rgba(12, 15, 18, 0.92) 100%
   );
+  pointer-events: none;
+}
+
+.s2-svcDeckCard__heroPhoto {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 0;
   pointer-events: none;
 }
 
@@ -2239,6 +2305,7 @@ button.s2-filmPill {
   touch-action: manipulation;
   pointer-events: auto;
 }
+
 .s2-noteBackdrop {
   position: absolute;
   inset: 0;
@@ -2591,19 +2658,35 @@ button.s2-filmPill {
   opacity: 0.95;
 }
 .s2-addProdCard__visual {
-  flex: 1 1 auto;
-  min-height: 112px;
+  flex: 0 0 var(--s2-addProd-visual-h);
   width: 100%;
+  height: var(--s2-addProd-visual-h);
+  min-height: var(--s2-addProd-visual-h);
+  max-height: var(--s2-addProd-visual-h);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.s2-addProdCard__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  z-index: 0;
+  pointer-events: none;
 }
 .s2-addProdCard__meta {
-  padding: 11px 8px 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  flex: 0 0 auto;
-  min-height: 5rem;
-  justify-content: flex-end;
+  gap: 5px;
+  justify-content: flex-start;
+  align-items: stretch;
 }
 .s2-addProdCard__brand {
   font-size: 12px;
@@ -2612,6 +2695,7 @@ button.s2-filmPill {
   color: #d4a574;
   text-transform: uppercase;
   line-height: 1.25;
+  flex-shrink: 0;
 }
 .s2-addProdCard__name {
   font-size: clamp(13px, 3.4vw, 15px);
@@ -2624,12 +2708,15 @@ button.s2-filmPill {
   overflow: hidden;
   text-align: center;
   flex: 1 1 auto;
+  min-height: 0;
 }
 .s2-addProdCard__price {
   font-size: clamp(14px, 3.6vw, 16px);
   font-weight: 700;
   color: var(--s2-accent);
   margin-top: auto;
+  flex-shrink: 0;
+  padding-top: 2px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   letter-spacing: 0.02em;
 }
@@ -2770,6 +2857,18 @@ button.s2-filmPill {
   min-height: 52px;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  overflow: hidden;
+}
+.s2-svcPickQueueCard__photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 0;
+  pointer-events: none;
 }
 .s2-svcPickQueueCard__meta {
   padding: 5px 5px 6px;
@@ -2933,6 +3032,100 @@ button.s2-filmPill {
 .s2-confirmBtn--danger:active {
   opacity: 0.92;
   transform: scale(0.98);
+}
+
+/* Profile photo — action sheet (camera / library); avatar in consultation localStorage */
+.s2-avatarPhotoOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 68;
+  isolation: isolate;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0));
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.s2-avatarPhotoOverlay .s2-addProdBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+}
+.s2-avatarPhotoSheet {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 360px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--s2-glass-panel-bg);
+  backdrop-filter: var(--s2-climax-glass-blur);
+  -webkit-backdrop-filter: var(--s2-climax-glass-blur);
+  padding: 18px 16px 14px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  box-shadow: var(--s2-glass-panel-shadow);
+}
+.s2-avatarPhotoTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--s2-text-primary);
+}
+.s2-avatarPhotoActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+.s2-avatarPhotoBtn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 138, 31, 0.35);
+  background: rgba(255, 120, 25, 0.08);
+  color: rgba(245, 245, 247, 0.92);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+}
+.s2-avatarPhotoBtn svg {
+  flex-shrink: 0;
+  color: #ff9f4a;
+  opacity: 0.95;
+}
+.s2-avatarPhotoBtn:active {
+  transform: scale(0.99);
+  opacity: 0.94;
+}
+.s2-avatarPhotoCancel {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(245, 245, 247, 0.75);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.s2-avatarPhotoCancel:active {
+  opacity: 0.88;
+  transform: scale(0.99);
 }
 
 /* Hourly ($50–$310) + consultation ($25/$50/$75) rate editor */

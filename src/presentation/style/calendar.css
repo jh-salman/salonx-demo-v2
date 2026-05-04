@@ -224,9 +224,12 @@
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  overscroll-behavior-x: none;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  /* Let horizontal swipes pass to parent `.cal-day` (day navigation); vertical scroll stays native */
+  touch-action: pan-y;
 }
 .cal-day__scroll::-webkit-scrollbar{
   width: 3px;
@@ -253,6 +256,7 @@
   min-width: 0;
   overflow: hidden;
   display: flex;
+  touch-action: pan-y;
 }
 
 .cal-swipeTrack{
@@ -314,6 +318,7 @@
   flex-direction: row;
   min-width: 0;
   align-items: stretch;
+  touch-action: pan-y;
 }
 .cal-day__axisHeadSpacer {
   height: 30px;

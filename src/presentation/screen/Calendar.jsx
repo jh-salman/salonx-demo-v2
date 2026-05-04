@@ -1494,10 +1494,15 @@ export default function CalendarScreenWeb() {
     return () => cancelAnimationFrame(id);
   }, [swipeAnim]);
 
+  /** Synchronous guard: pointerup + touchend can fire same tick before `swipeAnim` re-renders. */
+  const swipeNavPendingRef = useRef(false);
+
   const beginSwipeNav = useCallback(
     (dir) => {
       if (viewMode === "month") return;
       if (swipeAnim) return; // ignore while animating
+      if (swipeNavPendingRef.current) return;
+      swipeNavPendingRef.current = true;
       const from = currentDate;
       const to = addDays(from, dir === "prev" ? -1 : 1);
       setSwipeAnim({
@@ -1515,7 +1520,25 @@ export default function CalendarScreenWeb() {
   // Pointer-based swipe → prev/next day on Day + 5-Day view (works for mouse,
   // touch, and pen). Skips when the gesture starts inside an appointment, the
   // toolbar, or any modal so other handlers aren't disturbed.
-  const swipeRef = useRef({ x: 0, y: 0, ts: 0, active: false, pointerId: null });
+  const swipeRef = useRef({
+    x: 0,
+    y: 0,
+    ts: 0,
+    active: false,
+    pointerId: null,
+    captured: false,
+    pointerType: null,
+    captureEl: null,
+  });
+  const daySwipeSurfaceRef = useRef(null);
+  const swipeAnimRef = useRef(null);
+  const swipeTouchStartRef = useRef(null);
+  /** When pointer path already called beginSwipeNav, skip duplicate touchend (same gesture). */
+  const swipeConsumedThisGestureRef = useRef(false);
+
+  useEffect(() => {
+    swipeAnimRef.current = swipeAnim;
+  }, [swipeAnim]);
 
   const handleSwipePointerDown = useCallback(
     (e) => {
@@ -1532,12 +1555,15 @@ export default function CalendarScreenWeb() {
       ) {
         return;
       }
+      swipeConsumedThisGestureRef.current = false;
       swipeRef.current = {
         x: e.clientX,
         y: e.clientY,
         ts: Date.now(),
         active: true,
         pointerId: e.pointerId ?? null,
+        captured: false,
+        pointerType: e.pointerType || "mouse",
         captureEl: e.currentTarget || null,
       };
     },
@@ -1556,8 +1582,14 @@ export default function CalendarScreenWeb() {
       if (ref.pointerId != null && e.pointerId !== ref.pointerId) return;
       const dx = e.clientX - ref.x;
       const dy = e.clientY - ref.y;
+      const captureThreshold =
+        ref.pointerType === "touch" || ref.pointerType === "pen" ? 8 : 12;
       // If user moved meaningfully horizontal & not strongly vertical, lock pointer
-      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) && !ref.captured) {
+      if (
+        Math.abs(dx) > captureThreshold &&
+        Math.abs(dx) > Math.abs(dy) &&
+        !ref.captured
+      ) {
         const el = ref.captureEl;
         if (el && typeof el.setPointerCapture === "function") {
           try {
@@ -1602,6 +1634,7 @@ export default function CalendarScreenWeb() {
       // Require horizontal dominance (dx more than 1.4× dy) so vertical scroll
       // intents don't accidentally trigger a day change.
       if (Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      swipeConsumedThisGestureRef.current = true;
       beginSwipeNav(dx > 0 ? "prev" : "next");
     },
     [beginSwipeNav, swipeAnim, viewMode],
@@ -1616,8 +1649,80 @@ export default function CalendarScreenWeb() {
         /* noop */
       }
     }
-    swipeRef.current = { x: 0, y: 0, ts: 0, active: false, pointerId: null };
+    swipeRef.current = {
+      x: 0,
+      y: 0,
+      ts: 0,
+      active: false,
+      pointerId: null,
+      captured: false,
+      pointerType: null,
+      captureEl: null,
+    };
   }, []);
+
+  // Touch fallback: some mobile browsers drop pointer capture / coalesce events
+  // with nested scrollers. Touches still deliver touchstart/touchend reliably.
+  useEffect(() => {
+    const el = daySwipeSurfaceRef.current;
+    if (!el || viewMode === "month") return;
+
+    const swipeTargetFilter = (target) => {
+      if (
+        target &&
+        target.closest &&
+        (target.closest(".cal-apt") ||
+          target.closest(".cal-modal") ||
+          target.closest(".cal-toolbar"))
+      ) {
+        return false;
+      }
+      return true;
+    };
+
+    const onTouchStart = (e) => {
+      if (swipeAnimRef.current) return;
+      if (e.touches.length !== 1) return;
+      if (!swipeTargetFilter(e.target)) return;
+      swipeConsumedThisGestureRef.current = false;
+      const t = e.touches[0];
+      swipeTouchStartRef.current = {
+        x: t.clientX,
+        y: t.clientY,
+        ts: Date.now(),
+      };
+    };
+
+    const onTouchEnd = (e) => {
+      if (swipeAnimRef.current) return;
+      const start = swipeTouchStartRef.current;
+      swipeTouchStartRef.current = null;
+      if (!start) return;
+      if (swipeConsumedThisGestureRef.current) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      const dt = Date.now() - start.ts;
+      if (Math.abs(dx) < 40 || Math.abs(dy) > 90 || dt > 1200) return;
+      if (Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      swipeConsumedThisGestureRef.current = true;
+      beginSwipeNav(dx > 0 ? "prev" : "next");
+    };
+
+    const onTouchCancel = () => {
+      swipeTouchStartRef.current = null;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchCancel, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
+    };
+  }, [viewMode, beginSwipeNav]);
 
   // Save handler from NewAppt overlay
   const handleSaveAppointment = useCallback(
@@ -1985,12 +2090,14 @@ export default function CalendarScreenWeb() {
 
           const handleSwipeTransitionEnd = () => {
             if (!swipeAnim) return;
+            swipeNavPendingRef.current = false;
             setCurrentDate(swipeAnim.to);
             setSwipeAnim(null);
           };
 
           return (
             <div
+              ref={daySwipeSurfaceRef}
               className={`cal-day${viewMode === "week" ? " cal-day--week" : ""}${
                 swipeAnim ? " is-swiping" : ""
               }`}

@@ -24,6 +24,13 @@
   --nc-cat-chair: #f08537;
   --nc-cat-path: #4dd4c4;
   --nc-cat-look: #b47bff;
+  /* Parity: s2.css `.s2-card.s2-card--v13.s2-consultCard` (+ pane dividers) */
+  --nc-consult-card-bg: rgba(255, 255, 255, 0.04);
+  --nc-consult-card-blur: blur(20px) saturate(110%);
+  --nc-consult-card-border: 1px solid rgba(255, 255, 255, 0.16);
+  --nc-consult-card-radius: 22px;
+  --nc-consult-pane-line: rgba(255, 255, 255, 0.1);
+  --nc-consult-inset-bg: rgba(255, 255, 255, 0.06);
   --nc-font-mono: 'Space Mono', ui-monospace, monospace;
   --nc-font-body: 'DM Sans', system-ui, sans-serif;
   --nc-font-display: 'Bebas Neue', system-ui, sans-serif;
@@ -108,6 +115,13 @@
   object-fit: cover;
 }
 
+.nc-pu-id-mini--empty {
+  color: rgba(245, 245, 247, 0.35);
+}
+.nc-pu-id-mini--empty svg {
+  flex-shrink: 0;
+}
+
 .nc-pu-name {
   font-size: 13px;
   font-weight: 600;
@@ -131,12 +145,12 @@
 .nc-preconsult {
   margin: 8px 12px 0;
   padding: 10px 12px;
-  border-radius: 16px;
-  background: var(--nc-bg-glass);
-  border: none;
-  backdrop-filter: var(--nc-climax-glass-blur);
-  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
-  box-shadow: var(--nc-glass-deep-shadow);
+  border-radius: var(--nc-consult-card-radius);
+  background: var(--nc-consult-card-bg);
+  border: var(--nc-consult-card-border);
+  box-shadow: none;
+  backdrop-filter: var(--nc-consult-card-blur);
+  -webkit-backdrop-filter: var(--nc-consult-card-blur);
   flex-shrink: 0;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -314,7 +328,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 11px;
   padding: 8px 12px 0;
   min-height: 0;
   overflow-x: hidden;
@@ -324,12 +338,12 @@
 
 .nc-field {
   flex: 1;
-  border-radius: 16px;
-  background: var(--nc-bg-card);
-  border: none;
-  backdrop-filter: var(--nc-climax-glass-blur);
-  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
-  box-shadow: var(--nc-glass-lift-shadow);
+  border-radius: var(--nc-consult-card-radius);
+  background: var(--nc-consult-card-bg);
+  border: var(--nc-consult-card-border);
+  box-shadow: none;
+  backdrop-filter: var(--nc-consult-card-blur);
+  -webkit-backdrop-filter: var(--nc-consult-card-blur);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -344,8 +358,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px 6px 12px;
+  padding: 8px 10px 8px 12px;
   flex-shrink: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--nc-consult-pane-line);
 }
 
 .nc-f-title {
@@ -394,11 +410,11 @@
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: var(--nc-bg-card);
-  border: none;
-  backdrop-filter: var(--nc-climax-glass-blur);
-  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
-  box-shadow: var(--nc-glass-lift-shadow);
+  background: var(--nc-consult-card-bg);
+  border: var(--nc-consult-card-border);
+  backdrop-filter: blur(16px) saturate(110%);
+  -webkit-backdrop-filter: blur(16px) saturate(110%);
+  box-shadow: none;
   color: var(--nc-text-mid);
   cursor: pointer;
   display: flex;
@@ -460,8 +476,8 @@
   display: grid;
   grid-template-columns: 56px 1fr;
   gap: 8px;
-  padding: 5px 0;
-  border-top: 1px dashed rgba(255, 255, 255, 0.05);
+  padding: 8px 0;
+  border-top: 1px solid var(--nc-consult-pane-line);
   font-size: 11.5px;
   line-height: 1.4;
   color: var(--nc-text-mid);
@@ -473,12 +489,14 @@
 
 .nc-note.latest {
   color: var(--nc-text);
-  background: rgba(255, 255, 255, 0.07);
-  margin: 0 -8px;
-  padding: 5px 8px;
-  border-radius: 8px;
-  border-top: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  background: var(--nc-consult-inset-bg);
+  margin: 4px -8px 0;
+  padding: 8px 8px;
+  border-radius: 12px;
+  border: var(--nc-consult-card-border);
+  box-shadow: none;
+  backdrop-filter: var(--nc-consult-card-blur);
+  -webkit-backdrop-filter: var(--nc-consult-card-blur);
 }
 
 .nc-note.latest .nc-ts {
@@ -569,15 +587,18 @@ button.nc-note:focus-visible {
   position: relative;
   width: 70px;
   height: 70px;
-  border-radius: 8px;
-  border: 1px solid var(--nc-border);
+  border-radius: 12px;
+  border: var(--nc-consult-card-border);
   overflow: hidden;
-  background: #1a1a1a;
+  background: var(--nc-consult-card-bg);
+  box-shadow: none;
+  backdrop-filter: var(--nc-consult-card-blur);
+  -webkit-backdrop-filter: var(--nc-consult-card-blur);
 }
 
 .nc-photo-card.latest .nc-photo-img {
-  border: 1.5px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+  background: var(--nc-consult-inset-bg);
+  box-shadow: none;
 }
 
 .nc-photo-img img {

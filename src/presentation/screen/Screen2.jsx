@@ -5,6 +5,7 @@ import {
   CalendarBlank,
   Camera,
   Clock,
+  Image as ImageIcon,
   Lightning,
   Microphone,
   Minus,
@@ -213,6 +214,54 @@ function productVisualGradient(color) {
   return `linear-gradient(165deg, ${color} 0%, #0a0a0c 85%)`;
 }
 
+function productImageUrl(p) {
+  if (!p || typeof p.imageUrl !== 'string') return null;
+  const u = p.imageUrl.trim();
+  return u || null;
+}
+
+function serviceImageUrl(s) {
+  if (!s || typeof s !== 'object') return null;
+  const a = typeof s.image === 'string' ? s.image.trim() : '';
+  const b = typeof s.imageUrl === 'string' ? s.imageUrl.trim() : '';
+  return a || b || null;
+}
+
+/** Queue rows may omit `image` after older saves — resolve from picker catalog. */
+function serviceImageUrlResolved(s, pickerList) {
+  const direct = serviceImageUrl(s);
+  if (direct) return direct;
+  const id = s && s.id != null ? String(s.id) : '';
+  if (!id || !Array.isArray(pickerList)) return null;
+  const row = pickerList.find((x) => x && String(x.id) === id);
+  return serviceImageUrl(row);
+}
+
+/** Product packshot over `MOCK_PRODUCTS` `imageUrl`; gradient stays as fallback / underlay. */
+function S2ProductPhoto({ imageUrl, fallbackBackground, wrapClassName, imgClassName, decorative }) {
+  return (
+    <div
+      className={wrapClassName}
+      style={fallbackBackground ? { background: fallbackBackground } : undefined}
+      aria-hidden={decorative ? true : undefined}
+    >
+      {imageUrl ? (
+        <img
+          className={imgClassName}
+          src={imageUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={(e) => {
+            e.currentTarget.remove();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 // ---------- Consultation persistence (per-client, localStorage) ----------
 const CONSULT_STORAGE_KEY = '@salonx/consultations/v1';
 const CONSULT_DEFAULT_TEXT = {
@@ -341,7 +390,22 @@ function normalizeServiceCatalogEntry(raw) {
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   if (!id || !name) return null;
   const price = typeof raw.price === 'number' && !Number.isNaN(raw.price) ? raw.price : 0;
-  return { id, name, price };
+  const out = { id, name, price };
+  const img = typeof raw.image === 'string' ? raw.image.trim() : '';
+  if (img) out.image = img;
+  if (raw.kind) out.kind = raw.kind;
+  return out;
+}
+
+function enrichServiceCatalogImages(catalog) {
+  const byId = Object.fromEntries(MOCK_SERVICES.map((s) => [s.id, s]));
+  return catalog.map((row) => {
+    const m = byId[row.id];
+    if (m && typeof m.image === 'string' && m.image.trim() && !serviceImageUrl(row)) {
+      return { ...row, image: m.image.trim() };
+    }
+    return row;
+  });
 }
 
 function loadServiceCatalogFromCalendarStorage() {
@@ -353,7 +417,8 @@ function loadServiceCatalogFromCalendarStorage() {
     const cat = data?.serviceCatalog;
     if (!Array.isArray(cat) || !cat.length) return MOCK_SERVICES;
     const normalized = cat.map(normalizeServiceCatalogEntry).filter(Boolean);
-    return normalized.length ? normalized : MOCK_SERVICES;
+    if (!normalized.length) return MOCK_SERVICES;
+    return enrichServiceCatalogImages(normalized);
   } catch {
     return MOCK_SERVICES;
   }
@@ -436,6 +501,14 @@ export default function Screen2() {
   useEffect(() => {
     setConsultRecord(getConsultRecord(loadConsultStore(), activeClientName));
   }, [activeClientName]);
+
+  /** Profile photo sheet (camera / library); avatar persists per client via consultation store. */
+  const [avatarPhotoSheetOpen, setAvatarPhotoSheetOpen] = useState(false);
+
+  const profilePhotoDisplayUrl =
+    typeof consultRecord.avatar === 'string' && consultRecord.avatar.trim()
+      ? consultRecord.avatar
+      : null;
 
   // Debounced persistence
   const consultRecordRef = useRef(consultRecord);
@@ -755,23 +828,54 @@ export default function Screen2() {
     reader.readAsDataURL(file);
   }, []);
 
-  // ---------- Avatar capture (header circle) ----------
-  const avatarInputRef = useRef(null);
+  // ---------- Profile photo (header) — modal + camera / library; session-only (no persist) ----------
+  const avatarCameraInputRef = useRef(null);
+  const avatarGalleryInputRef = useRef(null);
 
-  const openAvatarPicker = useCallback(() => {
-    if (avatarInputRef.current) {
-      avatarInputRef.current.value = '';
-      avatarInputRef.current.click();
-    }
+  const openAvatarPhotoSheet = useCallback(() => {
+    setAvatarPhotoSheetOpen(true);
   }, []);
 
-  const handleAvatarChosen = useCallback((e) => {
+  const triggerAvatarCamera = useCallback(() => {
+    setAvatarPhotoSheetOpen(false);
+    requestAnimationFrame(() => {
+      const input = avatarCameraInputRef.current;
+      if (input) {
+        input.value = '';
+        input.click();
+      }
+    });
+  }, []);
+
+  const triggerAvatarGallery = useCallback(() => {
+    setAvatarPhotoSheetOpen(false);
+    requestAnimationFrame(() => {
+      const input = avatarGalleryInputRef.current;
+      if (input) {
+        input.value = '';
+        input.click();
+      }
+    });
+  }, []);
+
+  const handleAvatarFileChosen = useCallback((e) => {
     const file = e.target?.files?.[0];
+    const input = e.target;
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       const url = reader.result;
-      setConsultRecord((prev) => ({ ...prev, avatar: typeof url === 'string' ? url : null }));
+      if (typeof url === 'string') {
+        setConsultRecord((prev) => ({ ...prev, avatar: url }));
+      }
+      setAvatarPhotoSheetOpen(false);
+      requestAnimationFrame(() => {
+        try {
+          if (input) input.blur();
+        } catch (_) {
+          /* noop */
+        }
+      });
     };
     reader.readAsDataURL(file);
   }, []);
@@ -915,18 +1019,6 @@ export default function Screen2() {
     clearTimer(timerKey);
   }, [clearTimer, timerKey]);
 
-  const initials = useMemo(
-    () =>
-      (activeClient.name || '')
-        .split(' ')
-        .filter(Boolean)
-        .map((w) => w[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase(),
-    [activeClient.name],
-  );
-
   const displaySvcQueue = useMemo(() => sortSvcQueueForDisplay(svcQueue), [svcQueue]);
 
   const svcQuadPair = useMemo(
@@ -979,6 +1071,24 @@ export default function Screen2() {
     <div className="s2-root">
       <div className="s2-bg" />
 
+      <div className="s2-topRightCurve" aria-hidden>
+        <svg
+          width="99"
+          height="216"
+          viewBox="0 0 99 216"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204V235.5L90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
+            fill="#1F1C1C"
+            stroke="#FF7719"
+            strokeWidth="2"
+            vectorEffect="nonScalingStroke"
+          />
+        </svg>
+      </div>
+
       {/* TOP BAR */}
       <div className="s2-topbar">
         <button className="s2-back" onClick={() => navigate(backTarget)}>
@@ -993,22 +1103,26 @@ export default function Screen2() {
           <button
             type="button"
             className="s2-avatar"
-            onClick={openAvatarPicker}
-            aria-label={consultRecord.avatar ? 'Change client photo' : 'Add client photo'}
+            onClick={openAvatarPhotoSheet}
+            aria-label={
+              profilePhotoDisplayUrl ? 'Change profile photo' : 'Add profile photo'
+            }
           >
-            {consultRecord.avatar ? (
+            {profilePhotoDisplayUrl ? (
               <img
-                src={consultRecord.avatar}
+                src={profilePhotoDisplayUrl}
                 alt={`${activeClient.name} photo`}
                 className="s2-avatar__img"
                 draggable={false}
               />
             ) : (
-              <span className="s2-avatar__initials">{initials}</span>
+              <span className="s2-avatar__empty" aria-hidden>
+                <Camera size={26} weight="regular" />
+              </span>
             )}
           </button>
           <input
-            ref={avatarInputRef}
+            ref={avatarCameraInputRef}
             type="file"
             accept="image/*"
             capture="environment"
@@ -1026,24 +1140,48 @@ export default function Screen2() {
               opacity: 0,
               pointerEvents: 'none',
             }}
-            onChange={handleAvatarChosen}
+            onChange={handleAvatarFileChosen}
+          />
+          <input
+            ref={avatarGalleryInputRef}
+            type="file"
+            accept="image/*"
+            aria-hidden
+            tabIndex={-1}
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              border: 0,
+              clip: 'rect(0 0 0 0)',
+              overflow: 'hidden',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+            onChange={handleAvatarFileChosen}
           />
 
           <div className="s2-identityRow">
             <div className="s2-msgBadges" aria-label="Unread messages">
               <div className="s2-msgBadge" aria-hidden>
                 💬<span className="s2-msgBadge__count">{META.msgCount}</span>
-              </div>
-            </div>
-            <div className="s2-clientName">{activeClient.name}</div>
-            <div className="s2-clientPhone">
-              {activeClient.phone || (isNewClient ? 'New client' : '')}
-            </div>
-            <button type="button" className="s2-kebabText" aria-label="More">
-              ⋮
-            </button>
           </div>
         </div>
+            <div className="s2-identityText">
+              <div className="s2-identityNameRow">
+                <div className="s2-clientName">{activeClient.name}</div>
+                <button type="button" className="s2-kebabText" aria-label="More">
+                  ⋮
+          </button>
+              </div>
+              <div className="s2-clientPhone">
+                {activeClient.phone || (isNewClient ? 'New client' : '')}
+              </div>
+            </div>
+        </div>
+      </div>
 
         <div className="s2-progress" aria-label="Progress">
           <div className="s2-progressDots" aria-hidden>
@@ -1165,8 +1303,8 @@ export default function Screen2() {
                           </span>
                           <span className="s2-actionBtn__label">Voice</span>
                         </button>
-                        <button
-                          type="button"
+            <button
+              type="button"
                           className="s2-actionBtn is-cam"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1208,6 +1346,7 @@ export default function Screen2() {
                   );
                 }
                 const deckGrad = svcGradientForPickerId(s.id, svcPickerList);
+                const svcHeroImg = serviceImageUrlResolved(s, svcPickerList);
                 const isHourly = s.id === 'SVC-HOURLY' || s.kind === 'hourly';
                 const isConsult = s.id === 'SVC-CONSULT' || s.kind === 'consult';
                 return (
@@ -1246,7 +1385,21 @@ export default function Screen2() {
                       >
                         <PencilSimple size={9} weight="bold" aria-hidden />
                       </button>
-                      <div className="s2-svcDeckCard__hero" style={{ background: deckGrad }} />
+                      <div className="s2-svcDeckCard__hero" style={{ background: deckGrad }}>
+                        {svcHeroImg ? (
+                          <img
+                            className="s2-svcDeckCard__heroPhoto"
+                            src={svcHeroImg}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              e.currentTarget.remove();
+                            }}
+                          />
+                        ) : null}
+                      </div>
                       <span className="s2-svcDeckCard__accentBar" aria-hidden />
                       <div className="s2-svcDeckCard__body">
                         <div className="s2-svcDeckCard__headline">{svcDeckPrimaryTitle(s)}</div>
@@ -1261,7 +1414,7 @@ export default function Screen2() {
                             <span className="s2-svcDeckCard__dur">
                               <Clock size={9} weight="bold" aria-hidden />
                               {formatSvcDurationShort(s.name)}
-                            </span>
+                </span>
                           )}
                         </div>
                       </div>
@@ -1326,6 +1479,7 @@ export default function Screen2() {
                   );
                 }
                 const prdGrad = productVisualGradient(p.color || '#1a1612');
+                const prdImg = productImageUrl(p);
                 return (
                   <div key={`${p.id}-pquad-${ix}`} className="s2-quadCell s2-quadCell--filled">
                 <button
@@ -1354,17 +1508,31 @@ export default function Screen2() {
                       >
                         <PencilSimple size={9} weight="bold" aria-hidden />
                       </button>
-                      <div className="s2-svcDeckCard__hero" style={{ background: prdGrad }} />
+                      <div className="s2-svcDeckCard__hero" style={{ background: prdGrad }}>
+                        {prdImg ? (
+                          <img
+                            className="s2-svcDeckCard__heroPhoto"
+                            src={prdImg}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              e.currentTarget.remove();
+                            }}
+                          />
+                        ) : null}
+                      </div>
                       <span className="s2-svcDeckCard__accentBar" aria-hidden />
                       <div className="s2-svcDeckCard__body">
                         <div className="s2-svcDeckCard__headline">{p.brand}</div>
                         <div className="s2-svcDeckCard__subtitle">{p.name}</div>
                         <div className="s2-svcDeckCard__metaRow s2-svcDeckCard__metaRow--priceOnly">
                           <span className="s2-svcDeckCard__price">${p.price}</span>
-                        </div>
+                      </div>
                       </div>
                       <span className="s2-svcDeckCard__bottomTick" aria-hidden />
-                      </div>
+              </div>
               </div>
                 );
               })}
@@ -1388,8 +1556,8 @@ export default function Screen2() {
                         <Clock size={9} weight="bold" aria-hidden />
                         Pick
                       </span>
-                    </div>
-                  </div>
+                      </div>
+                      </div>
                 </button>
               <button
                 type="button"
@@ -1410,7 +1578,7 @@ export default function Screen2() {
               <button type="button" className="s2-cta is-rebook">
                 <div className="s2-ctaIcon" aria-hidden>↻</div>
                 <div className="s2-ctaLabel">Rebook</div>
-              </button>
+        </button>
               <button
                 type="button"
                 className="s2-cta is-checkout"
@@ -1420,19 +1588,19 @@ export default function Screen2() {
               >
                 <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
                 <div className="s2-ctaLabel">Check out</div>
-              </button>
-            </div>
-            <div className="s2-toolbar">
+        </button>
+      </div>
+      <div className="s2-toolbar">
               {TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
                 const isActive = i === TOOLBAR_ACTIVE;
                 return (
-                  <button
-                    key={label}
-                    type="button"
+          <button
+            key={label}
+            type="button"
                     className={`s2-toolbar__btn${isActive ? ' s2-toolbar__btn--solid' : ''}`}
-                    aria-label={label}
+            aria-label={label}
                     aria-current={isActive ? 'page' : undefined}
-                    onClick={() => {
+            onClick={() => {
                       if (to === '/clients') {
                         navigate(to, { state: { from: '/screen2' } });
                         return;
@@ -1448,14 +1616,14 @@ export default function Screen2() {
                             }
                           : undefined,
                       );
-                    }}
-                  >
-                    <Icon
+            }}
+          >
+            <Icon
                       size={isActive ? S2_ICON_TOOLBAR_ACTIVE : S2_ICON_TOOLBAR}
                       weight={isActive ? 'fill' : 'regular'}
-                      aria-hidden
-                    />
-                  </button>
+              aria-hidden
+            />
+          </button>
                 );
               })}
             </div>
@@ -1470,11 +1638,13 @@ export default function Screen2() {
               ✕
             </button>
             <div className="nc-pu-id">
-              <div className="nc-pu-id-mini">
-                {consultRecord.avatar ? (
-                  <img src={consultRecord.avatar} alt="" draggable={false} />
+              <div
+                className={`nc-pu-id-mini${profilePhotoDisplayUrl ? '' : ' nc-pu-id-mini--empty'}`}
+              >
+                {profilePhotoDisplayUrl ? (
+                  <img src={profilePhotoDisplayUrl} alt="" draggable={false} />
                 ) : (
-                  initials
+                  <Camera size={14} weight="regular" aria-hidden />
                 )}
               </div>
               <div>
@@ -1841,7 +2011,7 @@ export default function Screen2() {
         </div>
       ) : null}
 
-      {/* Note composer — add new or update existing (tap a note row to edit). */}
+      {/* Note composer — absolute inside .s2-root (no visualViewport / keyboard avoiding). */}
       {noteEditOpen ? (
         <div
           className="s2-noteOverlay"
@@ -1878,7 +2048,7 @@ export default function Screen2() {
                 onClick={cancelNoteDraft}
               >
                 <X size={18} weight="regular" aria-hidden />
-          </button>
+              </button>
             </header>
 
             <div className="s2-noteBody">
@@ -1903,7 +2073,7 @@ export default function Screen2() {
               >
                 <Microphone size={18} weight="fill" aria-hidden />
               </button>
-      </div>
+            </div>
 
             <footer className="s2-noteFooter">
               <button
@@ -1917,7 +2087,7 @@ export default function Screen2() {
                 }}
               >
                 Update
-            </button>
+              </button>
             </footer>
           </div>
         </div>
@@ -1966,10 +2136,12 @@ export default function Screen2() {
                         );
                       }}
                     >
-                      <div
-                        className="s2-addProdCard__visual"
-                        style={{ background: svcGradientForIndex(i) }}
-                        aria-hidden
+                      <S2ProductPhoto
+                        imageUrl={serviceImageUrl(rowSvc)}
+                        fallbackBackground={svcGradientForIndex(i)}
+                        wrapClassName="s2-addProdCard__visual"
+                        imgClassName="s2-addProdCard__photo"
+                        decorative
                       />
                       <div className="s2-addProdCard__meta">
                         <div className="s2-addProdCard__name s2-addProdCard__name--service">{rowSvc.name}</div>
@@ -1993,10 +2165,12 @@ export default function Screen2() {
                     >
                       <X size={10} weight="bold" aria-hidden />
                     </button>
-                    <div
-                      className="s2-svcPickQueueCard__thumb"
-                      style={{ background: svcGradientForPickerId(s.id, svcPickerList) }}
-                      aria-hidden
+                    <S2ProductPhoto
+                      imageUrl={serviceImageUrlResolved(s, svcPickerList)}
+                      fallbackBackground={svcGradientForPickerId(s.id, svcPickerList)}
+                      wrapClassName="s2-svcPickQueueCard__thumb"
+                      imgClassName="s2-svcPickQueueCard__photo"
+                      decorative
                     />
                     <div className="s2-svcPickQueueCard__meta">
                       <div className="s2-svcPickQueueCard__name">{s.name}</div>
@@ -2063,10 +2237,12 @@ export default function Screen2() {
                         );
                       }}
                     >
-                      <div
-                        className="s2-addProdCard__visual"
-                        style={{ background: productVisualGradient(p.color) }}
-                        aria-hidden
+                      <S2ProductPhoto
+                        imageUrl={productImageUrl(p)}
+                        fallbackBackground={productVisualGradient(p.color)}
+                        wrapClassName="s2-addProdCard__visual"
+                        imgClassName="s2-addProdCard__photo"
+                        decorative
                       />
                       <div className="s2-addProdCard__meta">
                         <div className="s2-addProdCard__brand">{p.brand}</div>
@@ -2091,10 +2267,12 @@ export default function Screen2() {
                     >
                       <X size={10} weight="bold" aria-hidden />
                     </button>
-                    <div
-                      className="s2-svcPickQueueCard__thumb"
-                      style={{ background: productVisualGradient(p.color) }}
-                      aria-hidden
+                    <S2ProductPhoto
+                      imageUrl={productImageUrl(p)}
+                      fallbackBackground={productVisualGradient(p.color)}
+                      wrapClassName="s2-svcPickQueueCard__thumb"
+                      imgClassName="s2-svcPickQueueCard__photo"
+                      decorative
                     />
                     <div className="s2-svcPickQueueCard__meta">
                       <div className="s2-svcPickQueueCard__brand">{p.brand}</div>
@@ -2130,6 +2308,54 @@ export default function Screen2() {
                 Yes, remove
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {avatarPhotoSheetOpen ? (
+        <div
+          className="s2-avatarPhotoOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Profile photo"
+        >
+          <button
+            type="button"
+            className="s2-addProdBackdrop"
+            aria-label="Close"
+            onClick={() => setAvatarPhotoSheetOpen(false)}
+          />
+          <div className="s2-avatarPhotoSheet">
+            <h2 className="s2-avatarPhotoTitle">
+              {profilePhotoDisplayUrl ? 'Change profile photo' : 'Add profile photo'}
+            </h2>
+            <div className="s2-avatarPhotoActions">
+              <button
+                type="button"
+                className="s2-avatarPhotoBtn"
+                onClick={triggerAvatarCamera}
+              >
+                <Camera size={22} weight="regular" aria-hidden />
+                <span>Take a photo</span>
+              </button>
+              <button
+                type="button"
+                className="s2-avatarPhotoBtn"
+                onClick={triggerAvatarGallery}
+              >
+                <ImageIcon size={22} weight="regular" aria-hidden />
+                <span>
+                  {profilePhotoDisplayUrl ? 'Choose a new photo' : 'Choose from library'}
+                </span>
+              </button>
+            </div>
+            <button
+              type="button"
+              className="s2-avatarPhotoCancel"
+              onClick={() => setAvatarPhotoSheetOpen(false)}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       ) : null}

@@ -19,27 +19,79 @@
 
 .screen1-background {
   position: absolute;
+  left: 0;
+  top: 0;
+  width: 393px;
+  height: 852px;
+  min-height: 852px;
   background: black;
   z-index: 10;
+  overflow: visible;
+  /* Main curve strip — same numbers as `.curvedline-container` + `CurvedLine` width */
+  --s1-bg-w: 393px;
+  --s1-bg-h: 852px;
+  --s1-curve-top: -10px;
+  --s1-curve-right: -5px;
+  --s1-curve-w: 99px;
+  --s1-curve-h: var(--s1-bg-h);
+  /* `curve-mask.svg` path translate-x = strip left minus this (strip left ≈ 393 + 5 − 99) */
+  --s1-curve-mask-gap: 5px;
+}
+
+/* When profile / muse slider is slid off left — tap to bring it back */
+.screen1-profilePeek {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  z-index: 45;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 112px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0 14px 14px 0;
+  background: rgba(14, 14, 16, 0.92);
+  color: #ff7819;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    2px 0 16px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.screen1-profilePeek:hover {
+  background: rgba(22, 22, 26, 0.96);
+  color: #ff9a4d;
+}
+.screen1-profilePeek:active {
+  transform: translateY(-50%) scale(0.97);
+}
+.screen1-profilePeek:focus-visible {
+  outline: 2px solid rgba(255, 120, 25, 0.65);
+  outline-offset: 2px;
 }
 
 .curvedline-container {
   position: absolute;
-  top: -22.5px;
-  right: -393px;
-}
-.curvedline-stroke-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 50;
+  top: var(--s1-curve-top);
+  right: var(--s1-curve-right);
+  width: var(--s1-curve-w);
+  height: 100%;
+  z-index: 55;
   pointer-events: none;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
 }
 
 .profile-panel {
   position: absolute;
   top: 0;
-  left: 10px;
+  left: 5px;
   width: 380px;
   height: 250px;
   z-index: 2;
@@ -56,60 +108,86 @@
 }
 
 .company-header {
+  --s1-panel-left: 5px;
+  --s1-panel-top: 270px;
   width: 385px;
   height: 70px;
-  top: 270px;
+  top: var(--s1-panel-top);
   position: absolute;
-  left: 10px;
-  -webkit-mask-image: url("/curve-mask.svg");
-  mask-image: url("/curve-mask.svg");
-  -webkit-mask-size: 398px 885px;
-  mask-size: 398px 885px;
-  -webkit-mask-position: -28px -265px;
-  mask-position: -28px -265px;
+  left: var(--s1-panel-left);
+  -webkit-mask-image: url('/curve-mask.svg');
+  mask-image: url('/curve-mask.svg');
+  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  mask-size: var(--s1-bg-w) var(--s1-curve-h);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
+    calc(var(--s1-curve-top) - var(--s1-panel-top));
+  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-mode: luminance;
+  mask-mode: luminance;
 }
 
+/* Mask: same frame as `.screen1-background`; curve hole matches `.curvedline-container` (see `public/curve-mask.svg`). */
 .client-list-wrapper {
+  --s1-panel-left: 5px;
+  --s1-panel-top: 346px;
   width: 395px;
   height: 316px;
-  top: 346px;
+  top: var(--s1-panel-top);
   position: absolute;
-  left: 10px;
+  left: var(--s1-panel-left);
   transition: transform 0.5s ease;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  -webkit-mask-image: url("/curve-mask.svg");
-  mask-image: url("/curve-mask.svg");
-  -webkit-mask-size: 398px 885px;
-  mask-size: 398px 885px;
-  -webkit-mask-position: -28px -380px;
-  mask-position: -28px -350px;
+  -webkit-mask-image: url('/curve-mask.svg');
+  mask-image: url('/curve-mask.svg');
+  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  mask-size: var(--s1-bg-w) var(--s1-curve-h);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
+    calc(var(--s1-curve-top) - var(--s1-panel-top));
+  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-mode: luminance;
+  mask-mode: luminance;
 }
 .client-list-wrapper::-webkit-scrollbar {
   display: none;
 }
 
 .timer-panel {
+  --s1-panel-left: 5px;
+  --s1-panel-top: 340px;
   position: absolute;
-  top: 340px;
-  left: 10px;
+  top: var(--s1-panel-top);
+  left: var(--s1-panel-left);
   width: 380px;
   height: 250px;
   z-index: 2;
   transition: transform 0.5s ease;
+  -webkit-mask-image: url('/curve-mask.svg');
+  mask-image: url('/curve-mask.svg');
+  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
+    calc(var(--s1-curve-top) - var(--s1-panel-top));
+  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-mode: luminance;
+  mask-mode: luminance;
 }
 
 .waiting-list-wrapper {
+  --s1-panel-left: 5px;
+  --s1-panel-top: 652px;
   position: absolute;
-  top: 652px;
-  left: 10px;
+  top: var(--s1-panel-top);
+  left: var(--s1-panel-left);
   width: 380px;
   height: 136px;
   z-index: 2;
@@ -118,14 +196,17 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  -webkit-mask-image: url("/curve-mask.svg");
-  mask-image: url("/curve-mask.svg");
-  -webkit-mask-size: 398px 885px;
-  mask-size: 398px 885px;
-  -webkit-mask-position: -28px -655px;
-  mask-position: -28px -655px;
+  -webkit-mask-image: url('/curve-mask.svg');
+  mask-image: url('/curve-mask.svg');
+  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  mask-size: var(--s1-bg-w) var(--s1-curve-h);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
+  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
+    calc(var(--s1-curve-top) - var(--s1-panel-top));
+  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-mode: luminance;
+  mask-mode: luminance;
 }
 .waiting-list-wrapper::-webkit-scrollbar {
   display: none;

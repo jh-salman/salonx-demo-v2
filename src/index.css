@@ -10,8 +10,10 @@ body,
 #root {
   height: 100%;
   width: 100%;
+  min-height: 100dvh;
   overflow: hidden;
-  background: #000;
+  /* Shell outer is transparent; app column paints its own black */
+  background: transparent;
   /* Prevent rubber-band scrolling on iOS Safari */
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
