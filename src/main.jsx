@@ -5,6 +5,10 @@ import { RouterProvider } from 'react-router-dom'
 import { router } from './route/router.jsx'
 import { AppProvider } from './context/AppContext.jsx'
 import { TimersProvider } from './context/TimersContext.jsx'
+import { ThemeProvider } from './context/ThemeContext.jsx'
+import { applySalonxPrimaryTheme, readStoredPrimaryHex } from './theme/primaryTheme.js'
+
+applySalonxPrimaryTheme(readStoredPrimaryHex())
 
 const SHELL_MIN_W = 350
 const SHELL_MAX_W = 550
@@ -51,7 +55,7 @@ function ResponsivePhoneShell({ children }) {
         width: size.fullW,
         height: shellH,
         boxSizing: 'border-box',
-        backgroundColor: 'transparent',
+        backgroundColor: '#000',
         overflow: 'hidden',
         display: 'flex',
         alignItems: 'stretch',
@@ -108,12 +112,14 @@ function ResponsivePhoneShell({ children }) {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AppProvider>
-      <TimersProvider>
-        <ResponsivePhoneShell>
-          <RouterProvider router={router} />
-        </ResponsivePhoneShell>
-      </TimersProvider>
-    </AppProvider>
+    <ThemeProvider>
+      <AppProvider>
+        <TimersProvider>
+          <ResponsivePhoneShell>
+            <RouterProvider router={router} />
+          </ResponsivePhoneShell>
+        </TimersProvider>
+      </AppProvider>
+    </ThemeProvider>
   </StrictMode>,
 )

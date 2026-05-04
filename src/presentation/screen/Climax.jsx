@@ -21,6 +21,7 @@ import {
   isSameLocalDay,
   useCalendarEvents,
 } from "../../data/calendarEventsStore";
+import { useTheme } from "../../context/ThemeContext";
 
 // Climax = checkout. Everything here is driven by the active appointment:
 //   * services + products = `appointmentStateStore` keyed by apt id (the same
@@ -35,8 +36,6 @@ import {
 //      bottom-toolbar / Calendar.
 //   2. session-saved last apt — survives full refresh.
 //   3. earliest of today's calendar events — sensible default.
-
-const ACCENT = "#ff7819";
 
 const FUTURE_APPOINTMENT = {
   label: "5/15/2024 - Haircut",
@@ -101,6 +100,7 @@ export default function Climax() {
   const location = useLocation();
   const navigate = useNavigate();
   const calendarEvents = useCalendarEvents();
+  const { primaryHex } = useTheme();
 
   // ------- Resolve active appointment -------
   const activeApt = useMemo(() => {
@@ -269,13 +269,13 @@ export default function Climax() {
         brand: prd.brand || "",
         name: prd.name,
         price: Number(prd.price) || 0,
-        color: prd.color || ACCENT,
-        accent: ACCENT,
+        color: prd.color || primaryHex,
+        accent: primaryHex,
       };
       replaceProductQueue((prev) => [...prev, newProd]);
       setSelectedProducts((prev) => ({ ...prev, [newId]: true }));
     },
-    [replaceProductQueue],
+    [replaceProductQueue, primaryHex],
   );
 
   const editServiceById = useCallback(
@@ -382,7 +382,7 @@ export default function Climax() {
     setModifyTarget(null);
   }
 
-  const accent = ACCENT;
+  const accent = primaryHex;
 
   const hasNoTicketLines = services.length === 0 && products.length === 0;
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  ArrowLeft,
   Butterfly,
   CalendarBlank,
   Camera,
@@ -14,6 +15,7 @@ import {
   Scissors,
   User,
   X,
+  Gear,
 } from 'phosphor-react';
 import { MOCK_CLIENTS } from '../../data/mockClients';
 import { MOCK_PRODUCTS } from '../../data/mockProducts';
@@ -47,7 +49,7 @@ const TOOLBAR_ITEMS = [
   { Icon: User, label: 'Clients', to: '/clients' },
   { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
-  { Icon: X, label: 'Home', to: '/' },
+  { Icon: Gear, label: 'Settings', to: '/settings' },
 ];
 
 const CLIENT = {
@@ -137,7 +139,7 @@ function inferSvcDeckCategory(name) {
   return 'SERVICE';
 }
 
-/** Short primary label (orange in quad tiles) — matches reference “COLOR SERVICE” style */
+/** Short primary label (accent in quad tiles) — matches reference “COLOR SERVICE” style */
 function svcRefHeadline(name) {
   const c = inferSvcDeckCategory(name);
   const labels = {
@@ -1082,7 +1084,7 @@ export default function Screen2() {
           <path
             d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204V235.5L90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
             fill="#1F1C1C"
-            stroke="#FF7719"
+            stroke="var(--salonx-primary)"
             strokeWidth="2"
             vectorEffect="nonScalingStroke"
           />
@@ -1091,95 +1093,100 @@ export default function Screen2() {
 
       {/* TOP BAR */}
       <div className="s2-topbar">
-        <button className="s2-back" onClick={() => navigate(backTarget)}>
-          <span className="s2-back__chev" aria-hidden>‹</span>
-          <span className="s2-back__label">Back</span>
+        <button
+          type="button"
+          className="s2-back"
+          onClick={() => navigate(backTarget)}
+          aria-label="Back"
+        >
+          <ArrowLeft size={22} weight="regular" aria-hidden />
         </button>
       </div>
 
-      {/* AVATAR + IDENTITY (single horizontal row) */}
+      {/* AVATAR + badges (left); name + phone optically centered on screen */}
       <div className="s2-identity">
         <div className="s2-identityMain">
-          <button
-            type="button"
-            className="s2-avatar"
-            onClick={openAvatarPhotoSheet}
-            aria-label={
-              profilePhotoDisplayUrl ? 'Change profile photo' : 'Add profile photo'
-            }
-          >
-            {profilePhotoDisplayUrl ? (
-              <img
-                src={profilePhotoDisplayUrl}
-                alt={`${activeClient.name} photo`}
-                className="s2-avatar__img"
-                draggable={false}
-              />
-            ) : (
-              <span className="s2-avatar__empty" aria-hidden>
-                <Camera size={26} weight="regular" />
-              </span>
-            )}
-          </button>
-          <input
-            ref={avatarCameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            aria-hidden
-            tabIndex={-1}
-            style={{
-              position: 'absolute',
-              width: 1,
-              height: 1,
-              padding: 0,
-              margin: -1,
-              border: 0,
-              clip: 'rect(0 0 0 0)',
-              overflow: 'hidden',
-              opacity: 0,
-              pointerEvents: 'none',
-            }}
-            onChange={handleAvatarFileChosen}
-          />
-          <input
-            ref={avatarGalleryInputRef}
-            type="file"
-            accept="image/*"
-            aria-hidden
-            tabIndex={-1}
-            style={{
-              position: 'absolute',
-              width: 1,
-              height: 1,
-              padding: 0,
-              margin: -1,
-              border: 0,
-              clip: 'rect(0 0 0 0)',
-              overflow: 'hidden',
-              opacity: 0,
-              pointerEvents: 'none',
-            }}
-            onChange={handleAvatarFileChosen}
-          />
-
-          <div className="s2-identityRow">
+          <div className="s2-identityLeft">
+            <button
+              type="button"
+              className="s2-avatar"
+              onClick={openAvatarPhotoSheet}
+              aria-label={
+                profilePhotoDisplayUrl ? 'Change profile photo' : 'Add profile photo'
+              }
+            >
+              {profilePhotoDisplayUrl ? (
+                <img
+                  src={profilePhotoDisplayUrl}
+                  alt={`${activeClient.name} photo`}
+                  className="s2-avatar__img"
+                  draggable={false}
+                />
+              ) : (
+                <span className="s2-avatar__empty" aria-hidden>
+                  <Camera size={32} weight="regular" />
+                </span>
+              )}
+            </button>
+            <input
+              ref={avatarCameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              aria-hidden
+              tabIndex={-1}
+              style={{
+                position: 'absolute',
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                border: 0,
+                clip: 'rect(0 0 0 0)',
+                overflow: 'hidden',
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+              onChange={handleAvatarFileChosen}
+            />
+            <input
+              ref={avatarGalleryInputRef}
+              type="file"
+              accept="image/*"
+              aria-hidden
+              tabIndex={-1}
+              style={{
+                position: 'absolute',
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                border: 0,
+                clip: 'rect(0 0 0 0)',
+                overflow: 'hidden',
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+              onChange={handleAvatarFileChosen}
+            />
             <div className="s2-msgBadges" aria-label="Unread messages">
               <div className="s2-msgBadge" aria-hidden>
                 💬<span className="s2-msgBadge__count">{META.msgCount}</span>
           </div>
         </div>
+          </div>
+          <div className="s2-identityCenter">
             <div className="s2-identityText">
-              <div className="s2-identityNameRow">
-                <div className="s2-clientName">{activeClient.name}</div>
-                <button type="button" className="s2-kebabText" aria-label="More">
-                  ⋮
-          </button>
-              </div>
+              <div className="s2-clientName">{activeClient.name}</div>
               <div className="s2-clientPhone">
                 {activeClient.phone || (isNewClient ? 'New client' : '')}
               </div>
             </div>
+          </div>
+          <div className="s2-identityRight">
+            <button type="button" className="s2-kebabText" aria-label="More">
+              ⋮
+          </button>
         </div>
       </div>
 
@@ -1285,7 +1292,7 @@ export default function Screen2() {
                       </div>
                       <div className="s2-lookRowActions">
                         <AppointmentTimerBox
-                          compact
+                          lookRowRing
                           timerState={liveTimer}
                           onPress={() => setTimerModalOpen(true)}
                         />
@@ -1836,8 +1843,8 @@ export default function Screen2() {
                   </button>
                   <button type="button" className="nc-f-btn" aria-label="Voice CHAIR note" onClick={() => openNewNoteWithVoice('CHAIR')}>
                     <Microphone size={14} weight="fill" aria-hidden />
-                  </button>
-                </div>
+                </button>
+              </div>
               </div>
               <div className="nc-f-feed" ref={chairFeedRef}>
                 <div className="nc-f-spacer" aria-hidden />
@@ -1853,8 +1860,8 @@ export default function Screen2() {
                     const synthetic = !hasStored;
                     const storageIdx = hasStored ? entries.length - 1 - idx : -1;
                     return (
-                      <button
-                        type="button"
+                <button
+                  type="button"
                         key={`chair-${entry.ts ?? 'n'}-${idx}`}
                         className={`nc-note${idx === chairChron.length - 1 ? ' latest' : ''}`}
                         aria-label="Edit CHAIR note"
@@ -1880,8 +1887,8 @@ export default function Screen2() {
                 );
                   })
                 )}
-            </div>
-          </div>
+                      </div>
+                      </div>
 
             <div className="nc-field">
               <div className="nc-f-head">
@@ -1953,9 +1960,9 @@ export default function Screen2() {
                 <div className="nc-f-actions">
                   <button type="button" className="nc-f-btn" aria-label="Add LOOK photo" onClick={() => openPhotoPicker(null)}>
                     <Camera size={14} weight="fill" aria-hidden />
-            </button>
-                </div>
+                </button>
               </div>
+            </div>
               <div className="nc-look-gallery" ref={lookGalleryRef}>
                 {photosChron.length === 0 ? (
                   <button type="button" className="nc-photo-card" onClick={() => openPhotoPicker(null)} aria-label="Add photo">
@@ -1985,7 +1992,7 @@ export default function Screen2() {
                 )}
               </div>
             </div>
-          </div>
+        </div>
 
           <input
             ref={photoInputRef}
@@ -2008,7 +2015,7 @@ export default function Screen2() {
             }}
             onChange={handlePhotoChosen}
           />
-        </div>
+      </div>
       ) : null}
 
       {/* Note composer — absolute inside .s2-root (no visualViewport / keyboard avoiding). */}
@@ -2072,7 +2079,7 @@ export default function Screen2() {
                 onClick={() => toggleVoice(noteEditOpen.pane)}
               >
                 <Microphone size={18} weight="fill" aria-hidden />
-              </button>
+        </button>
             </div>
 
             <footer className="s2-noteFooter">
@@ -2087,9 +2094,9 @@ export default function Screen2() {
                 }}
               >
                 Update
-              </button>
+        </button>
             </footer>
-          </div>
+      </div>
         </div>
       ) : null}
 
@@ -2128,7 +2135,7 @@ export default function Screen2() {
                       key={s.id}
                       type="button"
                       className={`s2-addProdCard s2-addProdCard--service${inQueue ? ' is-inQueue' : ''}`}
-                      onClick={() => {
+            onClick={() => {
                         setSvcQueue((prev) =>
                           prev.some((q) => q.id === s.id)
                             ? prev.filter((q) => q.id !== s.id)
@@ -2147,7 +2154,7 @@ export default function Screen2() {
                         <div className="s2-addProdCard__name s2-addProdCard__name--service">{rowSvc.name}</div>
                         <div className="s2-addProdCard__price">{queuePriceLabel(rowSvc)}</div>
                       </div>
-                  </button>
+          </button>
                 );
               })}
             </div>
@@ -2193,7 +2200,7 @@ export default function Screen2() {
                         </span>
                   <span className="s2-svcPickQueueAdd__text">ADD CUSTOM SERVICE</span>
             </button>
-                    </div>
+      </div>
             </footer>
           </div>
         </div>
@@ -2216,7 +2223,7 @@ export default function Screen2() {
                 aria-label="Close"
               >
                 <X size={18} weight="regular" aria-hidden />
-              </button>
+            </button>
               <div className="s2-addProdKicker">{ADD_PRODUCTS_BRAND}</div>
               <h2 className="s2-addProdTitle">ADD PRODUCTS</h2>
             </header>
@@ -2279,7 +2286,7 @@ export default function Screen2() {
                       <div className="s2-svcPickQueueCard__name">{p.name}</div>
                       <div className="s2-svcPickQueueCard__price">${p.price}</div>
         </div>
-                  </div>
+            </div>
                 ))}
               </div>
             </footer>
@@ -2306,8 +2313,8 @@ export default function Screen2() {
               </button>
               <button type="button" className="s2-confirmBtn s2-confirmBtn--danger" onClick={handleConfirmRemove}>
                 Yes, remove
-              </button>
-            </div>
+            </button>
+          </div>
           </div>
         </div>
       ) : null}
@@ -2319,7 +2326,7 @@ export default function Screen2() {
           aria-modal="true"
           aria-label="Profile photo"
         >
-          <button
+                  <button
             type="button"
             className="s2-addProdBackdrop"
             aria-label="Close"
@@ -2346,16 +2353,16 @@ export default function Screen2() {
                 <ImageIcon size={22} weight="regular" aria-hidden />
                 <span>
                   {profilePhotoDisplayUrl ? 'Choose a new photo' : 'Choose from library'}
-                </span>
+                        </span>
               </button>
-            </div>
+                    </div>
             <button
               type="button"
               className="s2-avatarPhotoCancel"
               onClick={() => setAvatarPhotoSheetOpen(false)}
             >
               Cancel
-            </button>
+                  </button>
           </div>
         </div>
       ) : null}
@@ -2428,7 +2435,7 @@ export default function Screen2() {
                     </>
                   );
                 })()}
-              </div>
+            </div>
             ) : null}
           </div>
         </div>

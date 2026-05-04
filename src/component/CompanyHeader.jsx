@@ -1,43 +1,42 @@
-import React from 'react'
+import React from 'react';
+import { useTheme } from '../context/ThemeContext';
+import { accentCardGradientCss } from '../theme/primaryTheme';
 
 function CompanyHeader() {
-    return (
-        <div style={wrapperStyle}>
-            <div style={innerStyle}>
-               <div onClick={() =>
-                   window.open(
-                       "https://lv3.com/?gad_source=1&gad_campaignid=21854289107&gbraid=0AAAAABj5NaAqTlQbtNBMozoKOOa-fhfSr&gclid=EAIaIQobChMIv7jAjqLTjgMVN1R_AB3VZgLaEAAYASAAEgKh9fD_BwE",
-                       "_blank",
-                       "noopener,noreferrer"
-                   )
-               } style={clickDivStyle}>
-                    <img width={190} src='./levellogo.png' />
-                </div>
-                <p style={plusTextStyle}>
-                +
-            </p>
-            <div>
-                <img width={50} src='./logo.png' />
-            </div>
+  const { primaryHex } = useTheme();
+  const wrapperStyle = {
+    position: 'relative',
+    padding: '1.5px',
+    background: accentCardGradientCss(primaryHex),
+    borderRadius: '11.5px',
+    width: '380px',
+    height: '70px',
+    boxSizing: 'border-box',
+  };
 
-
+  return (
+    <div style={wrapperStyle}>
+      <div style={innerStyle}>
+        <div
+          onClick={() =>
+            window.open(
+              'https://lv3.com/?gad_source=1&gad_campaignid=21854289107&gbraid=0AAAAABj5NaAqTlQbtNBMozoKOOa-fhfSr&gclid=EAIaIQobChMIv7jAjqLTjgMVN1R_AB3VZgLaEAAYASAAEgKh9fD_BwE',
+              '_blank',
+              'noopener,noreferrer',
+            )
+          }
+          style={clickDivStyle}
+        >
+          <img width={190} src="./levellogo.png" alt="" />
         </div>
-
-        </div >
-    )
+        <p style={plusTextStyle}>+</p>
+        <div>
+          <img width={50} src="./logo.png" alt="" />
+        </div>
+      </div>
+    </div>
+  );
 }
-
-const ACCENT = '#ff7819';
-
-const wrapperStyle = {
-  position: 'relative',
-  padding: '1.5px',
-  background: `linear-gradient(to right, ${ACCENT} 0%, ${ACCENT}cc 18%, ${ACCENT}66 45%, ${ACCENT}00 85%)`,
-  borderRadius: '11.5px',
-  width: '380px',
-  height: '70px',
-  boxSizing: 'border-box',
-};
 
 const innerStyle = {
   position: 'relative',
@@ -67,4 +66,4 @@ const plusTextStyle = {
   textAlign: 'center',
 };
 
-export default CompanyHeader
+export default CompanyHeader;

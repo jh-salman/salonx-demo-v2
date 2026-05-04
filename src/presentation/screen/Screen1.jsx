@@ -1,6 +1,6 @@
 import React, { useContext, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom';
-import { Scissors, User, Lightning, CalendarBlank, X, CaretRight } from 'phosphor-react';
+import { Scissors, User, Lightning, CalendarBlank, Gear, CaretRight } from 'phosphor-react';
 import CurvedLine from '../../component/CurvedLine'
 import Profile from '../../component/Profile';
 import { AppContext } from '../../context/AppContext';
@@ -27,7 +27,7 @@ const SCREEN1_TOOLBAR_ITEMS = [
   { Icon: User, label: 'Clients', to: '/clients' },
   { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
-  { Icon: X, label: 'Home', to: '/' },
+  { Icon: Gear, label: 'Settings', to: '/settings' },
 ];
 
 

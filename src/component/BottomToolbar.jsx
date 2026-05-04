@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Scissors, User, Lightning, CalendarBlank, X } from 'phosphor-react';
+import { Scissors, User, Lightning, CalendarBlank, Gear } from 'phosphor-react';
 
 const BOTTOM_TOOLBAR_ITEMS = [
   { Icon: Scissors, label: 'Stylist', to: '/screen1' },
@@ -9,7 +9,7 @@ const BOTTOM_TOOLBAR_ITEMS = [
   { Icon: User, label: 'Clients', to: '/clients' },
   { Icon: Lightning, label: 'Checkout', to: '/climax' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
-  { Icon: X, label: 'Home', to: '/' },
+  { Icon: Gear, label: 'Settings', to: '/settings' },
 ];
 
 const wrapperStyle = {
@@ -32,7 +32,7 @@ const buttonBase = {
   background: 'transparent',
   border: 'none',
   cursor: 'pointer',
-  color: '#ff7819',
+  color: 'var(--salonx-primary)',
   padding: '6px 9px',
   transition: 'opacity 120ms',
   lineHeight: 0,
@@ -74,7 +74,9 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
             style={{
               ...buttonBase,
               opacity: isActive ? 1 : 0.48,
-              filter: isActive ? 'drop-shadow(0 0 10px rgba(255, 120, 25, 0.35))' : 'none',
+              filter: isActive
+                ? 'drop-shadow(0 0 10px rgba(var(--salonx-primary-rgb), 0.35))'
+                : 'none',
             }}
           >
             <Icon

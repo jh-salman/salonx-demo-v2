@@ -52,7 +52,7 @@
   border: none;
   border-radius: 0 14px 14px 0;
   background: rgba(14, 14, 16, 0.92);
-  color: #ff7819;
+  color: var(--salonx-primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     2px 0 16px rgba(0, 0, 0, 0.45);
@@ -65,13 +65,13 @@
 }
 .screen1-profilePeek:hover {
   background: rgba(22, 22, 26, 0.96);
-  color: #ff9a4d;
+  color: rgb(var(--salonx-primary-soft-rgb));
 }
 .screen1-profilePeek:active {
   transform: translateY(-50%) scale(0.97);
 }
 .screen1-profilePeek:focus-visible {
-  outline: 2px solid rgba(255, 120, 25, 0.65);
+  outline: 2px solid rgba(var(--salonx-primary-rgb), 0.65);
   outline-offset: 2px;
 }
 
@@ -231,7 +231,7 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  color: #ff7819;
+  color: var(--salonx-primary);
   opacity: 0.48;
   padding: 6px 9px;
   transition: opacity 120ms;
@@ -248,7 +248,7 @@
 }
 .screen1-toolbar__btn--solid {
   opacity: 1;
-  filter: drop-shadow(0 0 10px rgba(255, 120, 25, 0.35));
+  filter: drop-shadow(0 0 10px rgba(var(--salonx-primary-rgb), 0.35));
 }
 .screen1-toolbar__btn:hover {
   opacity: 0.92;
@@ -263,14 +263,15 @@
   z-index: 1;
 }
 
+/* Kept in sync with appointmentTimerBox.css — duration/iterations set on elements that use it */
 @keyframes timerCompletedBlink {
   0%, 100% {
     opacity: 1;
-    box-shadow: 0 0 12px rgba(255, 120, 25, 0.55);
+    box-shadow: 0 0 12px rgba(var(--salonx-primary-rgb), 0.55);
   }
   50% {
     opacity: 0.4;
-    box-shadow: 0 0 4px rgba(255, 120, 25, 0.18);
+    box-shadow: 0 0 4px rgba(var(--salonx-primary-rgb), 0.18);
   }
 }
 
@@ -306,10 +307,10 @@
   height: 316px;
   z-index: 1;
   background: #0a0a0c;
-  border: 1.5px solid rgba(255, 120, 25, 0.6);
+  border: 1.5px solid rgba(var(--salonx-primary-rgb), 0.6);
   border-radius: 14px;
   padding: 12px 16px 12px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 30px rgba(255, 120, 25, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 30px rgba(var(--salonx-primary-rgb), 0.12);
   pointer-events: auto;
   box-sizing: border-box;
   display: flex;
@@ -320,7 +321,7 @@
   text-align: center;
   font-size: 22px;
   font-weight: 800;
-  color: #ff7819;
+  color: var(--salonx-primary);
   letter-spacing: 0.02em;
 }
 .timerModal__client {
@@ -353,9 +354,9 @@
   right: 0;
   height: 44px;
   transform: translateY(-50%);
-  background: rgba(255, 120, 25, 0.06);
-  border-top: 1px solid rgba(255, 120, 25, 0.45);
-  border-bottom: 1px solid rgba(255, 120, 25, 0.45);
+  background: rgba(var(--salonx-primary-rgb), 0.06);
+  border-top: 1px solid rgba(var(--salonx-primary-rgb), 0.45);
+  border-bottom: 1px solid rgba(var(--salonx-primary-rgb), 0.45);
   pointer-events: none;
   z-index: 1;
 }
@@ -435,7 +436,7 @@
   margin-top: 4px;
   background: transparent;
   border: none;
-  color: #ff7819;
+  color: var(--salonx-primary);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -466,21 +467,21 @@
   transition: opacity 120ms, background 120ms, color 120ms;
 }
 .timerModal__btn--ghost {
-  border: 1px solid rgba(255, 120, 25, 0.45);
+  border: 1px solid rgba(var(--salonx-primary-rgb), 0.45);
   background: transparent;
   color: #f5f5f7;
 }
 .timerModal__btn--ghost:active {
-  background: rgba(255, 120, 25, 0.08);
+  background: rgba(var(--salonx-primary-rgb), 0.08);
 }
 .timerModal__btn--primary {
-  border: 1px solid #ff7819;
-  background: rgba(255, 120, 25, 0.16);
-  color: #ff7819;
-  box-shadow: 0 0 18px rgba(255, 120, 25, 0.18);
+  border: 1px solid var(--salonx-primary);
+  background: rgba(var(--salonx-primary-rgb), 0.16);
+  color: var(--salonx-primary);
+  box-shadow: 0 0 18px rgba(var(--salonx-primary-rgb), 0.18);
 }
 .timerModal__btn--primary.is-running {
-  background: #ff7819;
+  background: var(--salonx-primary);
   color: #0a0a0c;
 }
 .timerModal__btn--primary.is-disabled,
@@ -501,7 +502,7 @@
   min-width: 0;
   padding: 9px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 120, 25, 0.45);
+  border: 1px solid rgba(var(--salonx-primary-rgb), 0.45);
   background: transparent;
   color: rgba(245, 245, 247, 0.65);
   font-size: 12px;
@@ -510,8 +511,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 .timerModal__tab.is-active {
-  background: rgba(255, 120, 25, 0.16);
-  color: #ff7819;
-  border-color: #ff7819;
-  box-shadow: 0 0 14px rgba(255, 120, 25, 0.18);
+  background: rgba(var(--salonx-primary-rgb), 0.16);
+  color: var(--salonx-primary);
+  border-color: var(--salonx-primary);
+  box-shadow: 0 0 14px rgba(var(--salonx-primary-rgb), 0.18);
 }

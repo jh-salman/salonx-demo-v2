@@ -12,8 +12,8 @@ import {
 } from '../data/calendarEventsStore';
 import AppointmentTimerBox from './AppointmentTimerBox';
 import TimerModal from './TimerModal';
-
-const ACCENT = '#ff7819';
+import { useTheme } from '../context/ThemeContext';
+import { accentCardGradientCss } from '../theme/primaryTheme';
 
 const CARD_WIDTH = 380;
 const CARD_HEIGHT = 56;
@@ -27,6 +27,7 @@ const ClientCard = ({
   timerState,
   onCardClick,
   onTimerBoxClick,
+  cardGradient,
 }) => {
   const outerStyle = {
     position: 'relative',
@@ -35,7 +36,7 @@ const ClientCard = ({
     marginBottom: '6px',
     padding: '1.5px',
     borderRadius: '11.5px',
-    background: `linear-gradient(to right, ${ACCENT} 0%, ${ACCENT}cc 18%, ${ACCENT}66 45%, ${ACCENT}00 85%)`,
+    background: cardGradient,
     cursor: 'pointer',
     boxSizing: 'border-box',
   };
@@ -124,6 +125,9 @@ const ClientCard = ({
 // appointment service / product queue from `appointmentStateStore`.
 
 const ClientList = () => {
+  const { primaryHex } = useTheme();
+  const cardGradient = useMemo(() => accentCardGradientCss(primaryHex), [primaryHex]);
+
   const wrapperStyle = {
     width: '100%',
     padding: '6px 0 8px',
@@ -259,6 +263,7 @@ const ClientList = () => {
           time={a.time}
           service={a.service}
           isActive
+          cardGradient={cardGradient}
           timerState={liveTimers[a.name]}
           onTimerBoxClick={handleTimerBoxClick}
           onCardClick={a.apt ? () => handleClientClick(a.apt) : undefined}

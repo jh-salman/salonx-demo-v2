@@ -7,6 +7,7 @@ import Climax from "../presentation/screen/Climax";
 import Calendar from "../presentation/screen/Calendar";
 import CheckOut from "../presentation/screen/CheckOut";
 import Clients from "../presentation/screen/Clients";
+import SettingsScreen from "../presentation/screen/SettingsScreen";
 
 
 export const router = createBrowserRouter([
@@ -41,6 +42,10 @@ export const router = createBrowserRouter([
   {
     path:"/clients",
     element:<Clients />
-  }
+  },
+  {
+    path: "/settings",
+    element: <SettingsScreen />,
+  },
   
 ]);
