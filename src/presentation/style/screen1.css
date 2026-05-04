@@ -26,7 +26,7 @@
 .curvedline-container {
   position: absolute;
   top: -22.5px;
-  right: -385px;
+  right: -393px;
 }
 .curvedline-stroke-overlay {
   position: absolute;
@@ -39,7 +39,7 @@
 .profile-panel {
   position: absolute;
   top: 0;
-  left: 5px;
+  left: 10px;
   width: 380px;
   height: 250px;
   z-index: 2;
@@ -56,27 +56,27 @@
 }
 
 .company-header {
-  width: 380px;
+  width: 385px;
   height: 70px;
   top: 270px;
   position: absolute;
-  left: 5px;
+  left: 10px;
   -webkit-mask-image: url("/curve-mask.svg");
   mask-image: url("/curve-mask.svg");
   -webkit-mask-size: 398px 885px;
   mask-size: 398px 885px;
-  -webkit-mask-position: -28px -292.5px;
-  mask-position: -28px -292.5px;
+  -webkit-mask-position: -28px -265px;
+  mask-position: -28px -265px;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
 
 .client-list-wrapper {
-  width: 380px;
+  width: 395px;
   height: 316px;
   top: 346px;
   position: absolute;
-  left: 5px;
+  left: 10px;
   transition: transform 0.5s ease;
   overflow-y: auto;
   overflow-x: hidden;
@@ -87,8 +87,8 @@
   mask-image: url("/curve-mask.svg");
   -webkit-mask-size: 398px 885px;
   mask-size: 398px 885px;
-  -webkit-mask-position: -28px -368.5px;
-  mask-position: -28px -368.5px;
+  -webkit-mask-position: -28px -380px;
+  mask-position: -28px -350px;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
@@ -99,7 +99,7 @@
 .timer-panel {
   position: absolute;
   top: 340px;
-  left: 5px;
+  left: 10px;
   width: 380px;
   height: 250px;
   z-index: 2;
@@ -109,7 +109,7 @@
 .waiting-list-wrapper {
   position: absolute;
   top: 652px;
-  left: 5px;
+  left: 10px;
   width: 380px;
   height: 136px;
   z-index: 2;
@@ -122,8 +122,8 @@
   mask-image: url("/curve-mask.svg");
   -webkit-mask-size: 398px 885px;
   mask-size: 398px 885px;
-  -webkit-mask-position: -28px -674.5px;
-  mask-position: -28px -674.5px;
+  -webkit-mask-position: -28px -655px;
+  mask-position: -28px -655px;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }

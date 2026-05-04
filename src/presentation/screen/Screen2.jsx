@@ -29,6 +29,9 @@ import {
   SVC_HOURLY_BASE,
   writePersistedScreen2Apt,
 } from '../../data/appointmentStateStore';
+import { useTimers } from '../../context/TimersContext';
+import AppointmentTimerBox from '../../component/AppointmentTimerBox';
+import TimerModal from '../../component/TimerModal';
 import './s2.css';
 import './consultationBrief.css';
 
@@ -148,10 +151,19 @@ function svcRefHeadline(name) {
   return labels[c] || c;
 }
 
-function svcQuadHeadline(s) {
+/** Deck tile primary line — service name (reference: BALAYAGE, ORIBE) */
+function svcDeckPrimaryTitle(s) {
   if (!s) return '';
   if (s.id === 'SVC-HOURLY' || s.kind === 'hourly') return 'HOURLY';
   if (s.id === 'SVC-CONSULT' || s.kind === 'consult') return 'CONSULT';
+  return String(s.name).toUpperCase();
+}
+
+/** Deck tile secondary — category or rate type (reference: COLOR, grey) */
+function svcDeckSecondaryLine(s) {
+  if (!s) return '';
+  if (s.id === 'SVC-HOURLY' || s.kind === 'hourly') return 'TIME-BASED';
+  if (s.id === 'SVC-CONSULT' || s.kind === 'consult') return 'SESSION FEE';
   return svcRefHeadline(s.name);
 }
 
@@ -240,15 +252,22 @@ function clientKey(name) {
 function migratePaneEntries(rec, key) {
   const arr = rec[key + '_entries'];
   if (Array.isArray(arr) && arr.length) {
-    return arr
+    const cleaned = arr
       .filter((e) => e && typeof e.text === 'string' && e.text.trim())
       .map((e) => ({ text: e.text, ts: typeof e.ts === 'number' ? e.ts : Date.now() }));
+    if (cleaned.length) return cleaned;
   }
   const legacy = typeof rec[key] === 'string' ? rec[key].trim() : '';
   if (legacy) {
     return [{ text: legacy, ts: typeof rec.updatedAt === 'number' ? rec.updatedAt : Date.now() }];
   }
   return [];
+}
+
+/** Legacy single-string field stays aligned with newest stored note (index 0). */
+function legacyFieldForPane(pane) {
+  if (pane === 'LIFE' || pane === 'CHAIR' || pane === 'PATH') return pane;
+  return null;
 }
 
 function getConsultRecord(store, name) {
@@ -438,8 +457,17 @@ export default function Screen2() {
   // note (typed and/or dictated). Pressing "Update" prepends it to the pane's
   // entries log. The pane area itself stays read-only & scrollable so the
   // stylist can swipe to see older notes without touching them.
-  const [noteEditOpen, setNoteEditOpen] = useState(null); // 'LIFE' | 'CHAIR' | 'PATH' | null
+  // { pane, mode: 'new'|'edit', entryIndex?, entryTs?, synthetic? }
+  const [noteEditOpen, setNoteEditOpen] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
+  const noteDraftRef = useRef('');
+  const noteEditOpenRef = useRef(null);
+  useEffect(() => {
+    noteDraftRef.current = noteDraft;
+  }, [noteDraft]);
+  useEffect(() => {
+    noteEditOpenRef.current = noteEditOpen;
+  }, [noteEditOpen]);
 
   const [consultOpen, setConsultOpen] = useState(false);
   const [preBriefOpen, setPreBriefOpen] = useState(false);
@@ -447,11 +475,6 @@ export default function Screen2() {
   const chairFeedRef = useRef(null);
   const pathFeedRef = useRef(null);
   const lookGalleryRef = useRef(null);
-
-  const openNoteEditor = useCallback((paneKey) => {
-    setNoteDraft('');
-    setNoteEditOpen(paneKey);
-  }, []);
 
   // ---------- Voice recording (Web Speech API) — into the new-note draft ----
   const [recordingPane, setRecordingPane] = useState(null); // pane key being dictated
@@ -512,26 +535,75 @@ export default function Screen2() {
     }
   }, [recordingPane, startVoice, stopVoice]);
 
-  // Append the draft as a new entry on the active pane and close the editor.
+  const openNewNote = useCallback((paneKey) => {
+    stopVoice();
+    setNoteDraft('');
+    setNoteEditOpen({ pane: paneKey, mode: 'new' });
+  }, [stopVoice]);
+
+  /** Opens the composer and starts dictation on the next frame (mic header buttons). */
+  const openNewNoteWithVoice = useCallback((paneKey) => {
+    stopVoice();
+    setNoteDraft('');
+    setNoteEditOpen({ pane: paneKey, mode: 'new' });
+    requestAnimationFrame(() => startVoice(paneKey));
+  }, [startVoice, stopVoice]);
+
+  // Save: new entry prepends; edit replaces the row (or seeds first stored row from defaults).
+  // Refs avoid a stale `noteDraft` / `noteEditOpen` if the user taps Update on the same tick as typing (mobile).
   const submitNoteDraft = useCallback(() => {
-    if (!noteEditOpen) return;
-    const text = (noteDraft || '').trim();
+    const meta = noteEditOpenRef.current;
+    if (!meta) return;
+    const text = (noteDraftRef.current || '').trim();
     if (!text) {
       stopVoice();
       setNoteEditOpen(null);
       return;
     }
+    const { pane, mode, entryIndex, entryTs, synthetic } = meta;
+    const key = pane + '_entries';
     const ts = Date.now();
-    const key = noteEditOpen + '_entries';
-    setConsultRecord((prev) => {
-      const existing = Array.isArray(prev[key]) ? prev[key] : [];
-      // Newest first
-      return { ...prev, [key]: [{ text, ts }, ...existing] };
-    });
+    const leg = legacyFieldForPane(pane);
+
+    if (mode === 'edit' && synthetic === true) {
+      setConsultRecord((prev) => {
+        const nextEntries = [{ text, ts }];
+        const next = { ...prev, [key]: nextEntries };
+        if (leg) next[leg] = text;
+        return next;
+      });
+    } else if (
+      mode === 'edit' &&
+      Number.isInteger(entryIndex) &&
+      entryIndex >= 0 &&
+      synthetic !== true
+    ) {
+      setConsultRecord((prev) => {
+        const existing = Array.isArray(prev[key]) ? [...prev[key]] : [];
+        let ix = entryIndex;
+        if (typeof entryTs === 'number' && !Number.isNaN(entryTs)) {
+          const found = existing.findIndex((e) => e && e.ts === entryTs);
+          if (found >= 0) ix = found;
+        }
+        if (ix < 0 || ix >= existing.length || !existing[ix]) return prev;
+        existing[ix] = { ...existing[ix], text, ts };
+        const next = { ...prev, [key]: existing };
+        if (leg && existing[0]?.text != null) next[leg] = String(existing[0].text);
+        return next;
+      });
+    } else {
+      setConsultRecord((prev) => {
+        const existing = Array.isArray(prev[key]) ? prev[key] : [];
+        const nextEntries = [{ text, ts }, ...existing];
+        const next = { ...prev, [key]: nextEntries };
+        if (leg) next[leg] = text;
+        return next;
+      });
+    }
     stopVoice();
     setNoteDraft('');
     setNoteEditOpen(null);
-  }, [noteDraft, noteEditOpen, stopVoice]);
+  }, [stopVoice]);
 
   const cancelNoteDraft = useCallback(() => {
     stopVoice();
@@ -655,6 +727,7 @@ export default function Screen2() {
   const handlePhotoChosen = useCallback((e) => {
     const file = e.target?.files?.[0];
     if (!file) return;
+    const input = e.target;
     const reader = new FileReader();
     reader.onload = () => {
       const url = reader.result;
@@ -668,6 +741,15 @@ export default function Screen2() {
           photos.push(item);
         }
         return { ...prev, photos };
+      });
+      // iOS / mobile Safari: camera picker can leave focus on a hidden input and
+      // swallow taps on the consult sheet until blur.
+      requestAnimationFrame(() => {
+        try {
+          if (input) input.blur();
+        } catch (_) {
+          /* noop */
+        }
       });
     };
     reader.readAsDataURL(file);
@@ -762,11 +844,76 @@ export default function Screen2() {
     }, 250);
     return () => clearTimeout(handle);
   }, [apptKey, svcQueue, productQueue, hourlyRate, consultRate]);
-  const [dockOpen, setDockOpen] = useState(false);
   const [removeConfirm, setRemoveConfirm] = useState(null);
 
-  const grabberTouch = useRef({ y: 0 });
-  const navTouch = useRef({ x: 0, y: 0, skipFilmNav: false });
+  // ---------- Live timer for the active client ----------
+  // Reads from the shared TimersContext (the same store ClientList /
+  // Calendar use), keyed by client name. The chip shows when a timer or
+  // stopwatch is running, or when one has just finished. Tapping it opens
+  // the existing TimerModal so start/stop/reset works identically to S1.
+  const { timers, setTimer, clearTimer } = useTimers();
+  const timerKey = activeClientName;
+  const persistedTimer = timers[timerKey] || null;
+
+  const [tickNow, setTickNow] = useState(() => Date.now());
+  useEffect(() => {
+    const isLive =
+      persistedTimer &&
+      (persistedTimer.kind === 'timerRunning' ||
+        persistedTimer.kind === 'stopwatchRunning');
+    if (!isLive) return undefined;
+    const id = setInterval(() => setTickNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [persistedTimer]);
+
+  const liveTimer = useMemo(() => {
+    if (!persistedTimer) return null;
+    if (persistedTimer.kind === 'timerRunning') {
+      const remainingMs = persistedTimer.endsAt - tickNow;
+      if (remainingMs <= 0) return { kind: 'completed' };
+      return { kind: 'timerRunning', remainingMs };
+    }
+    if (persistedTimer.kind === 'stopwatchRunning') {
+      return { kind: 'stopwatchRunning', elapsedMs: tickNow - persistedTimer.startedAt };
+    }
+    return persistedTimer;
+  }, [persistedTimer, tickNow]);
+
+  // Promote expired countdowns to "completed" in the shared store so the
+  // Calendar appointment chip + Stylist card flip into the done state too.
+  useEffect(() => {
+    if (
+      liveTimer?.kind === 'completed' &&
+      timers[timerKey]?.kind === 'timerRunning'
+    ) {
+      setTimer(timerKey, { kind: 'completed' });
+    }
+  }, [liveTimer, timers, timerKey, setTimer]);
+
+  const [timerModalOpen, setTimerModalOpen] = useState(false);
+  const handleTimerStart = useCallback(
+    (totalSec) => {
+      if (!timerKey) return;
+      setTimer(timerKey, { kind: 'timerRunning', endsAt: Date.now() + totalSec * 1000 });
+      setTickNow(Date.now());
+      setTimerModalOpen(false);
+    },
+    [setTimer, timerKey],
+  );
+  const handleStopwatchStart = useCallback(() => {
+    if (!timerKey) return;
+    setTimer(timerKey, { kind: 'stopwatchRunning', startedAt: Date.now() });
+    setTickNow(Date.now());
+  }, [setTimer, timerKey]);
+  const handleTimerStop = useCallback(() => {
+    if (!timerKey) return;
+    clearTimer(timerKey);
+    setTimerModalOpen(false);
+  }, [clearTimer, timerKey]);
+  const handleTimerReset = useCallback(() => {
+    if (!timerKey) return;
+    clearTimer(timerKey);
+  }, [clearTimer, timerKey]);
 
   const initials = useMemo(
     () =>
@@ -828,49 +975,8 @@ export default function Screen2() {
     setRemoveConfirm(null);
   }, [removeConfirm]);
 
-  const onGrabberTouchStart = useCallback((e) => {
-    grabberTouch.current.y = e.touches[0].clientY;
-  }, []);
-
-  const onGrabberTouchEnd = useCallback((e) => {
-    const y = e.changedTouches[0].clientY;
-    const dy = grabberTouch.current.y - y;
-    if (dy > 28) setDockOpen(true);
-    if (dy < -28) setDockOpen(false);
-  }, []);
-
-  const onRootTouchStart = useCallback((e) => {
-    if (consultOpen || addServicesOpen || addProductsOpen || rateEditOpen || removeConfirm) return;
-    const t = e.touches[0];
-    const el = e.target;
-    const skipFilmNav =
-      el &&
-      typeof el.closest === 'function' &&
-      Boolean(el.closest('.s2-filmCluster--queue') || el.closest('.s2-quadRow'));
-    navTouch.current = { x: t.clientX, y: t.clientY, skipFilmNav };
-  }, [addProductsOpen, addServicesOpen, consultOpen, rateEditOpen, removeConfirm]);
-
-  const onRootTouchEnd = useCallback((e) => {
-    if (consultOpen || addServicesOpen || addProductsOpen || rateEditOpen || removeConfirm) return;
-    if (navTouch.current.skipFilmNav) return;
-    const el = e.target;
-    if (el && typeof el.closest === 'function') {
-      if (el.closest('button, a, input, textarea, .s2-bottomDock, [role="dialog"]')) return;
-    }
-    const t = e.changedTouches[0];
-    const dx = t.clientX - navTouch.current.x;
-    const dy = Math.abs(t.clientY - navTouch.current.y);
-    if (Math.abs(dx) < 72 || dy > 48) return;
-    if (dx > 0) navigate('/screen1');
-    else navigate('/calendar');
-  }, [addProductsOpen, addServicesOpen, consultOpen, navigate, rateEditOpen, removeConfirm]);
-
   return (
-    <div
-      className="s2-root"
-      onTouchStart={onRootTouchStart}
-      onTouchEnd={onRootTouchEnd}
-    >
+    <div className="s2-root">
       <div className="s2-bg" />
 
       {/* TOP BAR */}
@@ -881,59 +987,63 @@ export default function Screen2() {
         </button>
       </div>
 
-      {/* AVATAR + IDENTITY */}
+      {/* AVATAR + IDENTITY (single horizontal row) */}
       <div className="s2-identity">
-        <button
-          type="button"
-          className="s2-avatar"
-          onClick={openAvatarPicker}
-          aria-label={consultRecord.avatar ? 'Change client photo' : 'Add client photo'}
-        >
-          {consultRecord.avatar ? (
-            <img
-              src={consultRecord.avatar}
-              alt={`${activeClient.name} photo`}
-              className="s2-avatar__img"
-              draggable={false}
-            />
-          ) : (
-            <span className="s2-avatar__initials">{initials}</span>
-          )}
-        </button>
-        <input
-          ref={avatarInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          aria-hidden
-          tabIndex={-1}
-          style={{
-            position: 'absolute',
-            width: 1,
-            height: 1,
-            padding: 0,
-            margin: -1,
-            border: 0,
-            clip: 'rect(0 0 0 0)',
-            overflow: 'hidden',
-            opacity: 0,
-            pointerEvents: 'none',
-          }}
-          onChange={handleAvatarChosen}
-        />
+        <div className="s2-identityMain">
+          <button
+            type="button"
+            className="s2-avatar"
+            onClick={openAvatarPicker}
+            aria-label={consultRecord.avatar ? 'Change client photo' : 'Add client photo'}
+          >
+            {consultRecord.avatar ? (
+              <img
+                src={consultRecord.avatar}
+                alt={`${activeClient.name} photo`}
+                className="s2-avatar__img"
+                draggable={false}
+              />
+            ) : (
+              <span className="s2-avatar__initials">{initials}</span>
+            )}
+          </button>
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            aria-hidden
+            tabIndex={-1}
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              border: 0,
+              clip: 'rect(0 0 0 0)',
+              overflow: 'hidden',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+            onChange={handleAvatarChosen}
+          />
 
-        <div className="s2-identityRow">
-          <div className="s2-msgBadges" aria-label="Unread messages">
-            <div className="s2-msgBadge" aria-hidden>
-              💬<span className="s2-msgBadge__count">{META.msgCount}</span>
+          <div className="s2-identityRow">
+            <div className="s2-msgBadges" aria-label="Unread messages">
+              <div className="s2-msgBadge" aria-hidden>
+                💬<span className="s2-msgBadge__count">{META.msgCount}</span>
+              </div>
+            </div>
+            <div className="s2-clientName">{activeClient.name}</div>
+            <div className="s2-clientPhone">
+              {activeClient.phone || (isNewClient ? 'New client' : '')}
+            </div>
+            <button type="button" className="s2-kebabText" aria-label="More">
+              ⋮
+            </button>
           </div>
         </div>
-          <div className="s2-clientName">{activeClient.name}</div>
-          <div className="s2-clientPhone">
-            {activeClient.phone || (isNewClient ? 'New client' : '')}
-        </div>
-          <button className="s2-kebabText" aria-label="More">⋮</button>
-      </div>
 
         <div className="s2-progress" aria-label="Progress">
           <div className="s2-progressDots" aria-hidden>
@@ -960,88 +1070,120 @@ export default function Screen2() {
       {/* MAIN CONTENT — v1.3 stack */}
       <div className="s2-body">
         <div className="s2-section">
-          <div className="s2-pill s2-pill--neutral">Consultation</div>
+          <div className="s2-pill s2-pill--neutral s2-pill--consult">Consultation</div>
           <button type="button" className="s2-card s2-card--v13 s2-consultCard" onClick={() => setConsultOpen(true)} aria-label="Open consultation">
             <div className="s2-royBand is-yellow" aria-hidden />
             <div className="s2-consultHeader">
-              <div className="s2-consultHeader__left">
-                {activeApptInfo
-                  ? `Appointment · ${activeApptInfo.dateShort}${
-                      activeApptInfo.durationLabel ? ' · ' + activeApptInfo.durationLabel : ''
-                    }`
-                  : `Last visit · ${CONSULT.lastVisitShort} · ${CONSULT.duration}`}
+              <div className="s2-consultHeader__cluster">
+                <div className="s2-consultHeader__label">
+                  {activeApptInfo ? 'Appointment' : 'Last visit'}
+                </div>
+                <div className="s2-consultHeader__value">
+                  {activeApptInfo
+                    ? `${activeApptInfo.dateShort}${
+                        activeApptInfo.durationLabel ? ` \u2022 ${activeApptInfo.durationLabel}` : ''
+                      }`
+                    : `${CONSULT.lastVisitShort} \u2022 ${CONSULT.duration.replace(/\bmin\b/i, 'MIN')}`}
+                </div>
               </div>
-              <div className="s2-consultHeader__right">
-                {activeApptInfo?.service ? activeApptInfo.service : `${CONSULT.noteTag} · ${CONSULT.noteHint} note`}
+              <div className="s2-consultHeader__cluster s2-consultHeader__cluster--right">
+                <div className="s2-consultHeader__label">
+                  {activeApptInfo?.service?.trim()
+                    ? activeApptInfo.service
+                    : `${CONSULT.noteTag} \u2022 ${CONSULT.noteHint}`}
+                </div>
+                <div className="s2-consultHeader__value s2-consultHeader__value--sub">
+                  {activeApptInfo
+                    ? (activeApptInfo.durationLabel || '').replace(/\bmin\b/i, 'MIN') || 'Today'
+                    : 'note'}
+                </div>
               </div>
             </div>
 
             <div className="s2-consultScroll">
               {CONSULT.panes.map((p) => (
-                <div key={p.key} className="s2-pane">
+                <div key={p.key} className={`s2-pane ${p.colorClass}`}>
                   <div className={`s2-paneLabel ${p.colorClass}`}>{p.key}</div>
                   {p.key !== 'LOOK' ? (
                     <div className="s2-paneContent">
                       {(consultRecord[p.key] || '').trim() || p.text || ''}
                     </div>
                   ) : (
-                    <div className="s2-paneContent s2-lookStrip">
-                      {(() => {
-                        const photos = Array.isArray(consultRecord.photos)
-                          ? consultRecord.photos
-                          : [];
-                        const tones = ['now', 'want', 'last'];
-                        const items = [0, 1, 2].map((i) => ({
-                          tone: tones[i],
-                          label: tones[i].toUpperCase(),
-                          url: photos[i]?.url || null,
-                        }));
-                        const extra = Math.max(0, photos.length - 3);
-                        return (
-                          <>
-                            {items.map((t) => (
-                              <div
-                                key={t.label}
-                                className={`s2-lookThumb is-${t.tone}`}
-                                style={
-                                  t.url
-                                    ? {
-                                        backgroundImage: `url(${t.url})`,
-                                        backgroundSize: 'cover',
-                                        backgroundPosition: 'center',
-                                      }
-                                    : undefined
-                                }
-                              >
-                                <div className="s2-lookThumb__tag">{t.label}</div>
-                              </div>
-                            ))}
-                            {extra > 0 ? <div className="s2-lookMore">+{extra}</div> : null}
-                          </>
-                        );
-                      })()}
+                    <div className="s2-paneContent s2-paneContent--lookRow">
+                      <div className="s2-lookStrip">
+                        {(() => {
+                          const photos = Array.isArray(consultRecord.photos)
+                            ? consultRecord.photos
+                            : [];
+                          const tones = ['now', 'want', 'last'];
+                          const items = [0, 1, 2].map((i) => ({
+                            tone: tones[i],
+                            label: tones[i].toUpperCase(),
+                            url: photos[i]?.url || null,
+                          }));
+                          const extra = Math.max(0, photos.length - 3);
+                          return (
+                            <>
+                              {items.map((t) => (
+                                <div key={t.label} className="s2-lookSlot">
+                                  <div
+                                    className={`s2-lookThumb is-${t.tone}`}
+                                    style={
+                                      t.url
+                                        ? {
+                                            backgroundImage: `url(${t.url})`,
+                                            backgroundSize: 'cover',
+                                            backgroundPosition: 'center',
+                                          }
+                                        : undefined
+                                    }
+                                  />
+                                </div>
+                              ))}
+                              {extra > 0 ? <div className="s2-lookMore">+{extra}</div> : null}
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <div className="s2-lookRowActions">
+                        <AppointmentTimerBox
+                          compact
+                          timerState={liveTimer}
+                          onPress={() => setTimerModalOpen(true)}
+                        />
+                        <button
+                          type="button"
+                          className="s2-actionBtn is-mic"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConsultOpen(true);
+                          }}
+                          aria-label="Voice"
+                        >
+                          <span className="s2-actionBtn__ring" aria-hidden>
+                            <Microphone size={12} weight="fill" />
+                          </span>
+                          <span className="s2-actionBtn__label">Voice</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="s2-actionBtn is-cam"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConsultOpen(true);
+                          }}
+                          aria-label="Photo"
+                        >
+                          <span className="s2-actionBtn__ring" aria-hidden>
+                            <Camera size={12} weight="fill" />
+                          </span>
+                          <span className="s2-actionBtn__label">Photo</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
               ))}
-            </div>
-
-            <div className="s2-cardActions">
-              <div className="s2-cardActions__hint">Add to consult</div>
-              <div className="s2-cardActions__group">
-                <button type="button" className="s2-actionBtn is-mic" onClick={(e) => { e.stopPropagation(); setConsultOpen(true); }} aria-label="Voice">
-                  <span className="s2-actionBtn__ring" aria-hidden>
-                    <Microphone size={15} weight="fill" />
-                  </span>
-                  <span className="s2-actionBtn__label">Voice</span>
-                </button>
-                <button type="button" className="s2-actionBtn is-cam" onClick={(e) => { e.stopPropagation(); setConsultOpen(true); }} aria-label="Photo">
-                  <span className="s2-actionBtn__ring" aria-hidden>
-                    <Camera size={15} weight="fill" />
-                  </span>
-                  <span className="s2-actionBtn__label">Photo</span>
-                </button>
-              </div>
             </div>
           </button>
         </div>
@@ -1081,7 +1223,10 @@ export default function Screen2() {
                     >
                       <Minus size={11} weight="bold" aria-hidden />
                     </button>
-                    <div className="s2-svcDeckCard s2-svcDeckCard--quad" title={s.name}>
+                    <div
+                      className={`s2-svcDeckCard s2-svcDeckCard--quad${ix === 0 ? ' s2-svcDeckCard--selected' : ''}`}
+                      title={s.name}
+                    >
                       <button
                         type="button"
                         className="s2-svcDeckCard__edit"
@@ -1104,12 +1249,13 @@ export default function Screen2() {
                       <div className="s2-svcDeckCard__hero" style={{ background: deckGrad }} />
                       <span className="s2-svcDeckCard__accentBar" aria-hidden />
                       <div className="s2-svcDeckCard__body">
-                        <div className="s2-svcDeckCard__headline">{svcQuadHeadline(s)}</div>
-                        <div className="s2-svcDeckCard__subtitle">{s.name}</div>
-                        <div className="s2-svcDeckCard__metaRow">
-                          {isHourly ? (
-                            <span className="s2-svcDeckCard__dur s2-svcDeckCard__dur--label">Time-based</span>
-                          ) : isConsult ? (
+                        <div className="s2-svcDeckCard__headline">{svcDeckPrimaryTitle(s)}</div>
+                        <div className="s2-svcDeckCard__subtitle">{svcDeckSecondaryLine(s)}</div>
+                        <div
+                          className={`s2-svcDeckCard__metaRow${isHourly ? ' s2-svcDeckCard__metaRow--priceOnly' : ''}`}
+                        >
+                          <span className="s2-svcDeckCard__price">{queuePriceLabel(s)}</span>
+                          {isHourly ? null : isConsult ? (
                             <span className="s2-svcDeckCard__dur s2-svcDeckCard__dur--label">Session fee</span>
                           ) : (
                             <span className="s2-svcDeckCard__dur">
@@ -1117,7 +1263,7 @@ export default function Screen2() {
                               {formatSvcDurationShort(s.name)}
                             </span>
                           )}
-        </div>
+                        </div>
                       </div>
                       <span className="s2-svcDeckCard__bottomTick" aria-hidden />
                     </div>
@@ -1132,13 +1278,20 @@ export default function Screen2() {
               >
                 <span className="s2-refTile__badgeSuggested">SUGGESTED</span>
                 <div className="s2-refTile__silhouette" aria-hidden />
-                <div className="s2-refTile__suggestedMeta">
+                <span className="s2-refTile__plusCorner" aria-hidden>
+                  <Plus size={13} weight="bold" />
+                </span>
+                <div className="s2-refTile__suggestedWrap">
                   <span className="s2-refTile__suggestedTitle">From catalog</span>
                   <span className="s2-refTile__suggestedSub">Tap to browse</span>
+                  <div className="s2-refTile__suggestedFoot">
+                    <span className="s2-refTile__suggestedPrice">—</span>
+                    <span className="s2-refTile__suggestedDur">
+                      <Clock size={9} weight="bold" aria-hidden />
+                      Pick
+                    </span>
+                  </div>
                 </div>
-                <span className="s2-refTile__plusCorner" aria-hidden>
-                  <Plus size={14} weight="bold" />
-                </span>
               </button>
               <button
                 type="button"
@@ -1154,9 +1307,9 @@ export default function Screen2() {
         </div>
 
         <div className="s2-section">
-          <div className="s2-pill s2-pill--neutral">BackBar / Finish</div>
+          <div className="s2-pill s2-pill--neutral">BACK BAR</div>
           <div className="s2-card s2-card--v13 s2-hcCard">
-            <div className="s2-quadRow" aria-label="Back bar and finish products">
+            <div className="s2-quadRow" aria-label="Back bar products">
               {[0, 1].map((ix) => {
                 const p = prdQuadPair[ix];
                 if (!p) {
@@ -1186,7 +1339,10 @@ export default function Screen2() {
                     >
                       <Minus size={11} weight="bold" aria-hidden />
                     </button>
-                    <div className="s2-svcDeckCard s2-svcDeckCard--quad s2-svcDeckCard--product" title={p.name}>
+                    <div
+                      className={`s2-svcDeckCard s2-svcDeckCard--quad s2-svcDeckCard--product${ix === 0 ? ' s2-svcDeckCard--selected' : ''}`}
+                      title={p.name}
+                    >
                       <button
                         type="button"
                         className="s2-svcDeckCard__edit"
@@ -1203,28 +1359,38 @@ export default function Screen2() {
                       <div className="s2-svcDeckCard__body">
                         <div className="s2-svcDeckCard__headline">{p.brand}</div>
                         <div className="s2-svcDeckCard__subtitle">{p.name}</div>
+                        <div className="s2-svcDeckCard__metaRow s2-svcDeckCard__metaRow--priceOnly">
+                          <span className="s2-svcDeckCard__price">${p.price}</span>
+                        </div>
                       </div>
                       <span className="s2-svcDeckCard__bottomTick" aria-hidden />
                       </div>
-                  </div>
+              </div>
                 );
               })}
-              <button
-                type="button"
-                className="s2-quadCell s2-refTile s2-refTile--suggested"
-                onClick={() => setAddProductsOpen(true)}
-                aria-label="Suggested back bar / finish"
-              >
-                <span className="s2-refTile__badgeSuggested">SUGGESTED</span>
-                <div className="s2-refTile__silhouette" aria-hidden />
-                <div className="s2-refTile__suggestedMeta">
-                  <span className="s2-refTile__suggestedTitle">From catalog</span>
-                  <span className="s2-refTile__suggestedSub">Tap to browse</span>
-                </div>
-                <span className="s2-refTile__plusCorner" aria-hidden>
-                  <Plus size={14} weight="bold" />
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="s2-quadCell s2-refTile s2-refTile--suggested"
+                  onClick={() => setAddProductsOpen(true)}
+                  aria-label="Suggested back bar"
+                >
+                  <span className="s2-refTile__badgeSuggested">SUGGESTED</span>
+                  <div className="s2-refTile__silhouette" aria-hidden />
+                  <span className="s2-refTile__plusCorner" aria-hidden>
+                    <Plus size={13} weight="bold" />
+                  </span>
+                  <div className="s2-refTile__suggestedWrap">
+                    <span className="s2-refTile__suggestedTitle">From catalog</span>
+                    <span className="s2-refTile__suggestedSub">Tap to browse</span>
+                    <div className="s2-refTile__suggestedFoot">
+                      <span className="s2-refTile__suggestedPrice">—</span>
+                      <span className="s2-refTile__suggestedDur">
+                        <Clock size={9} weight="bold" aria-hidden />
+                        Pick
+                      </span>
+                    </div>
+                  </div>
+                </button>
               <button
                 type="button"
                 className="s2-quadCell s2-refTile s2-refTile--add"
@@ -1235,69 +1401,66 @@ export default function Screen2() {
                 <span className="s2-refTile__addLabel">ADD PRODUCT</span>
                 </button>
               </div>
+            </div>
+        </div>
+
+        <div className="s2-bottomDock s2-bottomDock--inline">
+          <div className="s2-bottomDock__content">
+            <div className="s2-ctaRow">
+              <button type="button" className="s2-cta is-rebook">
+                <div className="s2-ctaIcon" aria-hidden>↻</div>
+                <div className="s2-ctaLabel">Rebook</div>
+              </button>
+              <button
+                type="button"
+                className="s2-cta is-checkout"
+                onClick={() =>
+                  navigate('/climax', { state: { apt: activeApt, from: '/screen2' } })
+                }
+              >
+                <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
+                <div className="s2-ctaLabel">Check out</div>
+              </button>
+            </div>
+            <div className="s2-toolbar">
+              {TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
+                const isActive = i === TOOLBAR_ACTIVE;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`s2-toolbar__btn${isActive ? ' s2-toolbar__btn--solid' : ''}`}
+                    aria-label={label}
+                    aria-current={isActive ? 'page' : undefined}
+                    onClick={() => {
+                      if (to === '/clients') {
+                        navigate(to, { state: { from: '/screen2' } });
+                        return;
+                      }
+                      navigate(
+                        to,
+                        activeApt
+                          ? {
+                              state: {
+                                apt: activeApt,
+                                ...(to === '/climax' ? { from: '/screen2' } : {}),
+                              },
+                            }
+                          : undefined,
+                      );
+                    }}
+                  >
+                    <Icon
+                      size={isActive ? S2_ICON_TOOLBAR_ACTIVE : S2_ICON_TOOLBAR}
+                      weight={isActive ? 'fill' : 'regular'}
+                      aria-hidden
+                    />
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* End-of-visit: swipe up on grabber (or tap) — Rebook, Checkout, toolbar */}
-      <div className={`s2-bottomDock${dockOpen ? ' is-expanded' : ' is-collapsed'}`}>
-                <button
-                  type="button"
-          className="s2-bottomDock__grabber"
-          aria-expanded={dockOpen}
-          aria-label={dockOpen ? 'Collapse actions' : 'Expand Rebook, Checkout, and toolbar'}
-          onClick={() => setDockOpen((v) => !v)}
-          onTouchStart={onGrabberTouchStart}
-          onTouchEnd={onGrabberTouchEnd}
-        >
-          <span className="s2-bottomDock__handle" aria-hidden />
-          <span className="s2-bottomDock__hint">
-            {dockOpen ? 'Swipe down · or tap to hide' : 'Swipe up · Rebook · Checkout · Tools'}
-          </span>
-        </button>
-        <div className="s2-bottomDock__content">
-          <div className="s2-ctaRow">
-            <button type="button" className="s2-cta is-rebook">
-              <div className="s2-ctaIcon" aria-hidden>↻</div>
-              <div className="s2-ctaLabel">Rebook</div>
-            </button>
-            <button
-              type="button"
-              className="s2-cta is-checkout"
-              onClick={() => navigate('/climax', { state: { apt: activeApt } })}
-            >
-              <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
-              <div className="s2-ctaLabel">Check out</div>
-                </button>
-                      </div>
-          <div className="s2-toolbar">
-            {TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
-              const isActive = i === TOOLBAR_ACTIVE;
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  className={`s2-toolbar__btn${isActive ? ' s2-toolbar__btn--solid' : ''}`}
-                  aria-label={label}
-                  aria-current={isActive ? 'page' : undefined}
-                  onClick={() => {
-                    if (to === '/clients') {
-                      navigate(to, { state: { from: '/screen2' } });
-                      return;
-                    }
-                    navigate(to, activeApt ? { state: { apt: activeApt } } : undefined);
-                  }}
-                >
-                  <Icon
-                    size={isActive ? S2_ICON_TOOLBAR_ACTIVE : S2_ICON_TOOLBAR}
-                    weight={isActive ? 'fill' : 'regular'}
-                    aria-hidden
-                  />
-                </button>
-              );
-            })}
-                      </div>
-                      </div>
       </div>
 
       {consultOpen ? (
@@ -1427,7 +1590,7 @@ export default function Screen2() {
                 ) : null}
               </div>
             </div>
-          </div>
+      </div>
 
           <div className="nc-fields">
             <div className="nc-field">
@@ -1439,13 +1602,13 @@ export default function Screen2() {
                   </span>
                 </div>
                 <div className="nc-f-actions">
-                  <button type="button" className="nc-f-btn" aria-label="Add LIFE note" onClick={() => openNoteEditor('LIFE')}>
+                  <button type="button" className="nc-f-btn" aria-label="Add LIFE note" onClick={() => openNewNote('LIFE')}>
                     <PencilSimple size={14} weight="bold" aria-hidden />
                   </button>
-                  <button type="button" className="nc-f-btn" aria-label="Voice LIFE note" onClick={() => openNoteEditor('LIFE')}>
+                  <button type="button" className="nc-f-btn" aria-label="Voice LIFE note" onClick={() => openNewNoteWithVoice('LIFE')}>
                     <Microphone size={14} weight="fill" aria-hidden />
-                </button>
-              </div>
+            </button>
+          </div>
             </div>
               <div className="nc-f-feed" ref={lifeFeedRef}>
                 <div className="nc-f-spacer" aria-hidden />
@@ -1455,12 +1618,38 @@ export default function Screen2() {
                     <div className="nc-body">No notes yet — tap pencil or mic.</div>
                   </div>
                 ) : (
-                  lifeChron.map((entry, idx) => (
-                    <div key={`${entry.ts}-${idx}`} className={`nc-note${idx === lifeChron.length - 1 ? ' latest' : ''}`}>
-                      <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
-                      <div className="nc-body">{entry.text}</div>
-                    </div>
-                  ))
+                  lifeChron.map((entry, idx) => {
+                    const entries = consultRecord.LIFE_entries;
+                    const hasStored = Array.isArray(entries) && entries.length > 0;
+                    const synthetic = !hasStored;
+                    const storageIdx = hasStored ? entries.length - 1 - idx : -1;
+                return (
+                      <button
+                        type="button"
+                        key={`life-${entry.ts ?? 'n'}-${idx}`}
+                        className={`nc-note${idx === lifeChron.length - 1 ? ' latest' : ''}`}
+                        aria-label="Edit LIFE note"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          stopVoice();
+                          setNoteDraft(entry.text || '');
+                          if (synthetic) {
+                            setNoteEditOpen({ pane: 'LIFE', mode: 'edit', synthetic: true });
+                          } else {
+                            setNoteEditOpen({
+                              pane: 'LIFE',
+                              mode: 'edit',
+                              entryIndex: storageIdx,
+                              entryTs: typeof entry.ts === 'number' ? entry.ts : undefined,
+                            });
+                          }
+                        }}
+                      >
+                        <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
+                        <div className="nc-body">{entry.text}</div>
+                      </button>
+                    );
+                  })
                 )}
               </div>
         </div>
@@ -1472,10 +1661,10 @@ export default function Screen2() {
                   <span className="nc-f-count">FORMULA · {chairChron.length}</span>
                 </div>
                 <div className="nc-f-actions">
-                  <button type="button" className="nc-f-btn" aria-label="Add CHAIR note" onClick={() => openNoteEditor('CHAIR')}>
+                  <button type="button" className="nc-f-btn" aria-label="Add CHAIR note" onClick={() => openNewNote('CHAIR')}>
                     <PencilSimple size={14} weight="bold" aria-hidden />
                   </button>
-                  <button type="button" className="nc-f-btn" aria-label="Voice CHAIR note" onClick={() => openNoteEditor('CHAIR')}>
+                  <button type="button" className="nc-f-btn" aria-label="Voice CHAIR note" onClick={() => openNewNoteWithVoice('CHAIR')}>
                     <Microphone size={14} weight="fill" aria-hidden />
                   </button>
                 </div>
@@ -1488,27 +1677,53 @@ export default function Screen2() {
                     <div className="nc-body">No notes yet — tap pencil or mic.</div>
                   </div>
                 ) : (
-                  chairChron.map((entry, idx) => (
-                    <div key={`${entry.ts}-${idx}`} className={`nc-note${idx === chairChron.length - 1 ? ' latest' : ''}`}>
-                      <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
-                      <div className="nc-body">{entry.text}</div>
-                    </div>
-                  ))
+                  chairChron.map((entry, idx) => {
+                    const entries = consultRecord.CHAIR_entries;
+                    const hasStored = Array.isArray(entries) && entries.length > 0;
+                    const synthetic = !hasStored;
+                    const storageIdx = hasStored ? entries.length - 1 - idx : -1;
+                    return (
+                      <button
+                        type="button"
+                        key={`chair-${entry.ts ?? 'n'}-${idx}`}
+                        className={`nc-note${idx === chairChron.length - 1 ? ' latest' : ''}`}
+                        aria-label="Edit CHAIR note"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          stopVoice();
+                          setNoteDraft(entry.text || '');
+                          if (synthetic) {
+                            setNoteEditOpen({ pane: 'CHAIR', mode: 'edit', synthetic: true });
+                          } else {
+                            setNoteEditOpen({
+                              pane: 'CHAIR',
+                              mode: 'edit',
+                              entryIndex: storageIdx,
+                              entryTs: typeof entry.ts === 'number' ? entry.ts : undefined,
+                            });
+                          }
+                        }}
+                      >
+                        <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
+                        <div className="nc-body">{entry.text}</div>
+                  </button>
+                );
+                  })
                 )}
-              </div>
-      </div>
+            </div>
+          </div>
 
             <div className="nc-field">
               <div className="nc-f-head">
                 <div className="nc-f-title">
                   <span className="nc-f-label path">PATH</span>
                   <span className="nc-f-count">DIRECTION</span>
-                </div>
+        </div>
                 <div className="nc-f-actions">
-                  <button type="button" className="nc-f-btn" aria-label="Add PATH note" onClick={() => openNoteEditor('PATH')}>
+                  <button type="button" className="nc-f-btn" aria-label="Add PATH note" onClick={() => openNewNote('PATH')}>
                     <PencilSimple size={14} weight="bold" aria-hidden />
         </button>
-                  <button type="button" className="nc-f-btn" aria-label="Voice PATH note" onClick={() => openNoteEditor('PATH')}>
+                  <button type="button" className="nc-f-btn" aria-label="Voice PATH note" onClick={() => openNewNoteWithVoice('PATH')}>
                     <Microphone size={14} weight="fill" aria-hidden />
         </button>
                 </div>
@@ -1521,12 +1736,38 @@ export default function Screen2() {
                     <div className="nc-body">No notes yet — tap pencil or mic.</div>
                   </div>
                 ) : (
-                  pathChron.map((entry, idx) => (
-                    <div key={`${entry.ts}-${idx}`} className={`nc-note${idx === pathChron.length - 1 ? ' latest' : ''}`}>
-                      <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
-                      <div className="nc-body">{entry.text}</div>
-                    </div>
-                  ))
+                  pathChron.map((entry, idx) => {
+                    const entries = consultRecord.PATH_entries;
+                    const hasStored = Array.isArray(entries) && entries.length > 0;
+                    const synthetic = !hasStored;
+                    const storageIdx = hasStored ? entries.length - 1 - idx : -1;
+                    return (
+                      <button
+                        type="button"
+                        key={`path-${entry.ts ?? 'n'}-${idx}`}
+                        className={`nc-note${idx === pathChron.length - 1 ? ' latest' : ''}`}
+                        aria-label="Edit PATH note"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          stopVoice();
+                          setNoteDraft(entry.text || '');
+                          if (synthetic) {
+                            setNoteEditOpen({ pane: 'PATH', mode: 'edit', synthetic: true });
+                          } else {
+                            setNoteEditOpen({
+                              pane: 'PATH',
+                              mode: 'edit',
+                              entryIndex: storageIdx,
+                              entryTs: typeof entry.ts === 'number' ? entry.ts : undefined,
+                            });
+                          }
+                        }}
+                      >
+                        <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
+                        <div className="nc-body">{entry.text}</div>
+                      </button>
+                    );
+                  })
                 )}
               </div>
       </div>
@@ -1538,11 +1779,11 @@ export default function Screen2() {
                   <span className="nc-f-count">
                     {photosChron.length} PHOTOS · ↔ SCROLL
                   </span>
-                </div>
+            </div>
                 <div className="nc-f-actions">
                   <button type="button" className="nc-f-btn" aria-label="Add LOOK photo" onClick={() => openPhotoPicker(null)}>
                     <Camera size={14} weight="fill" aria-hidden />
-                  </button>
+            </button>
                 </div>
               </div>
               <div className="nc-look-gallery" ref={lookGalleryRef}>
@@ -1600,23 +1841,36 @@ export default function Screen2() {
         </div>
       ) : null}
 
-      {/* New-note composer — opens when the mic on a pane is tapped */}
+      {/* Note composer — add new or update existing (tap a note row to edit). */}
       {noteEditOpen ? (
-        <div className="s2-noteOverlay" role="dialog" aria-modal="true" aria-label={`New ${noteEditOpen} note`}>
+        <div
+          className="s2-noteOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${noteEditOpen.mode === 'edit' ? 'Update' : 'New'} ${noteEditOpen.pane} note`}
+        >
           <button
             type="button"
             className="s2-noteBackdrop"
             aria-label="Cancel"
             onClick={cancelNoteDraft}
           />
-          <div className="s2-noteSheet">
+          <div className="s2-noteSheet" role="document">
             <header className="s2-noteHeader">
-              <div className={`s2-noteLabel ${
-                noteEditOpen === 'LIFE' ? 'is-pink'
-                : noteEditOpen === 'CHAIR' ? 'is-yellow'
-                : 'is-green'
-              }`}>{noteEditOpen}</div>
-              <div className="s2-noteTitle">New note</div>
+              <div
+                className={`s2-noteLabel ${
+                  noteEditOpen.pane === 'LIFE'
+                    ? 'is-pink'
+                    : noteEditOpen.pane === 'CHAIR'
+                      ? 'is-yellow'
+                      : 'is-green'
+                }`}
+              >
+                {noteEditOpen.pane}
+              </div>
+              <div className="s2-noteTitle">
+                {noteEditOpen.mode === 'edit' ? 'Update note' : 'New note'}
+              </div>
               <button
                 type="button"
                 className="s2-noteClose"
@@ -1632,16 +1886,20 @@ export default function Screen2() {
                 className="s2-noteInput"
                 value={noteDraft}
                 onChange={(e) => setNoteDraft(e.target.value)}
-                placeholder={`Tap mic to dictate, or type a new ${noteEditOpen.toLowerCase()} note…`}
+                placeholder={
+                  noteEditOpen.mode === 'edit'
+                    ? `Edit this ${noteEditOpen.pane.toLowerCase()} note…`
+                    : `Tap mic to dictate, or type a new ${noteEditOpen.pane.toLowerCase()} note…`
+                }
                 autoFocus
                 spellCheck={false}
               />
               <button
                 type="button"
-                className={`s2-noteMic${recordingPane === noteEditOpen ? ' is-recording' : ''}`}
-                aria-label={recordingPane === noteEditOpen ? 'Stop dictation' : 'Start dictation'}
-                aria-pressed={recordingPane === noteEditOpen}
-                onClick={() => toggleVoice(noteEditOpen)}
+                className={`s2-noteMic${recordingPane === noteEditOpen.pane ? ' is-recording' : ''}`}
+                aria-label={recordingPane === noteEditOpen.pane ? 'Stop dictation' : 'Start dictation'}
+                aria-pressed={recordingPane === noteEditOpen.pane}
+                onClick={() => toggleVoice(noteEditOpen.pane)}
               >
                 <Microphone size={18} weight="fill" aria-hidden />
               </button>
@@ -1652,7 +1910,11 @@ export default function Screen2() {
                 type="button"
                 className="s2-noteUpdate"
                 disabled={!noteDraft.trim()}
-                onClick={submitNoteDraft}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  submitNoteDraft();
+                }}
               >
                 Update
             </button>
@@ -1692,7 +1954,7 @@ export default function Screen2() {
                   const rowSvc =
                     s.id === 'SVC-HOURLY' ? hourlySvc : s.id === 'SVC-CONSULT' ? consultSvc : s;
                 return (
-                    <button
+                  <button
                       key={s.id}
                       type="button"
                       className={`s2-addProdCard s2-addProdCard--service${inQueue ? ' is-inQueue' : ''}`}
@@ -1754,10 +2016,10 @@ export default function Screen2() {
                 >
                   <span className="s2-svcPickQueueAdd__plus" aria-hidden>
                     +
-                  </span>
+                        </span>
                   <span className="s2-svcPickQueueAdd__text">ADD CUSTOM SERVICE</span>
             </button>
-          </div>
+                    </div>
             </footer>
           </div>
         </div>
@@ -1817,7 +2079,7 @@ export default function Screen2() {
             </div>
           </div>
             <footer className="s2-svcPickQueue s2-prodPickQueue">
-              <div className="s2-svcPickQueue__label">BACKBAR / FINISH</div>
+              <div className="s2-svcPickQueue__label">BACK BAR</div>
               <div className="s2-svcPickQueue__row">
                 {productQueue.map((p, qi) => (
                   <div key={`${p.id}-${qi}`} className="s2-svcPickQueueCard">
@@ -1946,6 +2208,18 @@ export default function Screen2() {
         </div>
       ) : null}
 
+      <TimerModal
+        open={timerModalOpen}
+        clientName={activeClientName}
+        runningState={liveTimer}
+        placement="center"
+        onClose={() => setTimerModalOpen(false)}
+        onStartTimer={handleTimerStart}
+        onStartStopwatch={handleStopwatchStart}
+        onStopStopwatch={handleTimerStop}
+        onStopTimer={handleTimerStop}
+        onResetTimer={handleTimerReset}
+      />
     </div>
   );
 }

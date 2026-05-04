@@ -1,19 +1,22 @@
 /* Full-screen consultation brief — matches Life Coach prototype (glass, sharp type) */
 
 :root {
-  --nc-bg: #060606;
-  /* Match Calendar `.cal-modal__backdrop` + card glass */
-  --nc-overlay: rgba(0, 0, 0, 0.65);
-  --nc-bg-glass: rgba(40, 45, 55, 0.14);
-  --nc-bg-card: rgba(40, 45, 55, 0.18);
+  --nc-bg: #030405;
+  --nc-overlay: rgba(5, 6, 8, 0.74);
+  /* Climax `.climax-glass` parity (S2 shared) */
+  --nc-climax-glass-blur: blur(24px) saturate(125%);
+  --nc-bg-glass: rgba(1, 2, 9, 0.6);
+  --nc-bg-card: rgba(1, 2, 9, 0.48);
+  --nc-glass-deep-shadow: 0 24px 90px rgba(0, 0, 0, 0.75);
+  --nc-glass-lift-shadow: 0 16px 56px rgba(0, 0, 0, 0.62);
   --nc-bg-card-hi: rgba(255, 255, 255, 0.08);
   --nc-bg-card-active: rgba(255, 255, 255, 0.1);
-  --nc-text: #f2f2f2;
-  --nc-text-mid: #c5c5c5;
-  --nc-text-dim: #7e7e7e;
-  --nc-text-faint: #4a4a4a;
+  --nc-text: rgba(255, 255, 255, 0.96);
+  --nc-text-mid: rgba(255, 255, 255, 0.72);
+  --nc-text-dim: rgba(255, 255, 255, 0.48);
+  --nc-text-faint: rgba(255, 255, 255, 0.38);
   --nc-border: rgba(255, 255, 255, 0.12);
-  --nc-border-strong: rgba(255, 255, 255, 0.18);
+  --nc-border-strong: rgba(255, 255, 255, 0.14);
   --nc-alert-yellow: #e8c547;
   --nc-alert-red: #ff5757;
   --nc-rec-dot: #ff3b3b;
@@ -26,14 +29,18 @@
   --nc-font-display: 'Bebas Neue', system-ui, sans-serif;
 }
 
+/* Absolute: Screen2 mounts this inside `.s2-root` inside a CSS-scaled phone shell;
+ * `fixed` there breaks hit-testing on mobile. */
 .nc-popup {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 50;
-  /* Same glass stack as `.cal-modal__backdrop` — blurs Screen2 behind */
-  background: var(--nc-overlay);
-  backdrop-filter: blur(10px) saturate(120%);
-  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  touch-action: manipulation;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.06), transparent 28%),
+    linear-gradient(180deg, rgba(5, 6, 7, 0.88) 0%, rgba(3, 4, 6, 0.94) 100%);
+  backdrop-filter: var(--nc-climax-glass-blur);
+  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
   display: flex;
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom, 16px);
@@ -55,10 +62,11 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--nc-border-strong);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--nc-bg-card);
+  border: none;
+  backdrop-filter: var(--nc-climax-glass-blur);
+  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
+  box-shadow: var(--nc-glass-lift-shadow);
   color: var(--nc-text);
   cursor: pointer;
   display: flex;
@@ -79,8 +87,11 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #1a1a1a;
-  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  background: linear-gradient(145deg, rgba(38, 40, 44, 0.88), rgba(18, 19, 22, 0.94));
+  border: 1.5px solid rgba(255, 138, 31, 0.48);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -121,10 +132,11 @@
   margin: 8px 12px 0;
   padding: 10px 12px;
   border-radius: 16px;
-  background: var(--nc-bg-card);
-  border: 1px solid var(--nc-border-strong);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--nc-bg-glass);
+  border: none;
+  backdrop-filter: var(--nc-climax-glass-blur);
+  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
+  box-shadow: var(--nc-glass-deep-shadow);
   flex-shrink: 0;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -305,16 +317,19 @@
   gap: 7px;
   padding: 8px 12px 0;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .nc-field {
   flex: 1;
   border-radius: 16px;
   background: var(--nc-bg-card);
-  border: 1px solid var(--nc-border-strong);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  border: none;
+  backdrop-filter: var(--nc-climax-glass-blur);
+  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
+  box-shadow: var(--nc-glass-lift-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -379,10 +394,11 @@
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--nc-border-strong);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--nc-bg-card);
+  border: none;
+  backdrop-filter: var(--nc-climax-glass-blur);
+  -webkit-backdrop-filter: var(--nc-climax-glass-blur);
+  box-shadow: var(--nc-glass-lift-shadow);
   color: var(--nc-text-mid);
   cursor: pointer;
   display: flex;
@@ -457,15 +473,35 @@
 
 .nc-note.latest {
   color: var(--nc-text);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.07);
   margin: 0 -8px;
   padding: 5px 8px;
-  border-radius: 5px;
+  border-radius: 8px;
   border-top: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .nc-note.latest .nc-ts {
   color: var(--nc-text);
+}
+
+/* Tappable note rows — open update sheet (text + voice) */
+button.nc-note {
+  width: 100%;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+}
+
+button.nc-note:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 2px;
 }
 
 .nc-ts {

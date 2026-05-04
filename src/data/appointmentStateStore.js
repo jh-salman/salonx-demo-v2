@@ -23,6 +23,10 @@ export const APPT_STATE_STORAGE_KEY = '@salonx/appointmentState/v1';
 // react-router `location.state`) still resumes the correct appointment.
 export const SCREEN2_APT_SESSION_KEY = '@salonx/screen2LastApt/v1';
 
+// Where Climax (checkout) should send the user when they tap Back — survives
+// refresh when paired with navigation state from Screen2 / toolbar.
+export const CLIMAX_BACK_SESSION_KEY = '@salonx/climaxBack/v1';
+
 // Anchor entries every queue starts with — Hourly + Consultation rows whose
 // price is driven by hourlyRate / consultRate, not stored per-row.
 export const SVC_HOURLY_BASE = { id: 'SVC-HOURLY', name: 'Hourly (stylist rate)', kind: 'hourly' };
@@ -114,6 +118,26 @@ export function readPersistedScreen2From() {
     return parsed && typeof parsed === 'object' && typeof parsed.from === 'string'
       ? parsed.from
       : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writePersistedClimaxBack(from) {
+  if (typeof window === 'undefined' || !from || typeof from !== 'string') return;
+  try {
+    sessionStorage.setItem(CLIMAX_BACK_SESSION_KEY, from);
+  } catch {
+    /* noop */
+  }
+}
+
+/** @returns {string | null} */
+export function readPersistedClimaxBack() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const v = sessionStorage.getItem(CLIMAX_BACK_SESSION_KEY);
+    return v && v.startsWith('/') ? v : null;
   } catch {
     return null;
   }

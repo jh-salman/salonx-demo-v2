@@ -63,6 +63,12 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
                 navigate(to, { state: { from: originPath } });
                 return;
               }
+              if (to === '/climax') {
+                const from =
+                  originPath && originPath.startsWith('/') ? originPath : '/screen1';
+                navigate(to, { state: { from } });
+                return;
+              }
               navigate(to);
             }}
             style={{

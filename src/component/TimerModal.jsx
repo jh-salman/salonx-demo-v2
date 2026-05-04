@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import '../presentation/style/screen1.css';
 
 const fmt2 = (n) => String(n).padStart(2, '0');
 
@@ -88,6 +89,8 @@ function TimerModal({
   onStopTimer,
   onResetTimer,
   mode: initialMode = 'timer',
+  /** 'sheet' = Stylist (S1); 'center' = Screen2 */
+  placement = 'sheet',
 }) {
   const [mode, setMode] = useState(initialMode);
   const [view, setView] = useState('set');
@@ -198,9 +201,12 @@ function TimerModal({
   if (isExternalTimerRunning) runningDisplay = fmtClock(runningState.remainingMs);
   if (isExternalStopwatchRunning) runningDisplay = fmtClock(runningState.elapsedMs);
 
+  const rootClass =
+    placement === 'center' ? 'timerModal timerModal--center' : 'timerModal';
+
   return createPortal(
     <div
-      className="timerModal"
+      className={rootClass}
       role="dialog"
       aria-modal="true"
       aria-label={`${mode === 'timer' ? 'Timer' : 'Stopwatch'} for ${clientName}`}

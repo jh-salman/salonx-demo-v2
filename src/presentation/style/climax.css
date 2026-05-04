@@ -7,6 +7,34 @@
   background: #000;
 }
 
+.climax-backBtn {
+  position: absolute;
+  left: 8px;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.climax-backBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.climax-backBtn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
+}
+
 .climax-brandbar {
   height: 92px;
   display: grid;
@@ -109,9 +137,51 @@
 
 .climax-section__title {
   font-size: 16px;
+  line-height: 1.2;
   letter-spacing: 0.08em;
   font-weight: 800;
+  text-transform: uppercase;
   opacity: 0.85;
+}
+
+/* Section title accents (reference: orange / teal / purple) */
+.climax-section--services .climax-section__title {
+  color: #ff8c00;
+  opacity: 1;
+}
+
+.climax-section--products .climax-section__title {
+  color: #00ced1;
+  opacity: 1;
+}
+
+.climax-section--future .climax-section__title {
+  color: #a020f0;
+  opacity: 1;
+}
+
+.climax-section__titleBtn {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  /* Typography must match .climax-section__title (e.g. FUTURE APPOINTMENT); never `font: inherit` — it resets weight/size from the parent chain. */
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.climax-section__titleBtn:hover {
+  opacity: 1;
+}
+
+.climax-section__titleBtn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 
 .climax-list {

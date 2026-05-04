@@ -116,7 +116,14 @@ function Screen1() {
                                             navigate(
                                                 to,
                                                 toolbarApt && (to === '/screen2' || to === '/climax')
-                                                    ? { state: { apt: toolbarApt } }
+                                                    ? {
+                                                          state: {
+                                                              apt: toolbarApt,
+                                                              ...(to === '/climax'
+                                                                  ? { from: '/screen1' }
+                                                                  : {}),
+                                                          },
+                                                      }
                                                     : undefined,
                                             );
                                         }}

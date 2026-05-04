@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { CaretLeft } from "phosphor-react";
 import "../style/climax.css";
 import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { MOCK_SERVICES } from "../../data/mockServices";
@@ -8,10 +9,13 @@ import {
   buildAptNavPayload,
   getApptState,
   loadApptStateStore,
+  readPersistedClimaxBack,
   readPersistedScreen2Apt,
+  readPersistedScreen2From,
   saveApptStateStore,
   SVC_CONSULT_BASE,
   SVC_HOURLY_BASE,
+  writePersistedClimaxBack,
 } from "../../data/appointmentStateStore";
 import {
   isSameLocalDay,
@@ -115,6 +119,34 @@ export default function Climax() {
   }, [location.key, calendarEvents]);
 
   const apptKey = apptStateKey(activeApt);
+
+  // Remember checkout "back" across refresh (paired with `state.from` on navigate).
+  useEffect(() => {
+    const fromNav = location?.state?.from;
+    if (typeof fromNav === "string" && fromNav.startsWith("/")) {
+      writePersistedClimaxBack(fromNav);
+    }
+  }, [location.key, location?.state?.from]);
+
+  const climaxBackTarget = useMemo(() => {
+    const fromState = location?.state?.from;
+    if (typeof fromState === "string" && fromState.startsWith("/")) return fromState;
+    const persisted = readPersistedClimaxBack();
+    if (persisted) return persisted;
+    return "/screen2";
+  }, [location.key, location?.state?.from]);
+
+  const handleClimaxBack = useCallback(() => {
+    const apt = activeApt || readPersistedScreen2Apt();
+    if (climaxBackTarget === "/screen2" && apt) {
+      const s2From = readPersistedScreen2From();
+      navigate("/screen2", {
+        state: { apt, from: s2From && s2From.startsWith("/") ? s2From : "/screen1" },
+      });
+      return;
+    }
+    navigate(climaxBackTarget);
+  }, [activeApt, climaxBackTarget, navigate]);
 
   // ------- Per-appointment data (services + products + rates) -------
   const [aptState, setAptState] = useState(() =>
@@ -356,6 +388,14 @@ export default function Climax() {
 
   return (
     <div className="climax-root" style={{ ["--climax-accent"]: accent }}>
+      <button
+        type="button"
+        className="climax-backBtn"
+        onClick={handleClimaxBack}
+        aria-label="Back"
+      >
+        <CaretLeft size={28} weight="bold" aria-hidden />
+      </button>
       <div className="climax-brandbar" aria-label="Co-brand header area">
         <img className="climax-brandbar__logo" src="/l3vel3.png" alt="L3VEL3" />
       </div>
@@ -370,31 +410,43 @@ export default function Climax() {
               <div className="climax-client__date">{clientHeader.date}</div>
             </div>
 
-            <section className="climax-section" aria-label="Services">
-              <div
-                className="climax-section__title"
-                {...handleLongPress(() => openModify("service", null))}
-                style={{ cursor: "pointer", userSelect: "none", WebkitTouchCallout: "none" }}
+            <section className="climax-section climax-section--services" aria-label="Services">
+              <button
+                type="button"
+                className="climax-section__title climax-section__titleBtn"
+                onClick={() => openModify("service", null)}
               >
                 SERVICES
-              </div>
+              </button>
               <div className="climax-list">
                 {services.length === 0 ? (
-                  <div className="climax-row climax-row--static" aria-disabled>
+                  <button
+                    type="button"
+                    className="climax-row"
+                    onClick={() =>
+                      setEditModal({
+                        mode: "select",
+                        type: "service",
+                        id: null,
+                        name: "",
+                        price: "",
+                      })
+                    }
+                  >
                     <span
                       className="climax-row__label"
-                      style={{ opacity: 0.55, paddingLeft: 14 }}
+                      style={{ opacity: 0.55, paddingLeft: 14, textAlign: "left" }}
                     >
-                      No services yet — long-press to add
+                      No services yet — tap to add
                     </span>
-                  </div>
+                  </button>
                 ) : (
                   services.map((s) => (
                     <button
                       key={s.id}
                       type="button"
                       className="climax-row"
-                      {...handleLongPress(() => openModify("service", s.id))}
+                      onClick={() => openModify("service", s.id)}
                     >
                       <span className="climax-row__label">{s.name}</span>
                       <span className="climax-row__value">{formatMoney(s.price)}</span>
@@ -404,24 +456,39 @@ export default function Climax() {
               </div>
             </section>
 
-            <section className="climax-section climax-section--products" aria-label="Client care">
-              <div
-                className="climax-section__title"
-                {...handleLongPress(() => openModify("product", null))}
-                style={{ cursor: "pointer", userSelect: "none", WebkitTouchCallout: "none" }}
+            <section
+              className="climax-section climax-section--products"
+              aria-label="Finish care"
+            >
+              <button
+                type="button"
+                className="climax-section__title climax-section__titleBtn"
+                onClick={() => openModify("product", null)}
               >
-                CLIENT CARE
-              </div>
+                FINISH CARE
+              </button>
               <div className="climax-list">
                 {products.length === 0 ? (
-                  <div className="climax-row climax-row--static" aria-disabled>
+                  <button
+                    type="button"
+                    className="climax-row"
+                    onClick={() =>
+                      setEditModal({
+                        mode: "select",
+                        type: "product",
+                        id: null,
+                        name: "",
+                        price: "",
+                      })
+                    }
+                  >
                     <span
                       className="climax-row__label"
-                      style={{ opacity: 0.55, paddingLeft: 14 }}
+                      style={{ opacity: 0.55, paddingLeft: 14, textAlign: "left" }}
                     >
-                      No products yet — long-press to add
+                      No products yet — tap to add
                     </span>
-                  </div>
+                  </button>
                 ) : (
                   products.map((p) => {
                     const on = !!selectedProducts[p.id];
@@ -430,7 +497,7 @@ export default function Climax() {
                         <button
                           type="button"
                           className="climax-row__touch"
-                          {...handleLongPress(() => openModify("product", p.id))}
+                          onClick={() => openModify("product", p.id)}
                           aria-label={`Modify ${p.name}`}
                         >
                           <span className="climax-row__label">
@@ -463,7 +530,7 @@ export default function Climax() {
 
             <div className="climax-divider" />
 
-            <section className="climax-section" aria-label="Future appointment">
+            <section className="climax-section climax-section--future" aria-label="Future appointment">
               <div className="climax-section__title">FUTURE APPOINTMENT</div>
               <div className="climax-list">
                 <div className="climax-row climax-row--static">

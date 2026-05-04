@@ -10,32 +10,46 @@ const SHELL_W = 393
 const SHELL_H = 852
 
 function ResponsivePhoneShell({ children }) {
-  const [size, setSize] = useState({ w: SHELL_W, h: SHELL_H, sx: 1, sy: 1 })
+  const [size, setSize] = useState({
+    w: SHELL_W,
+    h: SHELL_H,
+    scale: 1,
+    scaledW: SHELL_W,
+    scaledH: SHELL_H,
+    offsetTop: 0,
+    offsetLeft: 0,
+  })
 
   useEffect(() => {
     const compute = () => {
-      const w =
-        (window.visualViewport && window.visualViewport.width) ||
-        window.innerWidth
-      const h =
-        (window.visualViewport && window.visualViewport.height) ||
-        window.innerHeight
-      // Edge-to-edge: stretch the 393×852 mockup to fill the entire viewport.
-      // Aspect ratio ≈ 1:2.17 closely matches modern phones, so non-uniform
-      // scale is imperceptible while guaranteeing zero gray bars.
-      setSize({ w, h, sx: w / SHELL_W, sy: h / SHELL_H })
+      const vv = window.visualViewport
+      const w = vv ? vv.width : window.innerWidth
+      const h = vv ? vv.height : window.innerHeight
+      const offsetTop = vv ? vv.offsetTop : 0
+      const offsetLeft = vv ? vv.offsetLeft : 0
+      // Uniform scale: same factor on X and Y so UI is not stretched/squashed.
+      // Letterbox / pillarbox with black bars when viewport aspect ≠ 393:852.
+      // Logical layout stays exactly SHELL_W × SHELL_H inside the scaled layer.
+      const sx = w / SHELL_W
+      const sy = h / SHELL_H
+      const scale = Math.min(sx, sy)
+      const scaledW = SHELL_W * scale
+      const scaledH = SHELL_H * scale
+      setSize({ w, h, scale, scaledW, scaledH, offsetTop, offsetLeft })
     }
     compute()
     window.addEventListener('resize', compute)
     window.addEventListener('orientationchange', compute)
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', compute)
+      window.visualViewport.addEventListener('scroll', compute)
     }
     return () => {
       window.removeEventListener('resize', compute)
       window.removeEventListener('orientationchange', compute)
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', compute)
+        window.visualViewport.removeEventListener('scroll', compute)
       }
     }
   }, [])
@@ -43,27 +57,44 @@ function ResponsivePhoneShell({ children }) {
   return (
     <div
       style={{
-        width: '100vw',
-        height: '100dvh',
+        position: 'fixed',
+        top: size.offsetTop,
+        left: size.offsetLeft,
+        width: size.w,
+        height: size.h,
+        boxSizing: 'border-box',
         backgroundColor: '#000',
         overflow: 'hidden',
-        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
+      {/* Clip box = post-scale footprint so flex centering matches the painted size */}
       <div
         style={{
-          width: `${SHELL_W}px`,
-          height: `${SHELL_H}px`,
-          transform: `scale(${size.sx}, ${size.sy})`,
-          transformOrigin: 'top left',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          backgroundColor: '#000',
+          width: size.scaledW,
+          height: size.scaledH,
           overflow: 'hidden',
+          position: 'relative',
+          flexShrink: 0,
         }}
       >
-        {children}
+        <div
+          style={{
+            width: `${SHELL_W}px`,
+            height: `${SHELL_H}px`,
+            transform: `scale(${size.scale})`,
+            transformOrigin: 'top left',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            backgroundColor: '#000',
+            overflow: 'hidden',
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   )

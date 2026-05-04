@@ -10,32 +10,13 @@ import {
   isSameLocalDay,
   useCalendarEvents,
 } from '../data/calendarEventsStore';
+import AppointmentTimerBox from './AppointmentTimerBox';
 import TimerModal from './TimerModal';
 
 const ACCENT = '#ff7819';
 
 const CARD_WIDTH = 380;
 const CARD_HEIGHT = 56;
-
-const fmt2 = (n) => String(n).padStart(2, '0');
-
-function fmtCountdown(remainingMs) {
-  const sec = Math.max(0, Math.ceil(remainingMs / 1000));
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if (h > 0) return `${h}:${fmt2(m)}:${fmt2(s)}`;
-  return `${m}:${fmt2(s)}`;
-}
-
-function fmtElapsed(elapsedMs) {
-  const totalSec = Math.floor(elapsedMs / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}:${fmt2(m)}:${fmt2(s)}`;
-  return `${m}:${fmt2(s)}`;
-}
 
 const ClientCard = ({
   cardId,
@@ -111,82 +92,10 @@ const ClientCard = ({
     padding: '0 4px',
   };
 
-  const timerBtnBase = {
-    flex: '0 0 auto',
-    width: '44px',
-    height: '44px',
-    minWidth: '44px',
-    minHeight: '44px',
-    border: '1.5px solid #000',
-    borderRadius: '8px',
-    padding: 0,
-    fontSize: '10.5px',
-    fontWeight:500,
-    color: 'rgba(245, 245, 247, 0.73)',
-    background: 'rgb(19, 19, 20)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    textAlign: 'center',
-    lineHeight: 1.1,
-    letterSpacing: '0.03em',
-    boxSizing: 'border-box',
-    cursor: 'pointer',
-  };
-
-  const timerBtnActive = {
-    ...timerBtnBase,
-    color: ACCENT,
-    background: '#000',
-    border: `1.5px solid ${ACCENT}`,
-    boxShadow: '0 0 14px rgba(255, 120, 25, 0.45), inset 0 0 6px rgba(255, 120, 25, 0.08)',
-    fontSize: '12px',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-  };
-
-  const timerBtnCompleted = {
-    ...timerBtnBase,
-    background: '#000',
-    border: `1.5px solid ${ACCENT}`,
-    padding: '7px',
-    animation: 'timerCompletedBlink 1s ease-in-out infinite',
-  };
-
   const handleTimerClick = (e) => {
     e.stopPropagation();
     if (onTimerBoxClick) onTimerBoxClick(cardId);
   };
-
-  let timerNode;
-  if (timerState?.kind === 'completed') {
-    timerNode = (
-      <div style={timerBtnCompleted} onClick={handleTimerClick} aria-label="Timer completed">
-        <img
-          src="/salonx.png"
-          alt="Salonx"
-          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
-        />
-      </div>
-    );
-  } else if (timerState?.kind === 'timerRunning') {
-    timerNode = (
-      <div style={timerBtnActive} onClick={handleTimerClick} aria-label="Active timer">
-        {fmtCountdown(timerState.remainingMs)}
-      </div>
-    );
-  } else if (timerState?.kind === 'stopwatchRunning') {
-    timerNode = (
-      <div style={timerBtnActive} onClick={handleTimerClick} aria-label="Stopwatch running">
-        {fmtElapsed(timerState.elapsedMs)}
-      </div>
-    );
-  } else {
-    timerNode = (
-      <div style={timerBtnBase} onClick={handleTimerClick} aria-label="Set timer">
-        Set<br />Timer
-      </div>
-    );
-  }
 
   return (
     <div style={outerStyle} onClick={onCardClick} role="button" tabIndex={0}>
@@ -196,7 +105,7 @@ const ClientCard = ({
           {time ? <div style={timeStyle}>{time}</div> : null}
         </div>
         <div style={centerStyle}>{service}</div>
-        {timerNode}
+        <AppointmentTimerBox timerState={timerState} onPress={handleTimerClick} />
       </div>
     </div>
   );
