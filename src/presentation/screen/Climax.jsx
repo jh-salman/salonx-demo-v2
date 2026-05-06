@@ -74,6 +74,25 @@ function newProdId() {
   return `prd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** Horizontal edge swipe: right (back) mirrors left (next tab → Calendar). */
+function resolveClimaxHorizontalSwipe(dx, dy, dt, startLocalX, width) {
+  if (dt > 1200 || Math.abs(dy) > 90) return null;
+  if (Math.abs(dx) < Math.abs(dy) * 1.35) return null;
+  const fromLeftEdge = startLocalX <= 48;
+  const fromRightEdge = width > 0 && startLocalX >= width - 48;
+
+  if (dx > 0) {
+    const edgeCommit = fromLeftEdge && dx >= 38;
+    const longCommit = dx >= 76 && Math.abs(dy) < 72;
+    if (edgeCommit || longCommit) return "back";
+  } else if (dx < 0) {
+    const edgeCommit = fromRightEdge && dx <= -38;
+    const longCommit = dx <= -76 && Math.abs(dy) < 72;
+    if (edgeCommit || longCommit) return "calendar";
+  }
+  return null;
+}
+
 // Treat the Hourly / Consultation rows as regular service rows for the ticket,
 // using the per-apt rate as their price. They're also editable (long-press
 // Edit just updates the matching rate via `onApplyRateEdit` below).
@@ -147,6 +166,10 @@ export default function Climax() {
     }
     navigate(climaxBackTarget);
   }, [activeApt, climaxBackTarget, navigate]);
+
+  const navigateSwipeToCalendar = useCallback(() => {
+    navigate("/calendar", { state: { from: "/climax" } });
+  }, [navigate]);
 
   // ------- Per-appointment data (services + products + rates) -------
   const [aptState, setAptState] = useState(() =>
@@ -382,12 +405,198 @@ export default function Climax() {
     setModifyTarget(null);
   }
 
+  /** Horizontal swipe: right → back; left → Calendar (tab order after Checkout). */
+  const climaxRootRef = useRef(null);
+  const climaxSwipeGestureRef = useRef({
+    active: false,
+    captured: false,
+    captureEl: null,
+    pointerType: "mouse",
+    width: 0,
+    startLocalX: 0,
+    x: 0,
+    y: 0,
+    ts: 0,
+    pointerId: null,
+  });
+  const blockClimaxSwipeRef = useRef(false);
+  const climaxSwipeCooldownRef = useRef(0);
+
+  useEffect(() => {
+    blockClimaxSwipeRef.current = !!(modifyOpen || editModal || rateEditOpen);
+  }, [modifyOpen, editModal, rateEditOpen]);
+
+  const climaxSwipeTargetFilter = useCallback((target) => {
+    if (!target?.closest) return false;
+    return !target.closest(".climax-modal");
+  }, []);
+
+  const onClimaxSwipePointerDown = useCallback((e) => {
+    if (blockClimaxSwipeRef.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (!climaxSwipeTargetFilter(e.target)) return;
+    const el = climaxRootRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    climaxSwipeGestureRef.current = {
+      active: true,
+      captured: false,
+      captureEl: e.currentTarget,
+      pointerType: e.pointerType || "mouse",
+      width: rect.width,
+      startLocalX: e.clientX - rect.left,
+      x: e.clientX,
+      y: e.clientY,
+      ts: Date.now(),
+      pointerId: e.pointerId ?? null,
+    };
+  }, [climaxSwipeTargetFilter]);
+
+  const onClimaxSwipePointerMove = useCallback((e) => {
+    const ref = climaxSwipeGestureRef.current;
+    if (!ref.active || blockClimaxSwipeRef.current) return;
+    if (ref.pointerId != null && e.pointerId !== ref.pointerId) return;
+    const dx = e.clientX - ref.x;
+    const dy = e.clientY - ref.y;
+    const captureThreshold =
+      ref.pointerType === "touch" || ref.pointerType === "pen" ? 8 : 12;
+    if (
+      Math.abs(dx) > captureThreshold &&
+      Math.abs(dx) > Math.abs(dy) &&
+      !ref.captured
+    ) {
+      const cap = ref.captureEl;
+      if (cap && typeof cap.setPointerCapture === "function") {
+        try {
+          cap.setPointerCapture(e.pointerId);
+          ref.captured = true;
+        } catch (_) {
+          /* noop */
+        }
+      }
+    }
+  }, []);
+
+  const releaseClimaxSwipeCapture = useCallback((e) => {
+    const ref = climaxSwipeGestureRef.current;
+    if (ref.captured && ref.captureEl && e.pointerId != null) {
+      try {
+        ref.captureEl.releasePointerCapture(e.pointerId);
+      } catch (_) {
+        /* noop */
+      }
+    }
+    ref.captured = false;
+  }, []);
+
+  const onClimaxSwipePointerUp = useCallback(
+    (e) => {
+      const ref = climaxSwipeGestureRef.current;
+      if (!ref.active) return;
+      if (ref.pointerId != null && e.pointerId != null && e.pointerId !== ref.pointerId) return;
+
+      releaseClimaxSwipeCapture(e);
+      ref.active = false;
+
+      const dx = e.clientX - ref.x;
+      const dy = e.clientY - ref.y;
+      const dt = Date.now() - ref.ts;
+      const resolved = resolveClimaxHorizontalSwipe(dx, dy, dt, ref.startLocalX, ref.width);
+
+      if (!resolved) return;
+
+      const now = Date.now();
+      if (now - climaxSwipeCooldownRef.current < 380) return;
+      climaxSwipeCooldownRef.current = now;
+
+      if (resolved === "back") handleClimaxBack();
+      else navigateSwipeToCalendar();
+    },
+    [handleClimaxBack, navigateSwipeToCalendar, releaseClimaxSwipeCapture],
+  );
+
+  const onClimaxSwipePointerCancel = useCallback(
+    (e) => {
+      releaseClimaxSwipeCapture(e);
+      climaxSwipeGestureRef.current.active = false;
+    },
+    [releaseClimaxSwipeCapture],
+  );
+
+  useEffect(() => {
+    const el = climaxRootRef.current;
+    if (!el) return;
+
+    const touchStart = (ev) => {
+      if (blockClimaxSwipeRef.current) return;
+      if (ev.touches.length !== 1) return;
+      if (!climaxSwipeTargetFilter(ev.target)) return;
+      const rect = el.getBoundingClientRect();
+      const t = ev.touches[0];
+      climaxSwipeGestureRef.current = {
+        active: true,
+        captured: false,
+        captureEl: null,
+        pointerType: "touch",
+        width: rect.width,
+        startLocalX: t.clientX - rect.left,
+        x: t.clientX,
+        y: t.clientY,
+        ts: Date.now(),
+        pointerId: null,
+      };
+    };
+
+    const touchEnd = (ev) => {
+      const ref = climaxSwipeGestureRef.current;
+      if (!ref.active) return;
+      climaxSwipeGestureRef.current.active = false;
+      const t = ev.changedTouches[0];
+      if (!t) return;
+
+      const dx = t.clientX - ref.x;
+      const dy = t.clientY - ref.y;
+      const dt = Date.now() - ref.ts;
+      const resolved = resolveClimaxHorizontalSwipe(dx, dy, dt, ref.startLocalX, ref.width);
+
+      if (!resolved) return;
+
+      const now = Date.now();
+      if (now - climaxSwipeCooldownRef.current < 380) return;
+      climaxSwipeCooldownRef.current = now;
+
+      if (resolved === "back") handleClimaxBack();
+      else navigateSwipeToCalendar();
+    };
+
+    const touchCancel = () => {
+      climaxSwipeGestureRef.current.active = false;
+    };
+
+    el.addEventListener("touchstart", touchStart, { passive: true });
+    el.addEventListener("touchend", touchEnd, { passive: true });
+    el.addEventListener("touchcancel", touchCancel, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", touchStart);
+      el.removeEventListener("touchend", touchEnd);
+      el.removeEventListener("touchcancel", touchCancel);
+    };
+  }, [handleClimaxBack, navigateSwipeToCalendar, climaxSwipeTargetFilter]);
+
   const accent = primaryHex;
 
   const hasNoTicketLines = services.length === 0 && products.length === 0;
 
   return (
-    <div className="climax-root" style={{ ["--climax-accent"]: accent }}>
+    <div
+      ref={climaxRootRef}
+      className="climax-root"
+      style={{ ["--climax-accent"]: accent }}
+      onPointerDown={onClimaxSwipePointerDown}
+      onPointerMove={onClimaxSwipePointerMove}
+      onPointerUp={onClimaxSwipePointerUp}
+      onPointerCancel={onClimaxSwipePointerCancel}
+    >
       <button
         type="button"
         className="climax-backBtn"
@@ -401,7 +610,15 @@ export default function Climax() {
       </div>
 
       <div className="climax-stage" aria-label="ClimaX stage">
-        <div className="climax-inlay" aria-label="Inlay behind glass" />
+        <div className="climax-inlayPhotoWrap" aria-hidden>
+          <img
+            className="climax-inlayPhoto"
+            src="/climax-inlay.png"
+            alt=""
+            decoding="async"
+          />
+        </div>
+        <div className="climax-inlay" aria-hidden />
 
         <div className="climax-glass" role="region" aria-label="Glass overlay">
           <div className="climax-scroll">

@@ -9,6 +9,7 @@ import {
   differenceInMinutes,
   format,
   isSameDay,
+  isSameMonth,
   isToday,
   startOfWeek,
   startOfMonth,
@@ -29,10 +30,14 @@ import { MOCK_SERVICES } from "../../data/mockServices";
 import "../style/calendar.css";
 
 const DAY_START_HOUR = 6;
-const DAY_END_HOUR = 18;
+// Limit the working day so appointments cannot be moved below the 10pm row.
+// 22 = 10:00 PM.
+const DAY_END_HOUR = 22;
 const SLOT_HEIGHT = 56;
 const TIME_AXIS_WIDTH = 40;
-const MINUTES_PER_DAY = (DAY_END_HOUR - DAY_START_HOUR + 1) * 60;
+// Minutes from DAY_START_HOUR up to (and including) the DAY_END_HOUR row.
+// This is the latest *end* boundary for drops / resizes (10:00 PM row).
+const MINUTES_PER_DAY = (DAY_END_HOUR - DAY_START_HOUR) * 60;
 const SNAP_MINUTES = 5;
 const COLOR_OPTIONS = [
   { id: "pink", label: "Pink", swatch: "#FA1BFE" },
@@ -206,6 +211,13 @@ function colorToClass(c) {
   return "is-gray";
 }
 
+function colorToDotClass(c) {
+  if (c === "pink") return "is-pink";
+  if (c === "blue") return "is-blue";
+  if (c === "green") return "is-green";
+  return "is-gray";
+}
+
 function snapMinutes(min, snap = SNAP_MINUTES) {
   return Math.round(min / snap) * snap;
 }
@@ -240,8 +252,12 @@ function wouldCauseThirdOverlap(others, candidate) {
 const PARK_DROP_THRESHOLD = 14; // px above grid top counts as park drop
 
 // Tap interaction tuning
-const LONG_PRESS_MS = 2000; // 2s — long-press to enter drag/move mode
+const LONG_PRESS_MS = 1000; // 1s — long-press to enter drag/move mode (more responsive)
 const DOUBLE_TAP_MS = 300; // 2nd tap must arrive within 300ms to count as double
+
+// Drag usability: auto-scroll the time grid when the pointer is near edges.
+const AUTO_SCROLL_EDGE_PX = 56; // ~1 row
+const AUTO_SCROLL_STEP_PX = 14; // per pointermove
 
 function fmtTimeOfDay(min) {
   const h = Math.floor(min / 60);
@@ -257,6 +273,17 @@ function makeEventId() {
     return `ev-${crypto.randomUUID()}`;
   }
   return `ev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function releasePointerCaptureIfHeld(target, pointerId) {
+  if (!target || pointerId == null) return;
+  try {
+    if (typeof target.releasePointerCapture === "function") {
+      target.releasePointerCapture(pointerId);
+    }
+  } catch {
+    /* already released or invalid */
+  }
 }
 
 // ---------- Phase 5: localStorage persistence ----------
@@ -347,8 +374,12 @@ export default function CalendarScreenWeb() {
   const { clearTimer } = useTimers();
   const navigate = useNavigate();
 
-  // Tap dispatcher — distinguish single (→ client details) from double (→ modify modal)
+  // Tap dispatcher — distinguish single (→ options modal) from double (→ client card)
   const tapRef = useRef({ aptId: null, lastTapTs: 0, pendingTimer: null });
+  // Mobile browsers can synthesize a click after pointerup/touchend. If we open
+  // the modal on that same tick, the synthetic click can land on a modal button
+  // (e.g. Reschedule) and feel like a "sub popup" opened from one tap.
+  const suppressModalClickUntilRef = useRef(0);
 
   const [viewMode, setViewMode] = useState("day");
   const [currentDate, setCurrentDate] = useState(() => {
@@ -368,6 +399,8 @@ export default function CalendarScreenWeb() {
 
   // Phase 1 modal/overlay state
   const [aptOptionsApt, setAptOptionsApt] = useState(null); // appointment object
+  /** Month view: which day is selected for the bottom appointment sheet (stays in Month). */
+  const [monthSheetDate, setMonthSheetDate] = useState(null);
   const [emptySlotInfo, setEmptySlotInfo] = useState(null); // { date, hour, minute }
   const [newApptInit, setNewApptInit] = useState(null); // initial start Date for NewAppt overlay
   const [editingApt, setEditingApt] = useState(null); // appointment being modified
@@ -413,6 +446,9 @@ export default function CalendarScreenWeb() {
   const [dragTooltip, setDragTooltip] = useState(null);
   // 2D pointer offset for the dragging apt: { dx, dy } (px from press point)
   const [dragOffset, setDragOffset] = useState(null);
+  /** Live preview minutes (snapped) while moving — used to update the card's
+   *  time text continuously during drag without mutating events state. */
+  const [dragPreviewMin, setDragPreviewMin] = useState(null);
   // For resize mode — px height delta applied via inline style without mutating events
   const [resizeDelta, setResizeDelta] = useState(0);
   // Whether the pointer is currently hovering inside the park area
@@ -447,6 +483,10 @@ export default function CalendarScreenWeb() {
     activated: false,
     dayGridRect: null,
   });
+
+  /** DOM nodes that currently hold pointer capture during waitlist / parked toolbar drags. */
+  const waitlistPointerCaptureElRef = useRef(null);
+  const parkedPointerCaptureElRef = useRef(null);
 
   // Book-from-list confirm modal
   // { kind: 'waitlist' | 'parked', item, start, end }
@@ -530,6 +570,9 @@ export default function CalendarScreenWeb() {
         mode: "pre",
         startY: e.clientY,
         startX: e.clientX,
+        // Pointer's Y inside the grid at press time — used so the card stays
+        // glued to the finger while the grid auto-scrolls during drag.
+        pressYInGrid: gridRect ? e.clientY - gridRect.top : 0,
         anchorMin: minutesSinceStart(apt.start),
         anchorDur: differenceInMinutes(apt.end, apt.start),
         original: { ...apt, start: new Date(apt.start), end: new Date(apt.end) },
@@ -592,6 +635,28 @@ export default function CalendarScreenWeb() {
         }
         return;
       }
+      // Auto-scroll the calendar body so the appointment doesn't disappear
+      // when dragging near the top/bottom of the visible time slots.
+      const scroller = e.currentTarget.closest?.(".cal-day__scroll");
+      if (scroller && typeof scroller.getBoundingClientRect === "function") {
+        const r = scroller.getBoundingClientRect();
+        const topEdge = r.top + AUTO_SCROLL_EDGE_PX;
+        const botEdge = r.bottom - AUTO_SCROLL_EDGE_PX;
+        if (e.clientY < topEdge) {
+          scroller.scrollTop -= AUTO_SCROLL_STEP_PX;
+        } else if (e.clientY > botEdge) {
+          scroller.scrollTop += AUTO_SCROLL_STEP_PX;
+        }
+      }
+      // Refresh bounds while scrolling (grid rect changes with scrollTop).
+      try {
+        const gridEl = e.currentTarget.closest?.(".cal-day__grid");
+        ref.gridRect = gridEl ? gridEl.getBoundingClientRect() : ref.gridRect;
+        const toolbarEl = document.querySelector(".cal-toolbar");
+        ref.toolbarRect = toolbarEl ? toolbarEl.getBoundingClientRect() : ref.toolbarRect;
+      } catch {
+        /* noop */
+      }
       // Clamp pointer position to within calendar + park area bounds.
       // Park area = toolbar pill row above grid. Outside this combined region
       // the appointment shouldn't drift, so we lock the effective pointer.
@@ -608,20 +673,26 @@ export default function CalendarScreenWeb() {
         clampedY = clamp(e.clientY, minY, maxY);
       }
       const deltaX = clampedX - ref.startX;
-      const deltaY = clampedY - ref.startY;
-      const deltaMin = (deltaY / SLOT_HEIGHT) * 60;
       if (ref.mode === "move") {
         // The card visually follows the pointer in 2D via CSS transform (no
         // state mutation), so motion stays smooth and free. The actual time
         // assignment happens on release.
-        setDragOffset({ dx: deltaX, dy: deltaY });
-
-        const newMin = clamp(
-          ref.anchorMin + deltaMin,
-          0,
-          MINUTES_PER_DAY - ref.anchorDur,
-        );
+        // Keep the card glued to the finger even while the grid auto-scrolls:
+        // measure pointer Y inside the *current* grid (which moves with scroll)
+        // and offset by the original press Y inside the grid.
+        const yInGridNow = grid ? clampedY - grid.top : 0;
+        const pressYInGrid = ref.pressYInGrid ?? 0;
+        const cardOriginalTopPx = (ref.anchorMin / 60) * SLOT_HEIGHT;
+        const maxStartPx =
+          ((MINUTES_PER_DAY - ref.anchorDur) / 60) * SLOT_HEIGHT;
+        let newCardTopPx = cardOriginalTopPx + (yInGridNow - pressYInGrid);
+        newCardTopPx = clamp(newCardTopPx, 0, maxStartPx);
+        const newMin = (newCardTopPx / SLOT_HEIGHT) * 60;
         const snapped = snapMinutes(newMin);
+        // Visual: card follows pointer continuously (raw, clamped to slots).
+        const dy = newCardTopPx - cardOriginalTopPx;
+        setDragOffset({ dx: deltaX, dy });
+        setDragPreviewMin(snapped);
         const previewStart = new Date(ref.original.start);
         previewStart.setHours(DAY_START_HOUR, 0, 0, 0);
         previewStart.setMinutes(snapped);
@@ -636,12 +707,15 @@ export default function CalendarScreenWeb() {
           kind: overPark ? "park" : "move",
         });
       } else if (ref.mode === "resize") {
+        const deltaY = clampedY - ref.startY;
+        const deltaMin = (deltaY / SLOT_HEIGHT) * 60;
         const newDur = clamp(
           ref.anchorDur + deltaMin,
           5,
           MINUTES_PER_DAY - ref.anchorMin,
         );
         const snapped = Math.max(5, snapMinutes(newDur));
+        const previewEnd = addMinutes(ref.original.start, snapped);
         // Visual-only resize via inline height delta — events untouched so
         // the column layout doesn't reflow and adjacent apts don't shift.
         const heightDelta = ((snapped - ref.anchorDur) / 60) * SLOT_HEIGHT;
@@ -650,7 +724,7 @@ export default function CalendarScreenWeb() {
         setDragTooltip({
           x: clampedX,
           y: clampedY,
-          label: `${snapped} min`,
+          label: format(previewEnd, "h:mm a"),
           kind: "resize",
         });
       }
@@ -664,6 +738,7 @@ export default function CalendarScreenWeb() {
       cancelLongPress();
       setDragTooltip(null);
       setDragOffset(null);
+      setDragPreviewMin(null);
       setResizeDelta(0);
       setParkHover(false);
       if (!ref || ref.aptId !== apt.id) {
@@ -679,11 +754,6 @@ export default function CalendarScreenWeb() {
           now - tapRef.current.lastTapTs < DOUBLE_TAP_MS;
 
         if (isDouble) {
-          // Cancel pending single-tap navigation
-          if (tapRef.current.pendingTimer) {
-            clearTimeout(tapRef.current.pendingTimer);
-            tapRef.current.pendingTimer = null;
-          }
           tapRef.current.aptId = null;
           tapRef.current.lastTapTs = 0;
           try {
@@ -693,20 +763,16 @@ export default function CalendarScreenWeb() {
           } catch {
             /* already released */
           }
-          setAptOptionsApt(apt); // Modify / Reschedule / Cancel modal
+          // Double tap: open client card (Screen2)
+          navigate("/screen2", { state: { apt, from: "/calendar" } });
         } else {
-          // Defer single-tap nav so a 2nd tap can pre-empt it
-          if (tapRef.current.pendingTimer) {
-            clearTimeout(tapRef.current.pendingTimer);
-          }
           tapRef.current.aptId = apt.id;
           tapRef.current.lastTapTs = now;
-          tapRef.current.pendingTimer = setTimeout(() => {
-            tapRef.current.aptId = null;
-            tapRef.current.pendingTimer = null;
-            // `from` lets Screen2's top-left Back button return to Calendar
-            navigate("/screen2", { state: { apt, from: "/calendar" } });
-          }, DOUBLE_TAP_MS);
+          // Single tap: open options modal (Modify / Reschedule / Cancel / See Client Card)
+          suppressModalClickUntilRef.current = Date.now() + 450;
+          // Defer modal to the next frame so the pointerup's synthetic click can't
+          // immediately activate a modal button under the finger.
+          requestAnimationFrame(() => setAptOptionsApt(apt));
         }
         return;
       }
@@ -743,13 +809,14 @@ export default function CalendarScreenWeb() {
       // For 'move' the card was visually transformed but state not yet mutated.
       // Compute the target time from the released (clamped) pointer Y.
       if (ref.mode === "move") {
-        const deltaY = clampedY - ref.startY;
-        const deltaMin = (deltaY / SLOT_HEIGHT) * 60;
-        const newMin = clamp(
-          ref.anchorMin + deltaMin,
-          0,
-          MINUTES_PER_DAY - ref.anchorDur,
-        );
+        const yInGridNow = grid ? clampedY - grid.top : 0;
+        const pressYInGrid = ref.pressYInGrid ?? 0;
+        const cardOriginalTopPx = (ref.anchorMin / 60) * SLOT_HEIGHT;
+        const maxStartPx =
+          ((MINUTES_PER_DAY - ref.anchorDur) / 60) * SLOT_HEIGHT;
+        let newCardTopPx = cardOriginalTopPx + (yInGridNow - pressYInGrid);
+        newCardTopPx = clamp(newCardTopPx, 0, maxStartPx);
+        const newMin = (newCardTopPx / SLOT_HEIGHT) * 60;
         const snapped = snapMinutes(newMin);
         if (snapped === ref.anchorMin) {
           // No real change — just finish silently
@@ -874,13 +941,14 @@ export default function CalendarScreenWeb() {
       cancelLongPress();
       setDragTooltip(null);
       setDragOffset(null);
+      setDragPreviewMin(null);
       setResizeDelta(0);
       setParkHover(false);
-      // Don't fire a deferred single-tap nav if the gesture was cancelled
+      tapRef.current.aptId = null;
+      tapRef.current.lastTapTs = 0;
       if (tapRef.current.pendingTimer) {
         clearTimeout(tapRef.current.pendingTimer);
         tapRef.current.pendingTimer = null;
-        tapRef.current.aptId = null;
       }
       // No state to revert — both move and resize are visual-only during drag.
       finishDrag();
@@ -894,7 +962,7 @@ export default function CalendarScreenWeb() {
       const dayStart = new Date(day);
       dayStart.setHours(DAY_START_HOUR, 0, 0, 0);
       const dayEnd = new Date(day);
-      dayEnd.setHours(DAY_END_HOUR + 1, 0, 0, 0);
+      dayEnd.setHours(DAY_END_HOUR, 0, 0, 0);
 
       const sameDayEvents = eventsList
         .filter((ev) => isSameDay(ev.start, day))
@@ -1094,6 +1162,10 @@ export default function CalendarScreenWeb() {
   }, []);
 
   const finishWaitlistDrag = useCallback(() => {
+    const pid = waitlistDragRef.current.pointerId;
+    const captureEl = waitlistPointerCaptureElRef.current;
+    releasePointerCaptureIfHeld(captureEl, pid);
+    waitlistPointerCaptureElRef.current = null;
     setWaitlistDrag(null);
     waitlistDragRef.current = {
       itemId: null,
@@ -1108,7 +1180,15 @@ export default function CalendarScreenWeb() {
 
   const handleWaitlistPointerDown = useCallback(
     (e, item) => {
+      if (viewMode !== "day") return;
       if (e.button !== undefined && e.button !== 0) return;
+      const gridProbe = document.querySelector(".cal-day__grid");
+      if (!gridProbe) return;
+      /* iOS: keep the touch focused on JS so Safari is less likely to scroll or fire callout mid–long-press. */
+      if (e.pointerType === "touch") {
+        e.preventDefault();
+      }
+      waitlistPointerCaptureElRef.current = e.currentTarget;
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch (_) {
@@ -1125,41 +1205,44 @@ export default function CalendarScreenWeb() {
       };
       waitlistDragRef.current.longPressTimer = setTimeout(() => {
         if (!waitlistDragRef.current || waitlistDragRef.current.itemId !== item.id) return;
-        waitlistDragRef.current.activated = true;
-        // Cache day grid rect for drop-time calculation
         const grid = document.querySelector(".cal-day__grid");
-        waitlistDragRef.current.dayGridRect = grid ? grid.getBoundingClientRect() : null;
+        if (!grid) {
+          cancelWaitlistLongPress();
+          finishWaitlistDrag();
+          return;
+        }
+        waitlistDragRef.current.activated = true;
+        waitlistDragRef.current.dayGridRect = grid.getBoundingClientRect();
         setWaitlistDrag({
           item,
           x: waitlistDragRef.current.startX,
           y: waitlistDragRef.current.startY,
         });
-        // NOTE: do NOT close the modal here — that unmounts the source card and
-        // releases pointer capture. The CSS `is-dragging` modifier visually
-        // hides the modal while keeping the card in DOM so we keep receiving
-        // pointer events.
         if (typeof navigator !== "undefined" && navigator.vibrate) {
           navigator.vibrate(15);
         }
       }, 200);
     },
-    [],
+    [viewMode, cancelWaitlistLongPress, finishWaitlistDrag],
   );
 
-  const handleWaitlistPointerMove = useCallback((e, item) => {
-    const ref = waitlistDragRef.current;
-    if (!ref || ref.itemId !== item.id) return;
-    if (!ref.activated) {
-      const dx = e.clientX - ref.startX;
-      const dy = e.clientY - ref.startY;
-      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
-        cancelWaitlistLongPress();
-        ref.itemId = null;
+  const handleWaitlistPointerMove = useCallback(
+    (e, item) => {
+      const ref = waitlistDragRef.current;
+      if (!ref || ref.itemId !== item.id) return;
+      if (!ref.activated) {
+        const dx = e.clientX - ref.startX;
+        const dy = e.clientY - ref.startY;
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+          cancelWaitlistLongPress();
+          finishWaitlistDrag();
+        }
+        return;
       }
-      return;
-    }
-    setWaitlistDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
-  }, [cancelWaitlistLongPress]);
+      setWaitlistDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
+    },
+    [cancelWaitlistLongPress, finishWaitlistDrag],
+  );
 
   const handleWaitlistPointerUp = useCallback(
     (e, item) => {
@@ -1182,7 +1265,8 @@ export default function CalendarScreenWeb() {
       // produce a valid time slot, even if user released above/below/outside.
       const clampedY = clamp(e.clientY, grid.top, grid.bottom);
       const yInGrid = clampedY - grid.top;
-      const totalMin = clamp((yInGrid / SLOT_HEIGHT) * 60, 0, MINUTES_PER_DAY - 30);
+      // Waitlist booking is 60 minutes — ensure the *end* never goes past 10:00 PM.
+      const totalMin = clamp((yInGrid / SLOT_HEIGHT) * 60, 0, MINUTES_PER_DAY - 60);
       const snapped = snapMinutes(totalMin);
       const start = new Date(currentDate);
       start.setHours(DAY_START_HOUR, 0, 0, 0);
@@ -1228,6 +1312,10 @@ export default function CalendarScreenWeb() {
   }, []);
 
   const finishParkedDrag = useCallback(() => {
+    const pid = parkedDragRef.current.pointerId;
+    const captureEl = parkedPointerCaptureElRef.current;
+    releasePointerCaptureIfHeld(captureEl, pid);
+    parkedPointerCaptureElRef.current = null;
     setParkedDrag(null);
     parkedDragRef.current = {
       itemId: null,
@@ -1245,53 +1333,70 @@ export default function CalendarScreenWeb() {
     setParkedFromDrag((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
-  const handleParkedPointerDown = useCallback((e, item) => {
-    if (e.button !== undefined && e.button !== 0) return;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch (_) {
-      /* noop */
-    }
-    parkedDragRef.current = {
-      itemId: item.id,
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      longPressTimer: null,
-      activated: false,
-      dayGridRect: null,
-    };
-    parkedDragRef.current.longPressTimer = setTimeout(() => {
-      if (!parkedDragRef.current || parkedDragRef.current.itemId !== item.id) return;
-      parkedDragRef.current.activated = true;
-      const grid = document.querySelector(".cal-day__grid");
-      parkedDragRef.current.dayGridRect = grid ? grid.getBoundingClientRect() : null;
-      setParkedDrag({
-        item,
-        x: parkedDragRef.current.startX,
-        y: parkedDragRef.current.startY,
-      });
-      // NOTE: keep modal mounted to preserve pointer capture; CSS hides it.
-      if (typeof navigator !== "undefined" && navigator.vibrate) {
-        navigator.vibrate(15);
+  const handleParkedPointerDown = useCallback(
+    (e, item) => {
+      if (viewMode !== "day") return;
+      if (e.button !== undefined && e.button !== 0) return;
+      const gridProbe = document.querySelector(".cal-day__grid");
+      if (!gridProbe) return;
+      if (e.pointerType === "touch") {
+        e.preventDefault();
       }
-    }, 200);
-  }, []);
+      parkedPointerCaptureElRef.current = e.currentTarget;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* noop */
+      }
+      parkedDragRef.current = {
+        itemId: item.id,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        longPressTimer: null,
+        activated: false,
+        dayGridRect: null,
+      };
+      parkedDragRef.current.longPressTimer = setTimeout(() => {
+        if (!parkedDragRef.current || parkedDragRef.current.itemId !== item.id) return;
+        const grid = document.querySelector(".cal-day__grid");
+        if (!grid) {
+          cancelParkedLongPress();
+          finishParkedDrag();
+          return;
+        }
+        parkedDragRef.current.activated = true;
+        parkedDragRef.current.dayGridRect = grid.getBoundingClientRect();
+        setParkedDrag({
+          item,
+          x: parkedDragRef.current.startX,
+          y: parkedDragRef.current.startY,
+        });
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(15);
+        }
+      }, 200);
+    },
+    [viewMode, cancelParkedLongPress, finishParkedDrag],
+  );
 
-  const handleParkedPointerMove = useCallback((e, item) => {
-    const ref = parkedDragRef.current;
-    if (!ref || ref.itemId !== item.id) return;
-    if (!ref.activated) {
-      const dx = e.clientX - ref.startX;
-      const dy = e.clientY - ref.startY;
-      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
-        cancelParkedLongPress();
-        ref.itemId = null;
+  const handleParkedPointerMove = useCallback(
+    (e, item) => {
+      const ref = parkedDragRef.current;
+      if (!ref || ref.itemId !== item.id) return;
+      if (!ref.activated) {
+        const dx = e.clientX - ref.startX;
+        const dy = e.clientY - ref.startY;
+        if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+          cancelParkedLongPress();
+          finishParkedDrag();
+        }
+        return;
       }
-      return;
-    }
-    setParkedDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
-  }, [cancelParkedLongPress]);
+      setParkedDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
+    },
+    [cancelParkedLongPress, finishParkedDrag],
+  );
 
   const handleParkedPointerUp = useCallback(
     (e, item) => {
@@ -1316,12 +1421,13 @@ export default function CalendarScreenWeb() {
         return;
       }
       const yInGrid = e.clientY - grid.top;
-      const totalMin = clamp((yInGrid / SLOT_HEIGHT) * 60, 0, MINUTES_PER_DAY - 30);
+      const durationMinutes = Math.max(5, Number(item.durationMinutes) || 60);
+      // Parked drop duration varies — ensure the *end* never goes past 10:00 PM.
+      const totalMin = clamp((yInGrid / SLOT_HEIGHT) * 60, 0, MINUTES_PER_DAY - durationMinutes);
       const snapped = snapMinutes(totalMin);
       const start = new Date(currentDate);
       start.setHours(DAY_START_HOUR, 0, 0, 0);
       start.setMinutes(snapped);
-      const durationMinutes = Math.max(5, Number(item.durationMinutes) || 60);
       const end = addMinutes(start, durationMinutes);
       const candidate = { start, end };
       if (wouldCauseThirdOverlap(events, candidate)) {
@@ -1425,6 +1531,26 @@ export default function CalendarScreenWeb() {
     return weeks;
   }, [currentDate]);
 
+  const monthSheetAppointments = useMemo(() => {
+    if (!monthSheetDate) return [];
+    const list = events.filter((a) => isSameDay(a.start, monthSheetDate));
+    list.sort((a, b) => a.start - b.start);
+    return list;
+  }, [events, monthSheetDate]);
+
+  useEffect(() => {
+    if (viewMode !== "month") setMonthSheetDate(null);
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "day") {
+      cancelWaitlistLongPress();
+      cancelParkedLongPress();
+      finishWaitlistDrag();
+      finishParkedDrag();
+    }
+  }, [viewMode, cancelWaitlistLongPress, cancelParkedLongPress, finishWaitlistDrag, finishParkedDrag]);
+
   // Live time line — only render when viewing today (Day view)
   const liveTimeLineMin = useMemo(() => {
     if (!isToday(currentDate)) return null;
@@ -1499,12 +1625,26 @@ export default function CalendarScreenWeb() {
 
   const beginSwipeNav = useCallback(
     (dir) => {
-      if (viewMode === "month") return;
-      if (swipeAnim) return; // ignore while animating
+      // Month body is outside the day/week swipe slider — jump by month without swipeAnim.
+      if (viewMode === "month") {
+        const delta = dir === "prev" ? -1 : 1;
+        setCurrentDate((prev) => addMonths(prev, delta));
+        setMonthSheetDate(null);
+        return;
+      }
+      if (swipeAnim) return;
       if (swipeNavPendingRef.current) return;
       swipeNavPendingRef.current = true;
       const from = currentDate;
-      const to = addDays(from, dir === "prev" ? -1 : 1);
+      const delta =
+        viewMode === "week"
+          ? dir === "prev"
+            ? -5
+            : 5
+          : dir === "prev"
+            ? -1
+            : 1;
+      const to = addDays(from, delta);
       setSwipeAnim({
         dir,
         from,
@@ -1514,7 +1654,7 @@ export default function CalendarScreenWeb() {
         translatePct: dir === "next" ? 0 : -100,
       });
     },
-    [currentDate, swipeAnim, viewMode]
+    [currentDate, swipeAnim, viewMode],
   );
 
   // Pointer-based swipe → prev/next day on Day + 5-Day view (works for mouse,
@@ -1531,6 +1671,7 @@ export default function CalendarScreenWeb() {
     captureEl: null,
   });
   const daySwipeSurfaceRef = useRef(null);
+  const monthSwipeSurfaceRef = useRef(null);
   const swipeAnimRef = useRef(null);
   const swipeTouchStartRef = useRef(null);
   /** When pointer path already called beginSwipeNav, skip duplicate touchend (same gesture). */
@@ -1542,7 +1683,6 @@ export default function CalendarScreenWeb() {
 
   const handleSwipePointerDown = useCallback(
     (e) => {
-      if (viewMode === "month") return;
       if (swipeAnim) return;
       // Only accept primary mouse / touch / pen — ignore secondary buttons
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -1551,7 +1691,8 @@ export default function CalendarScreenWeb() {
         e.target.closest &&
         (e.target.closest(".cal-apt") ||
           e.target.closest(".cal-modal") ||
-          e.target.closest(".cal-toolbar"))
+          e.target.closest(".cal-toolbar") ||
+          e.target.closest(".cal-monthDaySheet"))
       ) {
         return;
       }
@@ -1567,7 +1708,7 @@ export default function CalendarScreenWeb() {
         captureEl: e.currentTarget || null,
       };
     },
-    [swipeAnim, viewMode],
+    [swipeAnim],
   );
 
   // PointerMove: once horizontal intent is clear, capture the pointer so the
@@ -1607,7 +1748,7 @@ export default function CalendarScreenWeb() {
   const handleSwipePointerUp = useCallback(
     (e) => {
       const ref = swipeRef.current;
-      if (!ref.active || viewMode === "month") return;
+      if (!ref.active) return;
       if (swipeAnim) return;
       if (
         ref.pointerId != null &&
@@ -1637,7 +1778,7 @@ export default function CalendarScreenWeb() {
       swipeConsumedThisGestureRef.current = true;
       beginSwipeNav(dx > 0 ? "prev" : "next");
     },
-    [beginSwipeNav, swipeAnim, viewMode],
+    [beginSwipeNav, swipeAnim],
   );
 
   const handleSwipePointerCancel = useCallback((e) => {
@@ -1664,8 +1805,11 @@ export default function CalendarScreenWeb() {
   // Touch fallback: some mobile browsers drop pointer capture / coalesce events
   // with nested scrollers. Touches still deliver touchstart/touchend reliably.
   useEffect(() => {
-    const el = daySwipeSurfaceRef.current;
-    if (!el || viewMode === "month") return;
+    const el =
+      viewMode === "month"
+        ? monthSwipeSurfaceRef.current
+        : daySwipeSurfaceRef.current;
+    if (!el) return;
 
     const swipeTargetFilter = (target) => {
       if (
@@ -1673,7 +1817,8 @@ export default function CalendarScreenWeb() {
         target.closest &&
         (target.closest(".cal-apt") ||
           target.closest(".cal-modal") ||
-          target.closest(".cal-toolbar"))
+          target.closest(".cal-toolbar") ||
+          target.closest(".cal-monthDaySheet"))
       ) {
         return false;
       }
@@ -1723,6 +1868,11 @@ export default function CalendarScreenWeb() {
       el.removeEventListener("touchcancel", onTouchCancel);
     };
   }, [viewMode, beginSwipeNav]);
+
+  const openAptOptionsFromMonthSheet = useCallback((apt) => {
+    suppressModalClickUntilRef.current = Date.now() + 450;
+    requestAnimationFrame(() => setAptOptionsApt(apt));
+  }, []);
 
   // Save handler from NewAppt overlay
   const handleSaveAppointment = useCallback(
@@ -1808,7 +1958,13 @@ export default function CalendarScreenWeb() {
           <button className={`cal-tab ${viewMode === "week" ? "is-active" : ""}`} onClick={() => setViewMode("week")}>
             5 Day
           </button>
-          <button className={`cal-tab ${viewMode === "month" ? "is-active" : ""}`} onClick={() => setViewMode("month")}>
+          <button
+            className={`cal-tab ${viewMode === "month" ? "is-active" : ""}`}
+            onClick={() => {
+              setViewMode("month");
+              setMonthSheetDate(null);
+            }}
+          >
             Month
           </button>
           <span className="cal-tabDivider is-1" aria-hidden="true" />
@@ -1844,18 +2000,30 @@ export default function CalendarScreenWeb() {
         >
           <div className="cal-toolbar__center">
             {parked.length === 0 ? null : parked.length === 1 ? (
-              <div
-                className={`cal-pill is-parked cal-pill--draggable${parked[0].fromMove ? " is-fromMove" : ""}`}
-                style={{ touchAction: "none" }}
-                onPointerDown={(e) => handleParkedPointerDown(e, parked[0])}
-                onPointerMove={(e) => handleParkedPointerMove(e, parked[0])}
-                onPointerUp={(e) => handleParkedPointerUp(e, parked[0])}
-                onPointerCancel={(e) => handleParkedPointerCancel(e, parked[0])}
-                title="Long-press to drag to calendar"
-              >
-                <span className="cal-pill__stripe" aria-hidden="true" />
-                <span className="cal-pill__text">{parked[0].title}</span>
-              </div>
+              viewMode === "day" ? (
+                <div
+                  className={`cal-pill is-parked cal-pill--draggable${parked[0].fromMove ? " is-fromMove" : ""}`}
+                  style={{ touchAction: "none" }}
+                  onPointerDown={(e) => handleParkedPointerDown(e, parked[0])}
+                  onPointerMove={(e) => handleParkedPointerMove(e, parked[0])}
+                  onPointerUp={(e) => handleParkedPointerUp(e, parked[0])}
+                  onPointerCancel={(e) => handleParkedPointerCancel(e, parked[0])}
+                  onContextMenu={(e) => e.preventDefault()}
+                  title="Long-press to drag to calendar"
+                >
+                  <span className="cal-pill__stripe" aria-hidden="true" />
+                  <span className="cal-pill__text">{parked[0].title}</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={`cal-pill is-parked cal-pill--button${parked[0].fromMove ? " is-fromMove" : ""}`}
+                  onClick={() => setParkedModalOpen(true)}
+                >
+                  <span className="cal-pill__stripe" aria-hidden="true" />
+                  <span className="cal-pill__text">{parked[0].title}</span>
+                </button>
+              )
             ) : (
               <button
                 type="button"
@@ -1871,20 +2039,34 @@ export default function CalendarScreenWeb() {
             ) : null}
 
             {waitlist.length === 0 ? null : waitlist.length === 1 ? (
-              <div
-                className="cal-pill is-waitlist cal-pill--draggable"
-                style={{ touchAction: "none" }}
-                onPointerDown={(e) => handleWaitlistPointerDown(e, waitlist[0])}
-                onPointerMove={(e) => handleWaitlistPointerMove(e, waitlist[0])}
-                onPointerUp={(e) => handleWaitlistPointerUp(e, waitlist[0])}
-                onPointerCancel={(e) => handleWaitlistPointerCancel(e, waitlist[0])}
-                title="Long-press to drag to calendar"
-              >
-                <span className="cal-pill__dot" aria-hidden="true" />
-                <span className="cal-pill__text">{waitlist[0].title}</span>
-                <span className="cal-pill__meta">{format(new Date(waitlist[0].waitlistAddedAt), "M/d  HH:mm")}</span>
-                {waitlist[0].service ? <span className="cal-pill__svc">{waitlist[0].service}</span> : null}
-              </div>
+              viewMode === "day" ? (
+                <div
+                  className="cal-pill is-waitlist cal-pill--draggable"
+                  style={{ touchAction: "none" }}
+                  onPointerDown={(e) => handleWaitlistPointerDown(e, waitlist[0])}
+                  onPointerMove={(e) => handleWaitlistPointerMove(e, waitlist[0])}
+                  onPointerUp={(e) => handleWaitlistPointerUp(e, waitlist[0])}
+                  onPointerCancel={(e) => handleWaitlistPointerCancel(e, waitlist[0])}
+                  onContextMenu={(e) => e.preventDefault()}
+                  title="Long-press to drag to calendar"
+                >
+                  <span className="cal-pill__dot" aria-hidden="true" />
+                  <span className="cal-pill__text">{waitlist[0].title}</span>
+                  <span className="cal-pill__meta">{format(new Date(waitlist[0].waitlistAddedAt), "M/d  HH:mm")}</span>
+                  {waitlist[0].service ? <span className="cal-pill__svc">{waitlist[0].service}</span> : null}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="cal-pill is-waitlist cal-pill--button"
+                  onClick={() => setWaitlistModalOpen(true)}
+                >
+                  <span className="cal-pill__dot" aria-hidden="true" />
+                  <span className="cal-pill__text">{waitlist[0].title}</span>
+                  <span className="cal-pill__meta">{format(new Date(waitlist[0].waitlistAddedAt), "M/d  HH:mm")}</span>
+                  {waitlist[0].service ? <span className="cal-pill__svc">{waitlist[0].service}</span> : null}
+                </button>
+              )
             ) : (
               <button
                 type="button"
@@ -1900,34 +2082,108 @@ export default function CalendarScreenWeb() {
       ) : null}
 
       {viewMode === "month" ? (
-        <div className="cal-month">
-          <div className="cal-month__head">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((l) => (
-              <div key={l} className="cal-month__hcell">
-                {l}
+        <div
+          ref={monthSwipeSurfaceRef}
+          className="cal-monthSwipe"
+          onPointerDown={handleSwipePointerDown}
+          onPointerMove={handleSwipePointerMove}
+          onPointerUp={handleSwipePointerUp}
+          onPointerCancel={handleSwipePointerCancel}
+        >
+          <div className="cal-month">
+            <div className="cal-month__head">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((l) => (
+                <div key={l} className="cal-month__hcell">
+                  {l}
+                </div>
+              ))}
+            </div>
+            {monthWeeks.map((week, wi) => (
+              <div key={wi} className="cal-month__week">
+                {week.map((d) => {
+                  const inMonth = isSameMonth(d, currentDate);
+                  const dayDots = events
+                    .filter((a) => isSameDay(a.start, d))
+                    .sort((a, b) => a.start.getTime() - b.start.getTime())
+                    .slice(0, 3);
+                  const sheetSelected =
+                    monthSheetDate != null && isSameDay(d, monthSheetDate);
+                  return (
+                    <button
+                      type="button"
+                      key={d.toISOString()}
+                      className={`cal-month__cell${sheetSelected ? " is-selected" : ""}${
+                        !inMonth ? " is-muted" : ""
+                      }${isToday(d) ? " is-today" : ""}`}
+                      onClick={() => {
+                        setMonthSheetDate(d);
+                        setCurrentDate(d);
+                      }}
+                    >
+                      <div className="cal-month__num">{format(d, "d")}</div>
+                      <div className="cal-month__dots">
+                        {dayDots.map((apt) => (
+                          <span
+                            key={apt.id}
+                            className={`dot ${colorToDotClass(apt.color)}`}
+                            aria-hidden
+                          />
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             ))}
           </div>
-          {monthWeeks.map((week, i) => (
-            <div key={i} className="cal-month__week">
-              {week.map((d) => (
+          {monthSheetDate ? (
+            <div className="cal-monthDaySheet">
+              <div className="cal-monthDaySheet__head">
+                <span className="cal-monthDaySheet__title">
+                  {format(monthSheetDate, "EEE, MMM d")}
+                </span>
                 <button
-                  key={d.toISOString()}
-                  className={`cal-month__cell ${isSameDay(d, currentDate) ? "is-selected" : ""}`}
-                  onClick={() => {
-                    setCurrentDate(d);
-                    setViewMode("week");
-                  }}
+                  type="button"
+                  className="cal-monthDaySheet__close"
+                  onClick={() => setMonthSheetDate(null)}
+                  aria-label="Close"
                 >
-                  <div className="cal-month__num">{format(d, "d")}</div>
-                  <div className="cal-month__dots">
-                    <span className="dot is-blue" />
-                    <span className="dot is-pink" />
-                  </div>
+                  <X size={18} weight="bold" />
                 </button>
-              ))}
+              </div>
+              {monthSheetAppointments.length === 0 ? (
+                <p className="cal-monthDaySheet__empty">No appointments</p>
+              ) : (
+                <ul className="cal-monthDaySheet__list">
+                  {monthSheetAppointments.map((apt) => (
+                    <li key={apt.id}>
+                      <button
+                        type="button"
+                        className="cal-monthDayRow"
+                        onClick={() => openAptOptionsFromMonthSheet(apt)}
+                      >
+                        <span
+                          className={`cal-monthDayRow__stripe ${colorToClass(apt.color)}`}
+                          aria-hidden
+                        />
+                        <span className="cal-monthDayRow__body">
+                          <span className="cal-monthDayRow__time">
+                            {format(apt.start, "h:mm a")} – {format(apt.end, "h:mm a")}
+                          </span>
+                          <span className="cal-monthDayRow__client">
+                            {apt.clientName || "Client"}
+                          </span>
+                          {apt.service ? (
+                            <span className="cal-monthDayRow__svc">{apt.service}</span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-          ))}
+          ) : null}
         </div>
       ) : (() => {
           const getColumnsFor = (baseDate) =>
@@ -1981,6 +2237,25 @@ export default function CalendarScreenWeb() {
                       isDragging && resizeDelta !== 0
                         ? Math.max(28, aptH + resizeDelta)
                         : aptH;
+                    // Live preview times during drag — keeps the card's time
+                    // text in sync with where the user is dropping it.
+                    let displayStart = apt.start;
+                    let displayEnd = apt.end;
+                    if (isDragging && dragPreviewMin != null) {
+                      const ps = new Date(apt.start);
+                      ps.setHours(DAY_START_HOUR, 0, 0, 0);
+                      ps.setMinutes(dragPreviewMin);
+                      displayStart = ps;
+                      displayEnd = addMinutes(
+                        ps,
+                        differenceInMinutes(apt.end, apt.start),
+                      );
+                    } else if (isDragging && resizeDelta !== 0) {
+                      const minDelta = (resizeDelta / SLOT_HEIGHT) * 60;
+                      const baseDur = differenceInMinutes(apt.end, apt.start);
+                      const newDur = Math.max(5, snapMinutes(baseDur + minDelta));
+                      displayEnd = addMinutes(apt.start, newDur);
+                    }
                     return (
                       <div
                         key={apt.id}
@@ -2004,7 +2279,7 @@ export default function CalendarScreenWeb() {
                         <div className="cal-apt__client">{apt.clientName}</div>
                         <div className="cal-apt__service">{apt.service}</div>
                         <div className="cal-apt__time">
-                          {format(apt.start, "h:mm a")} – {format(apt.end, "h:mm a")}
+                          {format(displayStart, "h:mm a")} – {format(displayEnd, "h:mm a")}
                         </div>
                         {hasActiveTimer ? (
                           <span
@@ -2135,7 +2410,23 @@ export default function CalendarScreenWeb() {
 
       {/* Appointment options (single tap on appointment) */}
       {aptOptionsApt ? (
-        <div className="cal-modal" role="dialog" aria-modal="true">
+        <div
+          className="cal-modal"
+          role="dialog"
+          aria-modal="true"
+          onClickCapture={(e) => {
+            if (Date.now() < suppressModalClickUntilRef.current) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
+          onPointerUpCapture={(e) => {
+            if (Date.now() < suppressModalClickUntilRef.current) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
+        >
           <button
             type="button"
             className="cal-modal__backdrop"
@@ -2149,6 +2440,18 @@ export default function CalendarScreenWeb() {
             </div>
             <button
               type="button"
+              className="cal-modal__btn cal-modal__btn--primary"
+              onClick={() => {
+                if (Date.now() < suppressModalClickUntilRef.current) return;
+                setAptOptionsApt(null);
+                // `from` lets Screen2's top-left Back button return to Calendar
+                navigate("/screen2", { state: { apt: aptOptionsApt, from: "/calendar" } });
+              }}
+            >
+              See Client Card
+            </button>
+            <button
+              type="button"
               className="cal-modal__btn"
               onClick={() => openModifyForApt(aptOptionsApt)}
             >
@@ -2158,6 +2461,7 @@ export default function CalendarScreenWeb() {
               type="button"
               className="cal-modal__btn"
               onClick={() => {
+                if (Date.now() < suppressModalClickUntilRef.current) return;
                 setRescheduleApt(aptOptionsApt);
                 setAptOptionsApt(null);
               }}
@@ -2167,7 +2471,10 @@ export default function CalendarScreenWeb() {
             <button
               type="button"
               className="cal-modal__btn cal-modal__btn--danger"
-              onClick={() => setConfirmCancelApt(aptOptionsApt)}
+              onClick={() => {
+                if (Date.now() < suppressModalClickUntilRef.current) return;
+                setConfirmCancelApt(aptOptionsApt);
+              }}
             >
               Cancel appointment
             </button>
@@ -2338,11 +2645,12 @@ export default function CalendarScreenWeb() {
                   <div
                     key={item.id}
                     className="cal-waitlist__card"
-                    style={{ touchAction: "none" }}
-                    onPointerDown={(e) => handleWaitlistPointerDown(e, item)}
-                    onPointerMove={(e) => handleWaitlistPointerMove(e, item)}
-                    onPointerUp={(e) => handleWaitlistPointerUp(e, item)}
-                    onPointerCancel={(e) => handleWaitlistPointerCancel(e, item)}
+                    style={viewMode === "day" ? { touchAction: "none" } : undefined}
+                    onPointerDown={viewMode === "day" ? (e) => handleWaitlistPointerDown(e, item) : undefined}
+                    onPointerMove={viewMode === "day" ? (e) => handleWaitlistPointerMove(e, item) : undefined}
+                    onPointerUp={viewMode === "day" ? (e) => handleWaitlistPointerUp(e, item) : undefined}
+                    onPointerCancel={viewMode === "day" ? (e) => handleWaitlistPointerCancel(e, item) : undefined}
+                    onContextMenu={(e) => e.preventDefault()}
                   >
                     <span className="cal-waitlist__stripe" aria-hidden />
                     <div className="cal-waitlist__body">
@@ -2474,11 +2782,12 @@ export default function CalendarScreenWeb() {
                   <div
                     key={item.id}
                     className={`cal-waitlist__card cal-parkedCard${item.fromMove ? " is-fromMove" : ""}`}
-                    style={{ touchAction: "none" }}
-                    onPointerDown={(e) => handleParkedPointerDown(e, item)}
-                    onPointerMove={(e) => handleParkedPointerMove(e, item)}
-                    onPointerUp={(e) => handleParkedPointerUp(e, item)}
-                    onPointerCancel={(e) => handleParkedPointerCancel(e, item)}
+                    style={viewMode === "day" ? { touchAction: "none" } : undefined}
+                    onPointerDown={viewMode === "day" ? (e) => handleParkedPointerDown(e, item) : undefined}
+                    onPointerMove={viewMode === "day" ? (e) => handleParkedPointerMove(e, item) : undefined}
+                    onPointerUp={viewMode === "day" ? (e) => handleParkedPointerUp(e, item) : undefined}
+                    onPointerCancel={viewMode === "day" ? (e) => handleParkedPointerCancel(e, item) : undefined}
+                    onContextMenu={(e) => e.preventDefault()}
                   >
                     <span className="cal-waitlist__stripe" aria-hidden />
                     <div className="cal-waitlist__body">
@@ -3076,9 +3385,28 @@ function ConflictResolverModal({ item, onPick, onSkip, onCancelAll }) {
 function CalendarDecorations() {
   const today = new Date();
   return (
-    <div className="cal-deco cal-deco--rightStamp" aria-hidden>
-      <div className="cal-deco__stampDow">{format(today, "EEE")}</div>
-      <div className="cal-deco__stampNum">{format(today, "d")}</div>
-    </div>
+    <>
+      <div className="cal-deco cal-deco--topRightCurve" aria-hidden>
+        <svg
+          width="99"
+          height="216"
+          viewBox="0 0 99 216"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204V235.5L90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
+            fill="#1F1C1C"
+            stroke="var(--salonx-primary)"
+            strokeWidth="2"
+            vectorEffect="nonScalingStroke"
+          />
+        </svg>
+      </div>
+      <div className="cal-deco cal-deco--rightStamp" aria-hidden>
+        <div className="cal-deco__stampDow">{format(today, "EEE")}</div>
+        <div className="cal-deco__stampNum">{format(today, "d")}</div>
+      </div>
+    </>
   );
 }

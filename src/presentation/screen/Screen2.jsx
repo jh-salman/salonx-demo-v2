@@ -1327,8 +1327,8 @@ export default function Screen2() {
           >
             Consultation
           </div>
-          <button
-            type="button"
+            <button
+              type="button"
             className={`s2-card s2-card--v13 s2-consultCard${s2Workflow.consult ? ' s2-workflowSurface--visited' : ''}`}
             onClick={() => setConsultOpen(true)}
             aria-label="Open consultation"
@@ -1359,7 +1359,7 @@ export default function Screen2() {
                     : 'note'}
                 </div>
               </div>
-            </div>
+        </div>
 
             <div className="s2-consultScroll">
               {CONSULT.panes.map((p) => (
@@ -1423,11 +1423,11 @@ export default function Screen2() {
                         >
                           <span className="s2-actionBtn__ring" aria-hidden>
                             <Microphone size={12} weight="fill" />
-                          </span>
+                </span>
                           <span className="s2-actionBtn__label">Voice</span>
                         </button>
-            <button
-              type="button"
+              <button
+                type="button"
                           className="s2-actionBtn is-cam"
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1439,8 +1439,8 @@ export default function Screen2() {
                             <Camera size={12} weight="fill" />
                           </span>
                           <span className="s2-actionBtn__label">Photo</span>
-                        </button>
-                      </div>
+              </button>
+            </div>
                     </div>
                   )}
                 </div>
@@ -1474,8 +1474,8 @@ export default function Screen2() {
                 const isConsult = s.id === 'SVC-CONSULT' || s.kind === 'consult';
                 return (
                   <div key={`${s.id}-quad-${ix}`} className="s2-quadCell s2-quadCell--filled">
-            <button
-              type="button"
+                <button
+                  type="button"
                       className="s2-filmRemoveBtn"
                       aria-label={`Remove ${s.name}`}
                       onClick={(e) => {
@@ -1539,15 +1539,15 @@ export default function Screen2() {
                               {formatSvcDurationShort(s.name)}
                 </span>
                           )}
-                        </div>
+              </div>
                       </div>
                       <span className="s2-svcDeckCard__bottomTick" aria-hidden />
                     </div>
                   </div>
                 );
               })}
-              <button
-                type="button"
+                <button
+                  type="button"
                 className="s2-quadCell s2-refTile s2-refTile--suggested"
                 onClick={() => setAddServicesOpen(true)}
                 aria-label="Suggested services from catalog"
@@ -1566,8 +1566,8 @@ export default function Screen2() {
                       <Clock size={9} weight="bold" aria-hidden />
                       Pick
                     </span>
-                  </div>
-                </div>
+                      </div>
+                      </div>
               </button>
               <button
                 type="button"
@@ -1577,9 +1577,9 @@ export default function Screen2() {
               >
                 <Plus size={22} weight="regular" className="s2-refTile__addGlyph" aria-hidden />
                 <span className="s2-refTile__addLabel">ADD SERVICE</span>
-              </button>
+                </button>
+              </div>
             </div>
-          </div>
         </div>
 
         <div className="s2-section">
@@ -1645,7 +1645,7 @@ export default function Screen2() {
                             }}
                           />
                         ) : null}
-                      </div>
+      </div>
                       <span className="s2-svcDeckCard__accentBar" aria-hidden />
                       <div className="s2-svcDeckCard__body">
                         <div className="s2-svcDeckCard__headline">{p.brand}</div>
@@ -1681,7 +1681,7 @@ export default function Screen2() {
                       </span>
                       </div>
                       </div>
-                </button>
+        </button>
               <button
                 type="button"
                 className="s2-quadCell s2-refTile s2-refTile--add"
@@ -1690,10 +1690,10 @@ export default function Screen2() {
               >
                 <Plus size={22} weight="regular" className="s2-refTile__addGlyph" aria-hidden />
                 <span className="s2-refTile__addLabel">ADD PRODUCT</span>
-                </button>
+        </button>
               </div>
             </div>
-        </div>
+      </div>
 
         <div className="s2-bottomDock s2-bottomDock--inline">
           <div className="s2-bottomDock__content">
@@ -2004,8 +2004,8 @@ export default function Screen2() {
                 );
                   })
                 )}
-                      </div>
-                      </div>
+            </div>
+          </div>
 
             <div className="nc-field">
               <div className="nc-f-head">
@@ -2077,7 +2077,7 @@ export default function Screen2() {
                 <div className="nc-f-actions">
                   <button type="button" className="nc-f-btn" aria-label="Add LOOK photo" onClick={() => openPhotoPicker(null)}>
                     <Camera size={14} weight="fill" aria-hidden />
-                </button>
+            </button>
               </div>
             </div>
               <div className="nc-look-gallery" ref={lookGalleryRef}>
@@ -2109,7 +2109,7 @@ export default function Screen2() {
                 )}
               </div>
             </div>
-        </div>
+          </div>
 
           <input
             ref={photoInputRef}
@@ -2319,7 +2319,7 @@ export default function Screen2() {
                         </span>
                   <span className="s2-svcPickQueueAdd__text">ADD CUSTOM SERVICE</span>
             </button>
-      </div>
+                    </div>
             </footer>
           </div>
         </div>
