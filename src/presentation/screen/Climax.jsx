@@ -74,20 +74,21 @@ function newProdId() {
   return `prd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-/** Horizontal edge swipe: right (back) mirrors left (next tab → Calendar). */
+/** Horizontal swipe: right (back) mirrors left (Calendar). Wider edges + slightly looser deltas for thumbs on phones. */
 function resolveClimaxHorizontalSwipe(dx, dy, dt, startLocalX, width) {
-  if (dt > 1200 || Math.abs(dy) > 90) return null;
-  if (Math.abs(dx) < Math.abs(dy) * 1.35) return null;
-  const fromLeftEdge = startLocalX <= 48;
-  const fromRightEdge = width > 0 && startLocalX >= width - 48;
+  if (dt > 1400 || Math.abs(dy) > 96) return null;
+  if (Math.abs(dx) < Math.abs(dy) * 1.25) return null;
+  const EDGE = 72;
+  const fromLeftEdge = startLocalX <= EDGE;
+  const fromRightEdge = width > 0 && startLocalX >= width - EDGE;
 
   if (dx > 0) {
-    const edgeCommit = fromLeftEdge && dx >= 38;
-    const longCommit = dx >= 76 && Math.abs(dy) < 72;
+    const edgeCommit = fromLeftEdge && dx >= 32;
+    const longCommit = dx >= 64 && Math.abs(dy) < 80;
     if (edgeCommit || longCommit) return "back";
   } else if (dx < 0) {
-    const edgeCommit = fromRightEdge && dx <= -38;
-    const longCommit = dx <= -76 && Math.abs(dy) < 72;
+    const edgeCommit = fromRightEdge && dx <= -32;
+    const longCommit = dx <= -56 && Math.abs(dy) < 80;
     if (edgeCommit || longCommit) return "calendar";
   }
   return null;
@@ -421,7 +422,14 @@ export default function Climax() {
   });
   const blockClimaxSwipeRef = useRef(false);
   const climaxSwipeCooldownRef = useRef(0);
-
+  const climaxSwipeTouchRef = useRef({
+    active: false,
+    width: 0,
+    startLocalX: 0,
+    x: 0,
+    y: 0,
+    ts: 0,
+  });
   useEffect(() => {
     blockClimaxSwipeRef.current = !!(modifyOpen || editModal || rateEditOpen);
   }, [modifyOpen, editModal, rateEditOpen]);
@@ -434,6 +442,8 @@ export default function Climax() {
   const onClimaxSwipePointerDown = useCallback((e) => {
     if (blockClimaxSwipeRef.current) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    /* Touch uses capture listeners + conditional preventDefault below — avoids `pointercancel` vs `touchend` fighting on iOS/Android. */
+    if (e.pointerType === "touch") return;
     if (!climaxSwipeTargetFilter(e.target)) return;
     const el = climaxRootRef.current;
     if (!el) return;
@@ -533,31 +543,40 @@ export default function Climax() {
       if (!climaxSwipeTargetFilter(ev.target)) return;
       const rect = el.getBoundingClientRect();
       const t = ev.touches[0];
-      climaxSwipeGestureRef.current = {
+      climaxSwipeTouchRef.current = {
         active: true,
-        captured: false,
-        captureEl: null,
-        pointerType: "touch",
         width: rect.width,
         startLocalX: t.clientX - rect.left,
         x: t.clientX,
         y: t.clientY,
         ts: Date.now(),
-        pointerId: null,
       };
     };
 
+    const touchMove = (ev) => {
+      const tr = climaxSwipeTouchRef.current;
+      if (!tr.active || ev.touches.length !== 1) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - tr.x;
+      const dy = t.clientY - tr.y;
+      /* Once swipe is mostly horizontal, take over so nested scroll/viewport does not swallow the gesture on iOS Chrome/Safari. */
+      if (Math.abs(dx) >= 20 && Math.abs(dx) >= Math.abs(dy) * 1.42 && Math.abs(dy) < 70) {
+        ev.preventDefault();
+      }
+    };
+
     const touchEnd = (ev) => {
-      const ref = climaxSwipeGestureRef.current;
-      if (!ref.active) return;
-      climaxSwipeGestureRef.current.active = false;
+      const tr = climaxSwipeTouchRef.current;
+      if (!tr.active) return;
+      climaxSwipeTouchRef.current = { active: false, width: 0, startLocalX: 0, x: 0, y: 0, ts: 0 };
+
       const t = ev.changedTouches[0];
       if (!t) return;
 
-      const dx = t.clientX - ref.x;
-      const dy = t.clientY - ref.y;
-      const dt = Date.now() - ref.ts;
-      const resolved = resolveClimaxHorizontalSwipe(dx, dy, dt, ref.startLocalX, ref.width);
+      const dx = t.clientX - tr.x;
+      const dy = t.clientY - tr.y;
+      const dt = Date.now() - tr.ts;
+      const resolved = resolveClimaxHorizontalSwipe(dx, dy, dt, tr.startLocalX, tr.width);
 
       if (!resolved) return;
 
@@ -570,16 +589,25 @@ export default function Climax() {
     };
 
     const touchCancel = () => {
-      climaxSwipeGestureRef.current.active = false;
+      climaxSwipeTouchRef.current = {
+        active: false,
+        width: 0,
+        startLocalX: 0,
+        x: 0,
+        y: 0,
+        ts: 0,
+      };
     };
 
-    el.addEventListener("touchstart", touchStart, { passive: true });
-    el.addEventListener("touchend", touchEnd, { passive: true });
-    el.addEventListener("touchcancel", touchCancel, { passive: true });
+    el.addEventListener("touchstart", touchStart, { passive: true, capture: true });
+    el.addEventListener("touchmove", touchMove, { passive: false, capture: true });
+    el.addEventListener("touchend", touchEnd, { passive: true, capture: true });
+    el.addEventListener("touchcancel", touchCancel, { passive: true, capture: true });
     return () => {
-      el.removeEventListener("touchstart", touchStart);
-      el.removeEventListener("touchend", touchEnd);
-      el.removeEventListener("touchcancel", touchCancel);
+      el.removeEventListener("touchstart", touchStart, { capture: true });
+      el.removeEventListener("touchmove", touchMove, { capture: true });
+      el.removeEventListener("touchend", touchEnd, { capture: true });
+      el.removeEventListener("touchcancel", touchCancel, { capture: true });
     };
   }, [handleClimaxBack, navigateSwipeToCalendar, climaxSwipeTargetFilter]);
 

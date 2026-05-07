@@ -234,6 +234,13 @@
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   /* Let horizontal swipes pass to parent `.cal-day` (day navigation); vertical scroll stays native */
   touch-action: pan-y;
+  /* Axis labels sit at `top: -6px` relative to their row, so the first row's
+     "12 AM" label would clip above the scroll origin. Add a small inner pad
+     so the bookend labels (top "12 AM" and bottom next-day "12 AM") render in
+     full at the extremes of the scroll. */
+  padding-top: 10px;
+  padding-bottom: 10px;
+  box-sizing: border-box;
 }
 .cal-day__scroll::-webkit-scrollbar{
   width: 3px;
@@ -410,22 +417,75 @@
   min-height: 0;
   /* Header ~84px; reserve space above fixed BottomToolbar + home indicator. */
   height: calc(100% - 84px - 64px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  /* Apple-style continuous vertical scroll through stacked months — vertical
+     pan only, no horizontal swipe nav (months are accessed by scrolling). */
   touch-action: pan-y;
 }
-.cal-month{
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 16px 14px;
-}
+
+/* Day-of-week labels — pinned at the top of the Month view so the row stays
+   visible while users scroll through stacked months. */
 .cal-month__head{
   display:grid;
   grid-template-columns: repeat(7,1fr);
   gap: 6px;
-  padding: 0 0 8px;
+  padding: 8px 16px;
+  margin: 0;
   opacity:0.85;
   font-size: 10px;
+  background: #0a0a0c;
+  border-bottom: 1px solid var(--cal-border);
+  flex: 0 0 auto;
+  z-index: 4;
+}
+
+/* Vertical-scrolling list of stacked month blocks. `position: relative` makes
+   the scroller the offsetParent for its children so offset-based math (like
+   "scroll today's month to the top") is unambiguous. */
+.cal-monthScroll{
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  padding: 6px 16px 14px;
+  touch-action: pan-y;
+}
+.cal-monthScroll::-webkit-scrollbar{ width: 3px; }
+.cal-monthScroll::-webkit-scrollbar-track{ background: transparent; }
+.cal-monthScroll::-webkit-scrollbar-thumb{
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+}
+
+/* Each month is its own block: title row + 6 week-rows. */
+.cal-monthBlock{
+  display: flex;
+  flex-direction: column;
+  margin: 14px 0 18px;
+}
+.cal-monthBlock:first-child{ margin-top: 6px; }
+.cal-monthBlock__title{
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--cal-primary);
+  padding: 4px 4px 10px;
+  margin: 0;
+}
+.cal-monthBlock__weeks{
+  display: flex;
+  flex-direction: column;
+}
+
+/* Legacy single-month wrapper kept for any non-month consumers. */
+.cal-month{
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 16px 14px;
 }
 .cal-month__week{
   display:grid;
@@ -434,7 +494,7 @@
   margin-bottom: 6px;
 }
 .cal-month__cell{
-  height: 44px;
+  height: 56px;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
@@ -1079,18 +1139,18 @@
 /* Phase 3 — drag, resize, park drop */
 .cal-apt {
   cursor: grab;
-  transition: box-shadow 120ms, transform 120ms;
+  /* No `transform` in transition — Safari lags when inline drag transform fights CSS tweening. */
+  transition: box-shadow 120ms;
   -webkit-touch-callout: none;
   -webkit-user-drag: none;
   user-select: none;
 }
 .cal-apt.is-dragging {
   cursor: grabbing;
-  /* z-index set inline — see render */
-  /* The transform is set inline (translate(dx, dy)) — only restyle visuals */
   box-shadow: 0 18px 38px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(var(--salonx-primary-rgb), 0.55), 0 0 22px rgba(var(--salonx-primary-rgb), 0.32);
   opacity: 0.96;
   will-change: transform;
+  transition: none;
 }
 .cal-apt__resize {
   position: absolute;
@@ -1460,15 +1520,24 @@
   pointer-events: none;
 }
 
-/* When dragging starts, hide the picker modal but keep it mounted so the
-   source card retains pointer capture. Children stay visible to the
-   captured-pointer handler, but no clicks reach them. */
+/* When dragging starts, visually hide the picker modal but keep it
+   mounted + interactive so the source card retains pointer capture.
+   IMPORTANT: do NOT use `pointer-events: none` on the modal here.
+   Per spec, setting pointer-events: none on a capturing element OR
+   any of its ancestors implicitly releases pointer capture, which on
+   Safari/iOS caused `pointerup` to not reach the source card and
+   left the drag ghost stuck on screen. */
 .cal-modal.is-dragHidden {
   opacity: 0;
-  pointer-events: none;
 }
 .cal-modal.is-dragHidden .cal-modal__backdrop {
+  /* Backdrop is invisible during drag; clicking it would close the
+     modal mid-drag, but the captured pointer is on a card so the click
+     never lands here in practice. */
   pointer-events: none;
+}
+.cal-modal.is-dragHidden .cal-waitlist__card {
+  pointer-events: auto;
 }
 .cal-waitlist__hint {
   font-size: 12px;
@@ -1565,7 +1634,7 @@
   position: fixed !important;
   z-index: 320;
   pointer-events: none;
-  transform: translate(-50%, -50%);
+  transform: translate3d(-50%, -50%, 0);
   width: 220px;
   max-width: 80vw;
   height: auto !important;
@@ -1612,7 +1681,7 @@
 .cal-dragTip {
   position: fixed;
   z-index: 320;
-  transform: translate(16px, -50%);
+  transform: translate3d(16px, -50%, 0);
   pointer-events: none;
   display: flex;
   align-items: center;

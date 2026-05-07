@@ -26,24 +26,59 @@ function ensureDate(v) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function loadCalendarEvents() {
-  if (typeof window === 'undefined') return [];
+function readCalendarRoot() {
+  if (typeof window === 'undefined') return null;
   try {
     const json = window.localStorage.getItem(CALENDAR_STORAGE_KEY);
-    if (!json) return [];
-    const data = deserialize(json);
-    const events = Array.isArray(data?.events) ? data.events : [];
-    return events
-      .map((ev) => ({
-        ...ev,
-        start: ensureDate(ev.start),
-        end: ensureDate(ev.end),
-      }))
-      .filter((ev) => ev.start instanceof Date && ev.end instanceof Date);
+    if (!json) return null;
+    return deserialize(json);
   } catch (err) {
     console.warn('[calendarEventsStore] load failed', err);
-    return [];
+    return null;
   }
+}
+
+export function loadCalendarEvents() {
+  const data = readCalendarRoot();
+  const events = Array.isArray(data?.events) ? data.events : [];
+  return events
+    .map((ev) => ({
+      ...ev,
+      start: ensureDate(ev.start),
+      end: ensureDate(ev.end),
+    }))
+    .filter((ev) => ev.start instanceof Date && ev.end instanceof Date);
+}
+
+/**
+ * Parked appointments (cards dragged onto the toolbar from the calendar grid).
+ * Shape: { id, title, service, color, isParked, fromMove?, durationMinutes,
+ *          waitlistAddedAt? }
+ */
+export function loadCalendarParked() {
+  const data = readCalendarRoot();
+  const list = Array.isArray(data?.parkedFromDrag) ? data.parkedFromDrag : [];
+  return list
+    .filter((p) => p && typeof p === 'object')
+    .map((p) => ({
+      ...p,
+      ...(p.waitlistAddedAt ? { waitlistAddedAt: ensureDate(p.waitlistAddedAt) } : {}),
+    }));
+}
+
+/**
+ * Waitlist (toolbar) entries — clients waiting to be booked.
+ * Shape: { id, title, service, color, waitlistAddedAt }
+ */
+export function loadCalendarWaitlist() {
+  const data = readCalendarRoot();
+  const list = Array.isArray(data?.toolbarEvents) ? data.toolbarEvents : [];
+  return list
+    .filter((t) => t && typeof t === 'object')
+    .map((t) => ({
+      ...t,
+      ...(t.waitlistAddedAt ? { waitlistAddedAt: ensureDate(t.waitlistAddedAt) } : {}),
+    }));
 }
 
 export function notifyCalendarUpdated() {
@@ -75,11 +110,11 @@ export function formatTimeShort(d) {
   return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
-export function useCalendarEvents() {
-  const [events, setEvents] = useState(() => loadCalendarEvents());
+function useCalendarSlice(load) {
+  const [value, setValue] = useState(() => load());
 
   useEffect(() => {
-    const refresh = () => setEvents(loadCalendarEvents());
+    const refresh = () => setValue(load());
 
     const onStorage = (e) => {
       if (!e || e.key === CALENDAR_STORAGE_KEY || e.key === null) refresh();
@@ -91,7 +126,20 @@ export function useCalendarEvents() {
       window.removeEventListener(UPDATE_EVENT_NAME, refresh);
       window.removeEventListener('storage', onStorage);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return events;
+  return value;
+}
+
+export function useCalendarEvents() {
+  return useCalendarSlice(loadCalendarEvents);
+}
+
+export function useCalendarParked() {
+  return useCalendarSlice(loadCalendarParked);
+}
+
+export function useCalendarWaitlist() {
+  return useCalendarSlice(loadCalendarWaitlist);
 }

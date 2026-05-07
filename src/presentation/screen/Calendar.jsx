@@ -29,14 +29,20 @@ import { MOCK_CLIENTS } from "../../data/mockClients";
 import { MOCK_SERVICES } from "../../data/mockServices";
 import "../style/calendar.css";
 
-const DAY_START_HOUR = 6;
-// Limit the working day so appointments cannot be moved below the 10pm row.
-// 22 = 10:00 PM.
-const DAY_END_HOUR = 22;
+// The day grid spans the full 24-hour clock (midnight → midnight) so the
+// stylist can drag/scroll an appointment to any time of day. The viewport is
+// shorter than the grid, so .cal-day__scroll handles native vertical scrolling
+// and we land the initial scrollTop at DAY_INITIAL_HOUR (08:00 — typical salon
+// opening time) every time a day pane mounts.
+const DAY_START_HOUR = 0;
+// 24 = end-of-day boundary (renders as the bottom 12 AM row, i.e. next-day
+// midnight). All clamps key off (DAY_END_HOUR - DAY_START_HOUR) * 60 minutes.
+const DAY_END_HOUR = 24;
+const DAY_INITIAL_HOUR = 8;
 const SLOT_HEIGHT = 56;
 const TIME_AXIS_WIDTH = 40;
 // Minutes from DAY_START_HOUR up to (and including) the DAY_END_HOUR row.
-// This is the latest *end* boundary for drops / resizes (10:00 PM row).
+// 24 h × 60 min = 1440 min — full day; latest valid end time is midnight.
 const MINUTES_PER_DAY = (DAY_END_HOUR - DAY_START_HOUR) * 60;
 const SNAP_MINUTES = 5;
 const COLOR_OPTIONS = [
@@ -507,8 +513,28 @@ export default function CalendarScreenWeb() {
     original: null,
     longPressTimer: null,
     gridRect: null,
+    toolbarRect: null,
     cancelled: false,
+    pressYInGrid: 0,
   });
+
+  /** Coalesce drag paint to one React update per frame (Safari suffers on per-move setState). */
+  const dragPaintRafRef = useRef(null);
+  const dragPaintSampleRef = useRef(null); // { clientX, clientY, aptId, currentTarget }
+
+  const cancelDragPaintRaf = useCallback(() => {
+    if (dragPaintRafRef.current != null) {
+      cancelAnimationFrame(dragPaintRafRef.current);
+      dragPaintRafRef.current = null;
+    }
+    dragPaintSampleRef.current = null;
+  }, []);
+
+  /** Ghost follow for waitlist / parked portals — same rAF coalescing. */
+  const waitlistGhostRafRef = useRef(null);
+  const waitlistGhostSampleRef = useRef(null); // { x, y }
+  const parkedGhostRafRef = useRef(null);
+  const parkedGhostSampleRef = useRef(null);
 
   const cancelLongPress = useCallback(() => {
     if (dragRef.current.longPressTimer) {
@@ -518,6 +544,7 @@ export default function CalendarScreenWeb() {
   }, []);
 
   const finishDrag = useCallback(() => {
+    cancelDragPaintRaf();
     setDragApt(null);
     dragRef.current = {
       aptId: null,
@@ -530,9 +557,11 @@ export default function CalendarScreenWeb() {
       original: null,
       longPressTimer: null,
       gridRect: null,
+      toolbarRect: null,
       cancelled: false,
+      pressYInGrid: 0,
     };
-  }, []);
+  }, [cancelDragPaintRaf]);
 
   const revertToOriginal = useCallback((original) => {
     setEvents((prev) => prev.map((ev) => (ev.id === original.id ? original : ev)));
@@ -604,6 +633,8 @@ export default function CalendarScreenWeb() {
       }
       const grid = e.currentTarget.closest(".cal-day__grid");
       const gridRect = grid ? grid.getBoundingClientRect() : null;
+      const toolbarEl = document.querySelector(".cal-toolbar");
+      const toolbarRect = toolbarEl ? toolbarEl.getBoundingClientRect() : null;
       dragRef.current = {
         ...dragRef.current,
         aptId: apt.id,
@@ -615,6 +646,7 @@ export default function CalendarScreenWeb() {
         anchorDur: differenceInMinutes(apt.end, apt.start),
         original: { ...apt, start: new Date(apt.start), end: new Date(apt.end) },
         gridRect,
+        toolbarRect,
         cancelled: false,
       };
       setDragApt(apt.id);
@@ -648,92 +680,97 @@ export default function CalendarScreenWeb() {
           scroller.scrollTop += AUTO_SCROLL_STEP_PX;
         }
       }
-      // Refresh bounds while scrolling (grid rect changes with scrollTop).
-      try {
-        const gridEl = e.currentTarget.closest?.(".cal-day__grid");
-        ref.gridRect = gridEl ? gridEl.getBoundingClientRect() : ref.gridRect;
-        const toolbarEl = document.querySelector(".cal-toolbar");
-        ref.toolbarRect = toolbarEl ? toolbarEl.getBoundingClientRect() : ref.toolbarRect;
-      } catch {
-        /* noop */
-      }
-      // Clamp pointer position to within calendar + park area bounds.
-      // Park area = toolbar pill row above grid. Outside this combined region
-      // the appointment shouldn't drift, so we lock the effective pointer.
-      const grid = ref.gridRect;
-      const toolbar = ref.toolbarRect;
-      let clampedX = e.clientX;
-      let clampedY = e.clientY;
-      if (grid) {
-        const minX = grid.left;
-        const maxX = grid.right;
-        const maxY = grid.bottom;
-        const minY = toolbar ? toolbar.top : grid.top - 80;
-        clampedX = clamp(e.clientX, minX, maxX);
-        clampedY = clamp(e.clientY, minY, maxY);
-      }
-      const deltaX = clampedX - ref.startX;
-      if (ref.mode === "move") {
-        // The card visually follows the pointer in 2D via CSS transform (no
-        // state mutation), so motion stays smooth and free. The actual time
-        // assignment happens on release.
-        // Keep the card glued to the finger even while the grid auto-scrolls:
-        // measure pointer Y inside the *current* grid (which moves with scroll)
-        // and offset by the original press Y inside the grid.
-        const yInGridNow = grid ? clampedY - grid.top : 0;
-        const pressYInGrid = ref.pressYInGrid ?? 0;
-        const cardOriginalTopPx = (ref.anchorMin / 60) * SLOT_HEIGHT;
-        const maxStartPx =
-          ((MINUTES_PER_DAY - ref.anchorDur) / 60) * SLOT_HEIGHT;
-        let newCardTopPx = cardOriginalTopPx + (yInGridNow - pressYInGrid);
-        newCardTopPx = clamp(newCardTopPx, 0, maxStartPx);
-        const newMin = (newCardTopPx / SLOT_HEIGHT) * 60;
-        const snapped = snapMinutes(newMin);
-        // Visual: card follows pointer continuously (raw, clamped to slots).
-        const dy = newCardTopPx - cardOriginalTopPx;
-        setDragOffset({ dx: deltaX, dy });
-        setDragPreviewMin(snapped);
-        const previewStart = new Date(ref.original.start);
-        previewStart.setHours(DAY_START_HOUR, 0, 0, 0);
-        previewStart.setMinutes(snapped);
-
-        // Park area = pointer Y is above the grid (i.e., over the toolbar)
-        const overPark = grid && clampedY < grid.top - PARK_DROP_THRESHOLD;
-        setParkHover(!!overPark);
-        setDragTooltip({
-          x: clampedX,
-          y: clampedY,
-          label: overPark ? "Park" : format(previewStart, "h:mm a"),
-          kind: overPark ? "park" : "move",
-        });
-      } else if (ref.mode === "resize") {
-        const deltaY = clampedY - ref.startY;
-        const deltaMin = (deltaY / SLOT_HEIGHT) * 60;
-        const newDur = clamp(
-          ref.anchorDur + deltaMin,
-          5,
-          MINUTES_PER_DAY - ref.anchorMin,
-        );
-        const snapped = Math.max(5, snapMinutes(newDur));
-        const previewEnd = addMinutes(ref.original.start, snapped);
-        // Visual-only resize via inline height delta — events untouched so
-        // the column layout doesn't reflow and adjacent apts don't shift.
-        const heightDelta = ((snapped - ref.anchorDur) / 60) * SLOT_HEIGHT;
-        ref.previewSnapped = snapped;
-        setResizeDelta(heightDelta);
-        setDragTooltip({
-          x: clampedX,
-          y: clampedY,
-          label: format(previewEnd, "h:mm a"),
-          kind: "resize",
-        });
-      }
+      dragPaintSampleRef.current = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        aptId: apt.id,
+        currentTarget: e.currentTarget,
+      };
+      if (dragPaintRafRef.current !== null) return;
+      dragPaintRafRef.current = requestAnimationFrame(() => {
+        dragPaintRafRef.current = null;
+        const sample = dragPaintSampleRef.current;
+        if (!sample) return;
+        const ref2 = dragRef.current;
+        if (
+          !ref2 ||
+          ref2.aptId !== sample.aptId ||
+          (ref2.mode !== "move" && ref2.mode !== "resize")
+        ) {
+          return;
+        }
+        const { clientX, clientY, currentTarget } = sample;
+        try {
+          const gridEl = currentTarget.closest?.(".cal-day__grid");
+          ref2.gridRect = gridEl ? gridEl.getBoundingClientRect() : ref2.gridRect;
+        } catch {
+          /* noop */
+        }
+        const grid = ref2.gridRect;
+        const toolbar = ref2.toolbarRect;
+        let clampedX = clientX;
+        let clampedY = clientY;
+        if (grid) {
+          const minX = grid.left;
+          const maxX = grid.right;
+          const maxY = grid.bottom;
+          const minY = toolbar ? toolbar.top : grid.top - 80;
+          clampedX = clamp(clientX, minX, maxX);
+          clampedY = clamp(clientY, minY, maxY);
+        }
+        const deltaX = clampedX - ref2.startX;
+        if (ref2.mode === "move") {
+          const yInGridNow = grid ? clampedY - grid.top : 0;
+          const pressYInGrid = ref2.pressYInGrid ?? 0;
+          const cardOriginalTopPx = (ref2.anchorMin / 60) * SLOT_HEIGHT;
+          const maxStartPx =
+            ((MINUTES_PER_DAY - ref2.anchorDur) / 60) * SLOT_HEIGHT;
+          let newCardTopPx = cardOriginalTopPx + (yInGridNow - pressYInGrid);
+          newCardTopPx = clamp(newCardTopPx, 0, maxStartPx);
+          const newMin = (newCardTopPx / SLOT_HEIGHT) * 60;
+          const snapped = snapMinutes(newMin);
+          const dy = newCardTopPx - cardOriginalTopPx;
+          setDragOffset({ dx: deltaX, dy });
+          setDragPreviewMin(snapped);
+          const previewStart = new Date(ref2.original.start);
+          previewStart.setHours(DAY_START_HOUR, 0, 0, 0);
+          previewStart.setMinutes(snapped);
+          const overPark = grid && clampedY < grid.top - PARK_DROP_THRESHOLD;
+          setParkHover(!!overPark);
+          setDragTooltip({
+            x: clampedX,
+            y: clampedY,
+            label: overPark ? "Park" : format(previewStart, "h:mm a"),
+            kind: overPark ? "park" : "move",
+          });
+        } else if (ref2.mode === "resize") {
+          const deltaY = clampedY - ref2.startY;
+          const deltaMin = (deltaY / SLOT_HEIGHT) * 60;
+          const newDur = clamp(
+            ref2.anchorDur + deltaMin,
+            5,
+            MINUTES_PER_DAY - ref2.anchorMin,
+          );
+          const snapped = Math.max(5, snapMinutes(newDur));
+          const previewEnd = addMinutes(ref2.original.start, snapped);
+          const heightDelta = ((snapped - ref2.anchorDur) / 60) * SLOT_HEIGHT;
+          ref2.previewSnapped = snapped;
+          setResizeDelta(heightDelta);
+          setDragTooltip({
+            x: clampedX,
+            y: clampedY,
+            label: format(previewEnd, "h:mm a"),
+            kind: "resize",
+          });
+        }
+      });
     },
     [cancelLongPress],
   );
 
   const handleAptPointerUp = useCallback(
     (e, apt) => {
+      cancelDragPaintRaf();
       const ref = dragRef.current;
       cancelLongPress();
       setDragTooltip(null);
@@ -870,7 +907,7 @@ export default function CalendarScreenWeb() {
       });
       finishDrag();
     },
-    [cancelLongPress, events, finishDrag, navigate],
+    [cancelLongPress, events, finishDrag, navigate, cancelDragPaintRaf],
   );
 
   // Confirm-modal handlers
@@ -1145,6 +1182,15 @@ export default function CalendarScreenWeb() {
       setParkedModalOpen(false);
     }
     setBookConfirm(null);
+    // Offer to notify the client about the new (or rescheduled) appointment.
+    // Mirrors the move/resize/park flow so every committing action has the
+    // same SMS/push opt-in surface.
+    if (item && item.title) {
+      setNotifyConfirm({
+        clientName: item.title,
+        action: kind === "waitlist" ? "booked" : "scheduled",
+      });
+    }
   }, [bookConfirm]);
 
   const handleBookConfirmNo = useCallback(() => {
@@ -1162,6 +1208,11 @@ export default function CalendarScreenWeb() {
   }, []);
 
   const finishWaitlistDrag = useCallback(() => {
+    if (waitlistGhostRafRef.current != null) {
+      cancelAnimationFrame(waitlistGhostRafRef.current);
+      waitlistGhostRafRef.current = null;
+    }
+    waitlistGhostSampleRef.current = null;
     const pid = waitlistDragRef.current.pointerId;
     const captureEl = waitlistPointerCaptureElRef.current;
     releasePointerCaptureIfHeld(captureEl, pid);
@@ -1184,10 +1235,6 @@ export default function CalendarScreenWeb() {
       if (e.button !== undefined && e.button !== 0) return;
       const gridProbe = document.querySelector(".cal-day__grid");
       if (!gridProbe) return;
-      /* iOS: keep the touch focused on JS so Safari is less likely to scroll or fire callout mid–long-press. */
-      if (e.pointerType === "touch") {
-        e.preventDefault();
-      }
       waitlistPointerCaptureElRef.current = e.currentTarget;
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -1239,7 +1286,16 @@ export default function CalendarScreenWeb() {
         }
         return;
       }
-      setWaitlistDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
+      waitlistGhostSampleRef.current = { x: e.clientX, y: e.clientY };
+      if (waitlistGhostRafRef.current !== null) return;
+      waitlistGhostRafRef.current = requestAnimationFrame(() => {
+        waitlistGhostRafRef.current = null;
+        const xy = waitlistGhostSampleRef.current;
+        if (!xy) return;
+        const inner = waitlistDragRef.current;
+        if (!inner.activated || inner.itemId !== item.id) return;
+        setWaitlistDrag((prev) => (prev ? { ...prev, ...xy } : prev));
+      });
     },
     [cancelWaitlistLongPress, finishWaitlistDrag],
   );
@@ -1312,6 +1368,11 @@ export default function CalendarScreenWeb() {
   }, []);
 
   const finishParkedDrag = useCallback(() => {
+    if (parkedGhostRafRef.current != null) {
+      cancelAnimationFrame(parkedGhostRafRef.current);
+      parkedGhostRafRef.current = null;
+    }
+    parkedGhostSampleRef.current = null;
     const pid = parkedDragRef.current.pointerId;
     const captureEl = parkedPointerCaptureElRef.current;
     releasePointerCaptureIfHeld(captureEl, pid);
@@ -1339,9 +1400,6 @@ export default function CalendarScreenWeb() {
       if (e.button !== undefined && e.button !== 0) return;
       const gridProbe = document.querySelector(".cal-day__grid");
       if (!gridProbe) return;
-      if (e.pointerType === "touch") {
-        e.preventDefault();
-      }
       parkedPointerCaptureElRef.current = e.currentTarget;
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -1393,7 +1451,16 @@ export default function CalendarScreenWeb() {
         }
         return;
       }
-      setParkedDrag((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : prev));
+      parkedGhostSampleRef.current = { x: e.clientX, y: e.clientY };
+      if (parkedGhostRafRef.current !== null) return;
+      parkedGhostRafRef.current = requestAnimationFrame(() => {
+        parkedGhostRafRef.current = null;
+        const xy = parkedGhostSampleRef.current;
+        if (!xy) return;
+        const inner = parkedDragRef.current;
+        if (!inner.activated || inner.itemId !== item.id) return;
+        setParkedDrag((prev) => (prev ? { ...prev, ...xy } : prev));
+      });
     },
     [cancelParkedLongPress, finishParkedDrag],
   );
@@ -1519,9 +1586,11 @@ export default function CalendarScreenWeb() {
     []
   );
 
-  const monthWeeks = useMemo(() => {
-    const monthStart = startOfMonth(currentDate);
-    const monthEnd = endOfMonth(currentDate);
+  // Compute the 6×7 week grid for any month (used to render every block in the
+  // continuously-scrolling Month view).
+  const monthWeeksFor = useCallback((monthDate) => {
+    const monthStart = startOfMonth(monthDate);
+    const monthEnd = endOfMonth(monthDate);
     const start = startOfWeek(monthStart, { weekStartsOn: 0 });
     const end = endOfWeek(monthEnd, { weekStartsOn: 0 });
     const days = [];
@@ -1529,7 +1598,18 @@ export default function CalendarScreenWeb() {
     const weeks = [];
     for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
     return weeks;
-  }, [currentDate]);
+  }, []);
+
+  // Apple Calendar-style "infinite" month list — render a fixed window of
+  // months (today − 12 to today + 12) stacked vertically. The user scrolls
+  // up/down to traverse months instead of swiping horizontally. Anchored to
+  // today's month so day taps don't shift the window or jump scroll.
+  const monthWindow = useMemo(() => {
+    const anchor = startOfMonth(new Date());
+    const list = [];
+    for (let i = -12; i <= 12; i += 1) list.push(addMonths(anchor, i));
+    return list;
+  }, []);
 
   const monthSheetAppointments = useMemo(() => {
     if (!monthSheetDate) return [];
@@ -1550,6 +1630,36 @@ export default function CalendarScreenWeb() {
       finishParkedDrag();
     }
   }, [viewMode, cancelWaitlistLongPress, cancelParkedLongPress, finishWaitlistDrag, finishParkedDrag]);
+
+  /* Safety-net: when a global pointerup / pointercancel fires while a
+     waitlist or parked ghost is in flight, give the source element's
+     own handler one frame to run, then if the drag ref is still flagged
+     as in-flight, clean up. This rescues the rare case where Safari
+     drops the captured `pointerup` mid-drag (DOM/style change) and the
+     ghost would otherwise remain stuck on screen. */
+  useEffect(() => {
+    if (!waitlistDrag && !parkedDrag) return;
+    let raf = 0;
+    const onGlobalUp = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (waitlistDragRef.current.itemId != null) {
+          finishWaitlistDrag();
+        }
+        if (parkedDragRef.current.itemId != null) {
+          finishParkedDrag();
+        }
+      });
+    };
+    window.addEventListener("pointerup", onGlobalUp);
+    window.addEventListener("pointercancel", onGlobalUp);
+    return () => {
+      window.removeEventListener("pointerup", onGlobalUp);
+      window.removeEventListener("pointercancel", onGlobalUp);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [waitlistDrag, parkedDrag, finishWaitlistDrag, finishParkedDrag]);
 
   // Live time line — only render when viewing today (Day view)
   const liveTimeLineMin = useMemo(() => {
@@ -1674,6 +1784,59 @@ export default function CalendarScreenWeb() {
   const monthSwipeSurfaceRef = useRef(null);
   const swipeAnimRef = useRef(null);
   const swipeTouchStartRef = useRef(null);
+
+  /**
+   * Land each newly-mounted .cal-day__scroll pane at 08:00 (DAY_INITIAL_HOUR).
+   * Uses a WeakSet so user scroll position is preserved across re-renders of
+   * the same DOM node — only first attach (after a swipe-driven remount, or
+   * the very first paint) snaps to 8 AM.
+   */
+  const dayScrollInitSetRef = useRef(null);
+  if (dayScrollInitSetRef.current === null) {
+    dayScrollInitSetRef.current = new WeakSet();
+  }
+  const setupDayScrollRef = useCallback((el) => {
+    if (!el) return;
+    const seen = dayScrollInitSetRef.current;
+    if (seen.has(el)) return;
+    seen.add(el);
+    el.scrollTop = (DAY_INITIAL_HOUR - DAY_START_HOUR) * SLOT_HEIGHT;
+  }, []);
+
+  /**
+   * Land the stacked-month scroll on TODAY's month block when the Month tab
+   * is first opened. The blocks expose `data-month` (ISO of startOfMonth) so
+   * we can do an exact offset query without recomputing positions.
+   */
+  const monthScrollInitSetRef = useRef(null);
+  if (monthScrollInitSetRef.current === null) {
+    monthScrollInitSetRef.current = new WeakSet();
+  }
+  const setupMonthScrollRef = useCallback((el) => {
+    if (!el) return;
+    const seen = monthScrollInitSetRef.current;
+    if (seen.has(el)) return;
+    seen.add(el);
+    const today = new Date();
+    const targetIso = startOfMonth(today).toISOString();
+    const scrollToToday = () => {
+      const block = el.querySelector(`[data-month="${targetIso}"]`);
+      if (!block) return;
+      // Use bounding-rect delta so this works regardless of which ancestor is
+      // the offsetParent. Pinning today's block to the top of the scroller
+      // means the user starts on the current month and scrolls UP to reveal
+      // earlier months / DOWN for upcoming months (Apple Calendar parity).
+      const blockRect = block.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      el.scrollTop = el.scrollTop + (blockRect.top - elRect.top);
+    };
+    // Ref callbacks fire after commit but before paint; on some mobile
+    // browsers the flex parent's height isn't finalized until the next frame,
+    // so the first scrollTop write can clamp. Run once now and once on the
+    // next animation frame for robustness.
+    scrollToToday();
+    requestAnimationFrame(scrollToToday);
+  }, []);
   /** When pointer path already called beginSwipeNav, skip duplicate touchend (same gesture). */
   const swipeConsumedThisGestureRef = useRef(false);
 
@@ -1805,10 +1968,10 @@ export default function CalendarScreenWeb() {
   // Touch fallback: some mobile browsers drop pointer capture / coalesce events
   // with nested scrollers. Touches still deliver touchstart/touchend reliably.
   useEffect(() => {
-    const el =
-      viewMode === "month"
-        ? monthSwipeSurfaceRef.current
-        : daySwipeSurfaceRef.current;
+    // Month view now scrolls vertically through stacked months (Apple-style),
+    // so horizontal swipe nav doesn't apply there.
+    if (viewMode === "month") return;
+    const el = daySwipeSurfaceRef.current;
     if (!el) return;
 
     const swipeTargetFilter = (target) => {
@@ -2082,59 +2245,71 @@ export default function CalendarScreenWeb() {
       ) : null}
 
       {viewMode === "month" ? (
-        <div
-          ref={monthSwipeSurfaceRef}
-          className="cal-monthSwipe"
-          onPointerDown={handleSwipePointerDown}
-          onPointerMove={handleSwipePointerMove}
-          onPointerUp={handleSwipePointerUp}
-          onPointerCancel={handleSwipePointerCancel}
-        >
-          <div className="cal-month">
-            <div className="cal-month__head">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((l) => (
-                <div key={l} className="cal-month__hcell">
-                  {l}
-                </div>
-              ))}
-            </div>
-            {monthWeeks.map((week, wi) => (
-              <div key={wi} className="cal-month__week">
-                {week.map((d) => {
-                  const inMonth = isSameMonth(d, currentDate);
-                  const dayDots = events
-                    .filter((a) => isSameDay(a.start, d))
-                    .sort((a, b) => a.start.getTime() - b.start.getTime())
-                    .slice(0, 3);
-                  const sheetSelected =
-                    monthSheetDate != null && isSameDay(d, monthSheetDate);
-                  return (
-                    <button
-                      type="button"
-                      key={d.toISOString()}
-                      className={`cal-month__cell${sheetSelected ? " is-selected" : ""}${
-                        !inMonth ? " is-muted" : ""
-                      }${isToday(d) ? " is-today" : ""}`}
-                      onClick={() => {
-                        setMonthSheetDate(d);
-                        setCurrentDate(d);
-                      }}
-                    >
-                      <div className="cal-month__num">{format(d, "d")}</div>
-                      <div className="cal-month__dots">
-                        {dayDots.map((apt) => (
-                          <span
-                            key={apt.id}
-                            className={`dot ${colorToDotClass(apt.color)}`}
-                            aria-hidden
-                          />
-                        ))}
-                      </div>
-                    </button>
-                  );
-                })}
+        <div ref={monthSwipeSurfaceRef} className="cal-monthSwipe">
+          {/* Day-of-week labels stay pinned at the top while the months
+              scroll underneath (Apple Calendar parity). */}
+          <div className="cal-month__head" aria-hidden>
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((l) => (
+              <div key={l} className="cal-month__hcell">
+                {l}
               </div>
             ))}
+          </div>
+          <div className="cal-monthScroll" ref={setupMonthScrollRef}>
+            {monthWindow.map((monthDate) => {
+              const weeks = monthWeeksFor(monthDate);
+              const monthIso = monthDate.toISOString();
+              return (
+                <div
+                  key={monthIso}
+                  data-month={monthIso}
+                  className="cal-monthBlock"
+                >
+                  <div className="cal-monthBlock__title">
+                    {format(monthDate, "MMMM yyyy")}
+                  </div>
+                  <div className="cal-monthBlock__weeks">
+                    {weeks.map((week, wi) => (
+                      <div key={wi} className="cal-month__week">
+                        {week.map((d) => {
+                          const inMonth = isSameMonth(d, monthDate);
+                          const dayDots = events
+                            .filter((a) => isSameDay(a.start, d))
+                            .sort((a, b) => a.start.getTime() - b.start.getTime())
+                            .slice(0, 3);
+                          const sheetSelected =
+                            monthSheetDate != null && isSameDay(d, monthSheetDate);
+                          return (
+                            <button
+                              type="button"
+                              key={d.toISOString()}
+                              className={`cal-month__cell${sheetSelected ? " is-selected" : ""}${
+                                !inMonth ? " is-muted" : ""
+                              }${isToday(d) ? " is-today" : ""}`}
+                              onClick={() => {
+                                setMonthSheetDate(d);
+                                setCurrentDate(d);
+                              }}
+                            >
+                              <div className="cal-month__num">{format(d, "d")}</div>
+                              <div className="cal-month__dots">
+                                {dayDots.map((apt) => (
+                                  <span
+                                    key={apt.id}
+                                    className={`dot ${colorToDotClass(apt.color)}`}
+                                    aria-hidden
+                                  />
+                                ))}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           {monthSheetDate ? (
             <div className="cal-monthDaySheet">
@@ -2231,7 +2406,7 @@ export default function CalendarScreenWeb() {
                     );
                     const dragTransform =
                       isDragging && dragOffset
-                        ? `translate(${dragOffset.dx}px, ${dragOffset.dy}px)`
+                        ? `translate3d(${dragOffset.dx}px, ${dragOffset.dy}px, 0)`
                         : undefined;
                     const visualHeight =
                       isDragging && resizeDelta !== 0
@@ -2338,7 +2513,7 @@ export default function CalendarScreenWeb() {
           const renderDayWeekBody = (baseDate) => {
             const columns = getColumnsFor(baseDate);
             return (
-              <div className="cal-day__scroll">
+              <div className="cal-day__scroll" ref={setupDayScrollRef}>
                 <div className="cal-day__axis" style={{ width: TIME_AXIS_WIDTH }}>
                   {hours.map((h) => (
                     <div

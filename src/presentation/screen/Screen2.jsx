@@ -809,15 +809,39 @@ export default function Screen2() {
   }, [stopVoice]);
 
   // ---------- Photo capture (LOOK pane) ----------
-  const photoInputRef = useRef(null);
+  // Two hidden inputs: one with `capture` for the camera, one without for the
+  // photo library. A small action sheet lets the user pick which source to use
+  // so they can either take a fresh photo or upload one from their camera roll.
+  const photoInputRef = useRef(null); // camera (capture="environment")
+  const photoGalleryInputRef = useRef(null); // library (no capture)
   const photoSlotRef = useRef(null); // index of slot being filled, or null = next free
+  const [lookPhotoSheetOpen, setLookPhotoSheetOpen] = useState(false);
 
   const openPhotoPicker = useCallback((slotIndex) => {
     photoSlotRef.current = typeof slotIndex === 'number' ? slotIndex : null;
-    if (photoInputRef.current) {
-      photoInputRef.current.value = '';
-      photoInputRef.current.click();
-    }
+    setLookPhotoSheetOpen(true);
+  }, []);
+
+  const triggerLookCamera = useCallback(() => {
+    setLookPhotoSheetOpen(false);
+    requestAnimationFrame(() => {
+      const input = photoInputRef.current;
+      if (input) {
+        input.value = '';
+        input.click();
+      }
+    });
+  }, []);
+
+  const triggerLookGallery = useCallback(() => {
+    setLookPhotoSheetOpen(false);
+    requestAnimationFrame(() => {
+      const input = photoGalleryInputRef.current;
+      if (input) {
+        input.value = '';
+        input.click();
+      }
+    });
   }, []);
 
   const handlePhotoChosen = useCallback((e) => {
@@ -2132,7 +2156,71 @@ export default function Screen2() {
             }}
             onChange={handlePhotoChosen}
           />
+          <input
+            ref={photoGalleryInputRef}
+            type="file"
+            accept="image/*"
+            aria-hidden
+            tabIndex={-1}
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              border: 0,
+              clip: 'rect(0 0 0 0)',
+              overflow: 'hidden',
+              opacity: 0,
+              pointerEvents: 'none',
+            }}
+            onChange={handlePhotoChosen}
+          />
       </div>
+      ) : null}
+
+      {lookPhotoSheetOpen ? (
+        <div
+          className="s2-avatarPhotoOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add LOOK photo"
+        >
+          <button
+            type="button"
+            className="s2-addProdBackdrop"
+            aria-label="Close"
+            onClick={() => setLookPhotoSheetOpen(false)}
+          />
+          <div className="s2-avatarPhotoSheet">
+            <h2 className="s2-avatarPhotoTitle">Add a photo</h2>
+            <div className="s2-avatarPhotoActions">
+              <button
+                type="button"
+                className="s2-avatarPhotoBtn"
+                onClick={triggerLookCamera}
+              >
+                <Camera size={22} weight="regular" aria-hidden />
+                <span>Take a photo</span>
+              </button>
+              <button
+                type="button"
+                className="s2-avatarPhotoBtn"
+                onClick={triggerLookGallery}
+              >
+                <ImageIcon size={22} weight="regular" aria-hidden />
+                <span>Choose from camera roll</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              className="s2-avatarPhotoCancel"
+              onClick={() => setLookPhotoSheetOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : null}
 
       {/* Note composer — absolute inside .s2-root (no visualViewport / keyboard avoiding). */}

@@ -110,6 +110,11 @@ function TimerModal({
     } else if (runningState && runningState.kind === 'stopwatchRunning') {
       setMode('stopwatch');
       setView('running');
+    } else if (runningState && runningState.kind === 'completed') {
+      // Timer ended — show the acknowledge/stop view so the user can turn off
+      // the blinking everywhere (S1 list, Screen2 LOOK row, Calendar bell).
+      setMode('timer');
+      setView('completed');
     } else {
       setMode(initialMode);
       setView('set');
@@ -149,8 +154,10 @@ function TimerModal({
   const startDisabled = mode === 'timer' && totalSec <= 0;
   const isExternalTimerRunning = runningState && runningState.kind === 'timerRunning';
   const isExternalStopwatchRunning = runningState && runningState.kind === 'stopwatchRunning';
+  const isExternalCompleted = runningState && runningState.kind === 'completed';
   const isExternalRunning = isExternalTimerRunning || isExternalStopwatchRunning;
   const showRunningView = view === 'running' && isExternalRunning;
+  const showCompletedView = view === 'completed' && isExternalCompleted;
 
   const handleStart = () => {
     if (mode === 'timer') {
@@ -197,6 +204,21 @@ function TimerModal({
     setMinutes(0);
   };
 
+  // Acknowledge a finished timer: clear the shared state (which stops the
+  // blinking on every surface — S1 cards, Screen2 LOOK row, Calendar bell).
+  const handleAcknowledgeCompleted = () => {
+    if (onStopTimer) onStopTimer();
+    else if (onClose) onClose();
+  };
+
+  // Start a fresh timer from the completed view without leaving the modal.
+  const handleSetNewFromCompleted = () => {
+    setMode('timer');
+    setView('set');
+    setHours(0);
+    setMinutes(0);
+  };
+
   let runningDisplay = '00:00:00';
   if (isExternalTimerRunning) runningDisplay = fmtClock(runningState.remainingMs);
   if (isExternalStopwatchRunning) runningDisplay = fmtClock(runningState.elapsedMs);
@@ -221,7 +243,28 @@ function TimerModal({
         <h2 className="timerModal__title">{mode === 'timer' ? 'Timer' : 'Stopwatch'}</h2>
         <div className="timerModal__client">{clientName}</div>
 
-        {showRunningView ? (
+        {showCompletedView ? (
+          <div className="timerModal__running timerModal__running--completed">
+            <div className="timerModal__runningLabel">TIMER ENDED</div>
+            <div className="timerModal__runningClock">00:00:00</div>
+            <div className="timerModal__primaryRow">
+              <button
+                type="button"
+                className="timerModal__btn timerModal__btn--primary"
+                onClick={handleAcknowledgeCompleted}
+              >
+                Stop
+              </button>
+              <button
+                type="button"
+                className="timerModal__btn timerModal__btn--ghost"
+                onClick={handleSetNewFromCompleted}
+              >
+                Set new
+              </button>
+            </div>
+          </div>
+        ) : showRunningView ? (
           <div className="timerModal__running">
             <div className="timerModal__runningLabel">RUNNING</div>
             <div className="timerModal__runningClock">{runningDisplay}</div>

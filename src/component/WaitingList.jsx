@@ -1,19 +1,13 @@
 import React, { useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { accentCardGradientCss } from '../theme/primaryTheme';
+import {
+  useCalendarParked,
+  useCalendarWaitlist,
+} from '../data/calendarEventsStore';
 
 const CARD_WIDTH = 380;
 const CARD_HEIGHT = 28;
-
-const waitingClients = [
-  { name: 'John Doe', service: 'Need Attention' },
-  { name: 'Jane Smith', service: 'Need Attention' },
-  { name: 'Alice Johnson', service: 'Need Attention' },
-  { name: 'Marcus Lee', service: 'Walk-in · Cut' },
-  { name: 'Priya Shah', service: 'Color consult' },
-  { name: 'Diego Ramos', service: 'Beard trim' },
-  { name: 'Emma Park', service: 'Blowout' },
-];
 
 const containerStyle = {
   display: 'flex',
@@ -41,6 +35,14 @@ const waitingListHeaderStyle = {
 const innerFlexStyle = {
   display: 'flex',
   alignItems: 'center',
+};
+
+const headerCountStyle = {
+  fontSize: '9px',
+  fontWeight: 600,
+  color: 'rgba(245, 245, 247, 0.55)',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
 };
 
 const clientsContainerStyle = {
@@ -87,8 +89,51 @@ const clientServiceStyle = {
   textOverflow: 'ellipsis',
 };
 
+const clientServiceAttentionStyle = {
+  ...clientServiceStyle,
+  color: '#FF6B6B',
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+};
+
+const emptyStyle = {
+  padding: '14px 14px',
+  fontSize: '10px',
+  color: 'rgba(245, 245, 247, 0.5)',
+  fontStyle: 'italic',
+  textAlign: 'center',
+};
+
+// The Stylist's "Waiting List" panel mirrors the Calendar screen's two staging
+// queues:
+//   • Parked appointments — cards the stylist dragged off the schedule for
+//     reasons like "client didn't show / running late". They need attention
+//     because they have to be re-booked into a slot.
+//   • Waitlist entries — clients who asked for an opening but haven't been
+//     given a time yet.
+// Both lists live in the Calendar screen's persisted state ("@salonx/calendar/v1")
+// and update in-tab via the "salonx:calendar-updated" CustomEvent, so this
+// list reflects every park/un-park/book action immediately.
 function WaitingList() {
   const { primaryHex } = useTheme();
+  const parked = useCalendarParked();
+  const waitlist = useCalendarWaitlist();
+
+  const items = useMemo(() => {
+    const parkedRows = parked.map((p) => ({
+      key: `parked-${p.id}`,
+      name: p.title || 'Unknown',
+      service: 'Need Attention',
+      isAttention: true,
+    }));
+    const waitlistRows = waitlist.map((w) => ({
+      key: `wait-${w.id}`,
+      name: w.title || 'Unknown',
+      service: w.service || 'Waiting',
+      isAttention: false,
+    }));
+    return [...parkedRows, ...waitlistRows];
+  }, [parked, waitlist]);
 
   const { indicatorDotStyle, waitingListHeaderTextStyle, cardOuterStyle } = useMemo(() => {
     const h = primaryHex;
@@ -127,17 +172,30 @@ function WaitingList() {
           <div style={indicatorDotStyle} />
           <h1 style={waitingListHeaderTextStyle}>Waiting List</h1>
         </div>
+        <span style={headerCountStyle} aria-label={`${items.length} entries`}>
+          {items.length}
+        </span>
       </div>
 
       <div style={clientsContainerStyle}>
-        {waitingClients.map((client, index) => (
-          <div key={index} style={cardOuterStyle}>
-            <div style={cardInnerStyle}>
-              <span style={clientNameStyle}>{client.name}</span>
-              <span style={clientServiceStyle}>{client.service}</span>
+        {items.length === 0 ? (
+          <div style={emptyStyle}>No parked appointments or waitlist clients</div>
+        ) : (
+          items.map((client) => (
+            <div key={client.key} style={cardOuterStyle}>
+              <div style={cardInnerStyle}>
+                <span style={clientNameStyle}>{client.name}</span>
+                <span
+                  style={
+                    client.isAttention ? clientServiceAttentionStyle : clientServiceStyle
+                  }
+                >
+                  {client.service}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
