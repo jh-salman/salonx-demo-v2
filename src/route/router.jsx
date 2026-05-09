@@ -8,6 +8,7 @@ import Calendar from "../presentation/screen/Calendar";
 import CheckOut from "../presentation/screen/CheckOut";
 import Clients from "../presentation/screen/Clients";
 import SettingsScreen from "../presentation/screen/SettingsScreen";
+import Screen1DemoImage from "../presentation/screen/Screen1DemoImage";
 
 
 export const router = createBrowserRouter([
@@ -18,6 +19,10 @@ export const router = createBrowserRouter([
   {
     path: "/screen1",
     element: <Screen1 />
+  },
+  {
+    path: "/s1-demo-image",
+    element: <Screen1DemoImage />
   },
   {
     path: "/screen2",

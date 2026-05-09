@@ -1,8 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="393" height="852" viewBox="0 0 393 991" fill="none" preserveAspectRatio="none">
-  <rect width="393" height="991" fill="white" />
-  <path
-    transform="translate(294,0)"
-    fill="black"
-    d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204L97.8204 990C97.8204 990 61.3252 876.218 47.0977 803C36.5403 748.669 29.3354 718.167 25.2381 663C21.4776 612.367 20.8527 583.585 25.2381 533C32.7946 445.839 72.5158 340 77.5995 315C82.6831 290 100.984 245 90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
-  />
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Alpha-friendly mask for Screen1 panels (via CSS mask-mode: alpha on WebKit/iOS).
+
+  Raster output: opaque white everywhere except the curved strip bite, where pixels
+  are fully transparent — avoids Safari issues with luminance interpretation of SVG
+  black/white composites.
+
+  Frame 398×852 matches screen1-background mask canvas (see screen1.css).
+  Curve path + matrix stay in sync with CurvedLine / curve-strip-content-mask.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="398" height="852" viewBox="0 0 398 852" preserveAspectRatio="none">
+  <defs>
+    <mask
+      id="s1CurveBite"
+      maskUnits="userSpaceOnUse"
+      maskContentUnits="userSpaceOnUse"
+      x="0"
+      y="0"
+      width="398"
+      height="852"
+    >
+      <rect width="398" height="852" fill="#ffffff"/>
+      <g transform="matrix(0.8552631578947368 0 0 0.8756423422399794 333 0)">
+        <path
+          fill="#000000"
+          d="M38.0749 377.503C40.2632 368.048 41.483 362.743 43.5986 353.252C43.5986 353.252 68.8256 287.211 72.8383 223.827L72.8598 217.5V192.646C72.1107 182.231 70.5056 172.232 67.8085 163C63.6493 148.763 60.061 143.055 52.163 130.5C48.4975 124.673 45.3306 121.059 40.663 116C34.2897 109.092 30.4741 106.465 24.163 99.5C-1.3427 71.3515 2.16299 2 2.16299 2H72.8598V192.646C73.5868 202.753 73.5077 213.253 72.8383 223.827L70.2967 972C70.2967 972 65.8077 950.628 62.9317 936.933L55.5667 901.866C55.5667 901.866 51.2177 879.297 48.4319 864.833C45.6452 850.371 44.0138 842.29 41.2971 827.8L40.4447 823.256C35.4621 796.696 32.417 780.465 27.9481 752.423C23.5632 724.91 21.2141 709.353 17.8213 681.634C13.7903 648.701 10.7518 630.376 9.53567 597.08C8.28362 562.803 8.4079 543.224 11.8372 509.25C14.9692 478.217 18.8533 461.278 25.1862 431.251C29.666 410.009 33.1984 398.568 38.0749 377.503Z"
+        />
+      </g>
+    </mask>
+  </defs>
+  <rect width="398" height="852" fill="#ffffff" mask="url(#s1CurveBite)"/>
 </svg>

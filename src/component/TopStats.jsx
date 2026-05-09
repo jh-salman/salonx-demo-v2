@@ -182,7 +182,8 @@ const TopStats = () => {
 const wrapperStyle = {
   position: "relative",
   margin: "0 auto",
-  textAlign: "center"
+  textAlign: "center",
+  transform: "translateY(-50px)"
 };
 const sliderWrapperStyle = {
   position: "absolute",

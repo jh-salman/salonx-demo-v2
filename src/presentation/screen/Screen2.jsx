@@ -1211,9 +1211,39 @@ export default function Screen2() {
           />
         </svg>
       </div>
+      {/* Today's date — mirrors Calendar's right-side stamp; sits over the top-right curve */}
+      <div className="s2-rightStamp" aria-hidden>
+        <div className="s2-rightStamp__dow">
+          {new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+        </div>
+        <div className="s2-rightStamp__num">{new Date().getDate()}</div>
+      </div>
 
       {/* TOP BAR */}
       <div className="s2-topbar">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
         <button
           type="button"
           className="s2-back"
@@ -1474,7 +1504,7 @@ export default function Screen2() {
         </div>
 
         <div className="s2-section">
-          <div className={`s2-pill s2-pill--neutral${s2Workflow.services ? ' s2-pill--workflowComplete' : ''}`}>Services</div>
+          <div className={`s2-pill s2-pill--neutral${s2Workflow.services ? ' s2-pill--workflowComplete' : ''}`}>Create</div>
           <div className={`s2-card s2-card--v13 s2-svcCard${s2Workflow.services ? ' s2-workflowSurface--visited' : ''}`}>
             <div className="s2-quadRow" aria-label="Services">
               {[0, 1].map((ix) => {
@@ -1607,7 +1637,7 @@ export default function Screen2() {
         </div>
 
         <div className="s2-section">
-          <div className={`s2-pill s2-pill--neutral${s2Workflow.lift ? ' s2-pill--workflowComplete' : ''}`}>BACK BAR</div>
+          <div className={`s2-pill s2-pill--neutral${s2Workflow.lift ? ' s2-pill--workflowComplete' : ''}`}>FINISH</div>
           <div className={`s2-card s2-card--v13 s2-hcCard${s2Workflow.lift ? ' s2-workflowSurface--visited' : ''}`}>
             <div className="s2-quadRow" aria-label="Back bar products">
               {[0, 1].map((ix) => {
@@ -1781,6 +1811,29 @@ export default function Screen2() {
 
       {consultOpen ? (
         <div className="nc-popup" role="dialog" aria-modal="true" aria-label="Consultation brief">
+          <div className="nc-topRightCurve" aria-hidden>
+            <svg
+              width="99"
+              height="216"
+              viewBox="0 0 99 216"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204V235.5L90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
+                fill="#1F1C1C"
+                stroke="var(--salonx-primary)"
+                strokeWidth="2"
+                vectorEffect="nonScalingStroke"
+              />
+            </svg>
+          </div>
+          <div className="nc-rightStamp" aria-hidden>
+            <div className="nc-rightStamp__dow">
+              {new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+            </div>
+            <div className="nc-rightStamp__num">{new Date().getDate()}</div>
+          </div>
           <div className="nc-pu-top">
             <button type="button" className="nc-close-x" aria-label="Close" onClick={closeConsultBrief}>
               ✕
@@ -2470,7 +2523,7 @@ export default function Screen2() {
             </div>
           </div>
             <footer className="s2-svcPickQueue s2-prodPickQueue">
-              <div className="s2-svcPickQueue__label">BACK BAR</div>
+              <div className="s2-svcPickQueue__label">FINISH</div>
               <div className="s2-svcPickQueue__row">
                 {productQueue.map((p, qi) => (
                   <div key={`${p.id}-${qi}`} className="s2-svcPickQueueCard">

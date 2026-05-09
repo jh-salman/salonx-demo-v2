@@ -235,11 +235,12 @@
   /* Let horizontal swipes pass to parent `.cal-day` (day navigation); vertical scroll stays native */
   touch-action: pan-y;
   /* Axis labels sit at `top: -6px` relative to their row, so the first row's
-     "12 AM" label would clip above the scroll origin. Add a small inner pad
-     so the bookend labels (top "12 AM" and bottom next-day "12 AM") render in
-     full at the extremes of the scroll. */
-  padding-top: 10px;
-  padding-bottom: 10px;
+     "12 AM" label would clip above the scroll origin. Add inner padding so
+     the bookend labels (top "12 AM" and bottom next-day "12 AM") render in
+     full at the extremes of the scroll. iOS Safari needs a few extra px to
+     account for line-height rounding on small text. */
+  padding-top: 14px;
+  padding-bottom: 14px;
   box-sizing: border-box;
 }
 .cal-day__scroll::-webkit-scrollbar{
@@ -291,12 +292,23 @@
 .cal-axis__row{
   position:relative;
 }
+/* Right-align the hour label inside the axis so all numbers sit just before
+   the gridline (Apple Calendar style). 8-px right inset keeps the label
+   readable and away from the grid border, and the 4-px left inset prevents
+   any hint of clipping on iOS Safari where the system font is a touch wider
+   than desktop fonts. */
 .cal-axis__label{
   position:absolute;
   top: -6px;
-  left:0;
-  font-size: 10px;
-  opacity:0.6;
+  left: 4px;
+  right: 8px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: rgba(245, 245, 247, 0.78);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .cal-day__grid{
@@ -1284,18 +1296,18 @@
 }
 /* Same placement as Screen2 `.s2-topRightCurve` (client details top-right deco). */
 .cal-deco--topRightCurve {
-  top: -30px;
-  right: -25px;
+  top: -35px;
+  right: -30px;
   z-index: 15;
-  width: 99px;
-  height: 216px;
+  width: 88px;
+  height: 200px;
   line-height: 0;
   filter: drop-shadow(0 0 3px rgba(var(--salonx-primary-rgb), 0.45));
 }
 .cal-deco--topRightCurve svg {
   display: block;
-  width: 99px;
-  height: 216px;
+  width: 88px;
+  height: 200px;
 }
 
 .cal-deco--rightStamp {

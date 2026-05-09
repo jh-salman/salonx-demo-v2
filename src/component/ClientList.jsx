@@ -16,7 +16,10 @@ import { useTheme } from '../context/ThemeContext';
 import { accentCardGradientCss } from '../theme/primaryTheme';
 
 const CARD_WIDTH = 380;
-const CARD_HEIGHT = 56;
+const CARD_HEIGHT = 70;
+
+/** Screen1: same gap between L3, appointment rows, and waiting list (matches panel inset). */
+const S1_CARD_STACK_GAP_PX = 8;
 
 const ClientCard = ({
   cardId,
@@ -33,7 +36,7 @@ const ClientCard = ({
     position: 'relative',
     width: `${CARD_WIDTH}px`,
     height: `${CARD_HEIGHT}px`,
-    marginBottom: '6px',
+    marginBottom: `${S1_CARD_STACK_GAP_PX}px`,
     padding: '1.5px',
     borderRadius: '11.5px',
     background: cardGradient,
@@ -47,6 +50,7 @@ const ClientCard = ({
     height: '100%',
     background: '#1A1A1A',
     borderRadius: '10px',
+    /* right padding: room for timer + curve — nudged 20px toward curve vs older 92px */
     padding: '8px 72px 8px 14px',
     display: 'flex',
     alignItems: 'center',
@@ -124,13 +128,13 @@ const ClientCard = ({
 // Screen2 -> Climax then propagates the apt so checkout reads the per-
 // appointment service / product queue from `appointmentStateStore`.
 
-const ClientList = () => {
+const ClientList = ({ stylistFromPath = '/screen1' }) => {
   const { primaryHex } = useTheme();
   const cardGradient = useMemo(() => accentCardGradientCss(primaryHex), [primaryHex]);
 
   const wrapperStyle = {
     width: '100%',
-    padding: '6px 0 8px',
+    padding: '0',
     boxSizing: 'border-box',
   };
 
@@ -201,10 +205,10 @@ const ClientList = () => {
       if (!apt) return;
       // Persist for refresh-survival (Screen2 reads it back if `state` is gone),
       // including the origin so Screen2's Back button returns to Stylist.
-      writePersistedScreen2Apt(apt, '/screen1');
-      navigate('/screen2', { state: { apt, from: '/screen1' } });
+      writePersistedScreen2Apt(apt, stylistFromPath);
+      navigate('/screen2', { state: { apt, from: stylistFromPath } });
     },
-    [navigate],
+    [navigate, stylistFromPath],
   );
 
   const handleTimerBoxClick = useCallback((name) => {
@@ -256,7 +260,7 @@ const ClientList = () => {
   return (
     <div style={wrapperStyle}>
       {todaysAppointments.map((a) => (
-        <ClientCard
+      <ClientCard
           key={a.id}
           cardId={a.name}
           name={a.name}

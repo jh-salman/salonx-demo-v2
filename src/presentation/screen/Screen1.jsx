@@ -102,16 +102,12 @@ function Screen1() {
                         </div>
                         <div className="client-list-wrapper client-list" style={{transform: isTimer ? "translateX(-100%)" : "translateX(0%)"}} >
                             <ClientList />
-
+                            <WaitingList />
                         </div>
                         <div className="timer-panel" style={{transform: isTimer ? "translateX(0%)" : "translateX(-100%)"}}>
 
                             <SetTimmer />
 
-
-                        </div>
-                        <div className="waiting-list-wrapper waiting-list">
-                            <WaitingList />
 
                         </div>
                         <div className="screen1-toolbar" role="toolbar" aria-label="Screen toolbar">

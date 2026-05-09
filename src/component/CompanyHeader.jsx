@@ -9,7 +9,8 @@ function CompanyHeader() {
     padding: '1.5px',
     background: accentCardGradientCss(primaryHex),
     borderRadius: '11.5px',
-    width: '380px',
+    width: '100%',
+    maxWidth: '100%',
     height: '70px',
     boxSizing: 'border-box',
   };

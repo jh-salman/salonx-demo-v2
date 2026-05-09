@@ -7,7 +7,11 @@ import {
 } from '../data/calendarEventsStore';
 
 const CARD_WIDTH = 380;
-const CARD_HEIGHT = 28;
+/** 2× former 28px mini rows; shorter than ~70px appointment cards */
+const CARD_HEIGHT = 56;
+
+/** Screen1: matches appointment card stack + L3 inset (see ClientList). */
+const S1_CARD_STACK_GAP_PX = 8;
 
 const containerStyle = {
   display: 'flex',
@@ -16,6 +20,9 @@ const containerStyle = {
   justifyContent: 'flex-start',
   width: '100%',
   boxSizing: 'border-box',
+  marginTop: 0,
+  paddingBottom: '14px',
+  gap: S1_CARD_STACK_GAP_PX,
 };
 
 const waitingListHeaderStyle = {
@@ -25,10 +32,10 @@ const waitingListHeaderStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  padding: '10px 14px 6px',
+  padding: '6px 14px',
   width: '100%',
   background: '#0a0a0c',
-  boxShadow: '0 6px 12px -8px rgba(0, 0, 0, 0.6)',
+  boxShadow: '0 6px 10px -10px rgba(0, 0, 0, 0.55)',
   boxSizing: 'border-box',
 };
 
@@ -49,9 +56,9 @@ const clientsContainerStyle = {
   display: 'flex',
   flexDirection: 'column',
   width: '100%',
-  padding: '6px 0 6px',
+  padding: '0 0 4px',
   boxSizing: 'border-box',
-  gap: '6px',
+  gap: S1_CARD_STACK_GAP_PX,
 };
 
 const cardInnerStyle = {
@@ -59,8 +66,9 @@ const cardInnerStyle = {
   width: '100%',
   height: '100%',
   background: '#1A1A1A',
-  borderRadius: '6.5px',
-  padding: '0 50px 0 12px',
+  borderRadius: '9px',
+  /* matches ClientList: +20px right padding to clear the right-edge curve */
+  padding: '2px 74px 2px 14px',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
@@ -69,36 +77,31 @@ const cardInnerStyle = {
 };
 
 const clientNameStyle = {
-  fontSize: '11px',
+  fontSize: '13px',
   fontWeight: 700,
   color: '#f5f5f7',
   margin: 0,
-  lineHeight: 1,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-};
-
-const clientServiceStyle = {
-  fontSize: '9.5px',
-  color: 'rgba(245, 245, 247, 0.6)',
-  margin: 0,
-  lineHeight: 1,
+  lineHeight: 1.2,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
 };
 
 const clientServiceAttentionStyle = {
-  ...clientServiceStyle,
+  fontSize: '11px',
+  margin: 0,
+  lineHeight: 1.2,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
   color: '#FF6B6B',
   fontWeight: 700,
   letterSpacing: '0.04em',
 };
 
 const emptyStyle = {
-  padding: '14px 14px',
-  fontSize: '10px',
+  padding: '18px 14px',
+  fontSize: '11px',
   color: 'rgba(245, 245, 247, 0.5)',
   fontStyle: 'italic',
   textAlign: 'center',
@@ -119,18 +122,18 @@ function WaitingList() {
   const parked = useCalendarParked();
   const waitlist = useCalendarWaitlist();
 
+  // Both queues (parked appointments + waitlist clients) read as "Need
+  // Attention" on Stylist — the row's name is the only differentiator the
+  // stylist needs there, and the right-hand label is the universal call to
+  // action regardless of which queue produced the row.
   const items = useMemo(() => {
     const parkedRows = parked.map((p) => ({
       key: `parked-${p.id}`,
       name: p.title || 'Unknown',
-      service: 'Need Attention',
-      isAttention: true,
     }));
     const waitlistRows = waitlist.map((w) => ({
       key: `wait-${w.id}`,
       name: w.title || 'Unknown',
-      service: w.service || 'Waiting',
-      isAttention: false,
     }));
     return [...parkedRows, ...waitlistRows];
   }, [parked, waitlist]);
@@ -139,15 +142,15 @@ function WaitingList() {
     const h = primaryHex;
     return {
       indicatorDotStyle: {
-        width: '8px',
-        height: '8px',
+        width: '10px',
+        height: '10px',
         background: h,
         borderRadius: '50%',
         boxShadow: `0 0 8px ${h}`,
       },
       waitingListHeaderTextStyle: {
         color: h,
-        fontSize: '0.6rem',
+        fontSize: '0.72rem',
         fontWeight: 'bold',
         paddingLeft: '10px',
         margin: 0,
@@ -157,8 +160,8 @@ function WaitingList() {
         position: 'relative',
         width: `${CARD_WIDTH}px`,
         height: `${CARD_HEIGHT}px`,
-        padding: '1px',
-        borderRadius: '7.5px',
+        padding: '1.5px',
+        borderRadius: '10.5px',
         background: accentCardGradientCss(primaryHex),
         boxSizing: 'border-box',
       },
@@ -185,13 +188,7 @@ function WaitingList() {
             <div key={client.key} style={cardOuterStyle}>
               <div style={cardInnerStyle}>
                 <span style={clientNameStyle}>{client.name}</span>
-                <span
-                  style={
-                    client.isAttention ? clientServiceAttentionStyle : clientServiceStyle
-                  }
-                >
-                  {client.service}
-                </span>
+                <span style={clientServiceAttentionStyle}>Need Attention</span>
               </div>
             </div>
           ))

@@ -1,9 +1,13 @@
-.date-screen1   {
-        position: absolute;
-    top: 4px;
-    right: 20px;
-    z-index: 1000;
-    cursor: pointer;
+.date-screen1 {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  text-align: right;
+  color: #fff;
 }
 
 .screen1-container {
@@ -30,12 +34,17 @@
   /* Main curve strip — same numbers as `.curvedline-container` + `CurvedLine` width */
   --s1-bg-w: 393px;
   --s1-bg-h: 852px;
-  --s1-curve-top: -10px;
+  --s1-curve-top: -5px;
   --s1-curve-right: -5px;
-  --s1-curve-w: 99px;
+  --s1-curve-w: 65px;
   --s1-curve-h: var(--s1-bg-h);
-  /* `curve-mask.svg` path translate-x = strip left minus this (strip left ≈ 393 + 5 − 99) */
-  --s1-curve-mask-gap: 5px;
+  /* Curve sits at `right: var(--s1-curve-right)` so it overhangs the screen
+     by `|--s1-curve-right|` px on the right. The mask canvas needs to extend
+     by the SAME amount so the cutout lines up with the visible curve.
+     Mask cutout left edge in mask-coords = (--s1-bg-w − --s1-curve-w + |--s1-curve-right|) */
+  --s1-mask-w: calc(var(--s1-bg-w) + 5px); /* = 398px, screen + 5px curve-overhang */
+  /* Left edge of cutout in mask coords = mask canvas W − curve strip W = (--s1-bg-w + |overhang|) − curve-w (+ nudge if SVG edited) */
+  --s1-mask-cut-x: calc(var(--s1-bg-w) - var(--s1-curve-w) + 5px); /* +5 matches curve right: -5 overhang → pairs with curve-mask translate */
 }
 
 /* When profile / muse slider is slid off left — tap to bring it back */
@@ -93,7 +102,7 @@
   top: 0;
   left: 5px;
   width: 380px;
-  height: 250px;
+  height: 203px;
   z-index: 2;
   transition: transform 0.5s ease;
 }
@@ -103,37 +112,45 @@
   top: 0;
   left: 5px;
   width: 380px;
-  height: 250px;
+  height: 203px;
   z-index: 1;
 }
 
 .company-header {
+  /* Explicit mask vars so mask-size never falls through if inheritance breaks on WebKit. */
+  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
+  --s1-curve-h: var(--s1-bg-h, 852px);
+  /* L3VEL3 row: keep 5px left inset; width +10px vs former 385px (aligned with client list column). */
   --s1-panel-left: 5px;
-  --s1-panel-top: 270px;
-  width: 385px;
+  --s1-panel-top: 208px;
+  width: 395px;
   height: 70px;
   top: var(--s1-panel-top);
   position: absolute;
   left: var(--s1-panel-left);
+  box-sizing: border-box;
   -webkit-mask-image: url('/curve-mask.svg');
   mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
-  mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  mask-size: var(--s1-mask-w) var(--s1-curve-h);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: calc(-1 * var(--s1-panel-left))
     calc(var(--s1-curve-top) - var(--s1-panel-top));
   mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: luminance;
-  mask-mode: luminance;
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
 }
 
 /* Mask: same frame as `.screen1-background`; curve hole matches `.curvedline-container` (see `public/curve-mask.svg`). */
 .client-list-wrapper {
+  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
+  --s1-curve-h: var(--s1-bg-h, 852px);
   --s1-panel-left: 5px;
-  --s1-panel-top: 346px;
+  --s1-panel-top: 286px;
   width: 395px;
-  height: 316px;
+  /* Scroll appointments + Waiting List / Needs attention in one column; toolbar sits above at 790px */
+  height: 504px;
   top: var(--s1-panel-top);
   position: absolute;
   left: var(--s1-panel-left);
@@ -145,71 +162,52 @@
   -ms-overflow-style: none;
   -webkit-mask-image: url('/curve-mask.svg');
   mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
-  mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  mask-size: var(--s1-mask-w) var(--s1-curve-h);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: calc(-1 * var(--s1-panel-left))
     calc(var(--s1-curve-top) - var(--s1-panel-top));
   mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: luminance;
-  mask-mode: luminance;
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
 }
 .client-list-wrapper::-webkit-scrollbar {
   display: none;
 }
 
 .timer-panel {
+  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
+  --s1-curve-h: var(--s1-bg-h, 852px);
   --s1-panel-left: 5px;
-  --s1-panel-top: 340px;
+  --s1-panel-top: 286px;
   position: absolute;
   top: var(--s1-panel-top);
   left: var(--s1-panel-left);
   width: 380px;
-  height: 250px;
+  height: 384px;
   z-index: 2;
   transition: transform 0.5s ease;
   -webkit-mask-image: url('/curve-mask.svg');
   mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
-  mask-size: var(--s1-bg-w) var(--s1-curve-h);
+  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  mask-size: var(--s1-mask-w) var(--s1-curve-h);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: calc(-1 * var(--s1-panel-left))
     calc(var(--s1-curve-top) - var(--s1-panel-top));
   mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: luminance;
-  mask-mode: luminance;
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
 }
 
-.waiting-list-wrapper {
-  --s1-panel-left: 5px;
-  --s1-panel-top: 652px;
-  position: absolute;
-  top: var(--s1-panel-top);
-  left: var(--s1-panel-left);
-  width: 380px;
-  height: 136px;
-  z-index: 2;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-mask-image: url('/curve-mask.svg');
-  mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-bg-w) var(--s1-curve-h);
-  mask-size: var(--s1-bg-w) var(--s1-curve-h);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
-    calc(var(--s1-curve-top) - var(--s1-panel-top));
-  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: luminance;
-  mask-mode: luminance;
-}
-.waiting-list-wrapper::-webkit-scrollbar {
-  display: none;
+/* WebKit/iOS: promote masked regions without touching `transform` (client list uses inline translateX). */
+.company-header,
+.client-list-wrapper,
+.timer-panel,
+.screen1-container--demoImage .s1demo-grayStack,
+.screen1-container--demoImage .s1demo-grayPromo {
+  isolation: isolate;
 }
 
 .screen1-toolbar {
@@ -300,11 +298,11 @@
 }
 .timerModal__panel {
   position: absolute;
-  /* Match the appointment-list section bounds exactly */
-  top: 346px;
+  /* Match the appointment-list + waiting list scroll section bounds */
+  top: 286px;
   left: 5px;
   width: 380px;
-  height: 316px;
+  height: 504px;
   z-index: 1;
   background: #0a0a0c;
   border: 1.5px solid rgba(var(--salonx-primary-rgb), 0.6);
@@ -515,4 +513,592 @@
   color: var(--salonx-primary);
   border-color: var(--salonx-primary);
   box-shadow: 0 0 14px rgba(var(--salonx-primary-rgb), 0.18);
+}
+
+/* ---- S1 demo image route (/s1-demo-image) — gray wireframe placeholders ---- */
+/*
+ * Size the two gray blocks here (width / height):
+ *   --s1demo-gray-top-w, --s1demo-gray-top-h  → thin top bar
+ *   --s1demo-gray-hero-w, --s1demo-gray-hero-h → larger block below it
+ *   --s1demo-gray-hero-bleed-r → widens stacked block to screen right edge
+ *   --s1demo-gray-stack-margin-top → MUST match masked stack vertical offset from screen top
+ *   --s1demo-gray-promo-top → masked promo row absolute top (curve mask aligns to this Y)
+ * Optional: --s1demo-gray-stack-gap (space between them)
+ * Pinch modal placement preview: keep DEMO_SLOT_PLACEMENT_BOX in Screen1DemoImage.jsx aligned with these boxes.
+ */
+.screen1-container--demoImage {
+  --s1demo-gray-top-w: 100%;
+  --s1demo-gray-top-h: 20px;
+  --s1demo-gray-hero-w: 100%;
+  --s1demo-gray-hero-h: 157px;
+  --s1demo-gray-stack-gap: 0px;
+  /* Matches .profile-panel: left 5px + width 380px ⇒ bleed to bg right edge under the curve strip */
+  --s1demo-gray-hero-bleed-r: calc(var(--s1-bg-w, 393px) - 385px);
+  /* Must match .s1demo-grayStack margin-top — drives mask vertical alignment */
+  --s1demo-gray-stack-margin-top: 20px;
+  /* Promo row; keep in sync with .s1demo-grayPromo { top } */
+  --s1demo-gray-promo-top: 215px;
+}
+
+/* Demo profile slot: allow curved mask + widened hero bleed */
+.screen1-container--demoImage .profile-panel.s1demo-panelSlot {
+  overflow: visible;
+}
+
+.screen1-container--demoImage .s1demo-grayStack {
+  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
+  --s1-curve-h: var(--s1-bg-h, 852px);
+  --s1-panel-left: 5px;
+  --s1-panel-top: var(--s1demo-gray-stack-margin-top);
+  margin-top: var(--s1demo-gray-stack-margin-top);
+  /* Widen with hero so mask cuts one shape for top bar + hero */
+  width: calc(100% + var(--s1demo-gray-hero-bleed-r));
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* gap: var(--s1demo-gray-stack-gap); */
+  box-sizing: border-box;
+  pointer-events: none;
+  -webkit-mask-image: url('/curve-mask.svg');
+  mask-image: url('/curve-mask.svg');
+  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
+    calc(var(--s1-curve-top) - var(--s1-panel-top));
+  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
+}
+.screen1-container--demoImage .s1demo-grayStack__topBar {
+  flex: 0 0 var(--s1demo-gray-top-h);
+  width: var(--s1demo-gray-top-w);
+  max-width: 100%;
+  align-self: flex-start;
+  border-radius: 11px;
+  background: #3c3c40;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.screen1-container--demoImage .s1demo-grayStack__hero {
+  margin-top: 10px;
+  flex: 0 0 var(--s1demo-gray-hero-h);
+  box-sizing: border-box;
+  /* Full width of widened stack — right edge meets curve via parent mask */
+  width: 100%;
+  max-width: none;
+  align-self: flex-start;
+  border-radius: 16px;
+  background: #2d2d32;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.screen1-container--demoImage .s1demo-grayPromo {
+  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
+  --s1-curve-h: var(--s1-bg-h, 852px);
+  --s1-panel-left: 5px;
+  --s1-panel-top: var(--s1demo-gray-promo-top);
+  position: absolute;
+  top: var(--s1-panel-top);
+  left: var(--s1-panel-left);
+  width: 395px;
+  height: 70px;
+  z-index: 2;
+  box-sizing: border-box;
+  border-radius: 15px;
+  background: #3a3a3f;
+  border: 1.5px solid rgba(var(--salonx-primary-rgb), 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+  -webkit-mask-image: url('/curve-mask.svg');
+  mask-image: url('/curve-mask.svg');
+  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
+    calc(var(--s1-curve-top) - var(--s1-panel-top));
+  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
+}
+
+/* Demo only: uploads sit on the right rail under the neon stroke (`CurvedLine hideBodyFill`). */
+.screen1-container--demoImage .curvedline-container.curvedline-container--demoSlot {
+  pointer-events: auto;
+}
+
+.screen1-container--demoImage .s1demo-curveStripLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.screen1-container--demoImage .curvedline-container--demoSlot .curvedline-svg {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+
+.screen1-container--demoImage .s1demo-curveStripSlot.s1demo-slot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: #000000;
+  /* Clip slot + image to the silhouette right of the neon curve (see `public/curve-strip-content-mask.svg`). */
+  /* Promote own compositing layer — WebKit/iOS often fails to apply SVG masks without it. */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-mask-image: url('/curve-strip-content-mask.svg');
+  mask-image: url('/curve-strip-content-mask.svg');
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
+}
+
+.screen1-container--demoImage .s1demo-curveStripSlot .s1demo-slot__hint {
+  font-size: 8px;
+  padding: 0 2px;
+}
+
+/* Demo image slots — upload + zoom (pointer-events on slot; stack parent stays none) */
+.screen1-container--demoImage .s1demo-fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.screen1-container--demoImage .s1demo-slot {
+  position: relative;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.screen1-container--demoImage .s1demo-grayPromo.s1demo-slot {
+  pointer-events: auto;
+}
+
+.screen1-container--demoImage .s1demo-slot:focus-visible {
+  outline: 2px solid rgba(var(--salonx-primary-rgb), 0.7);
+  outline-offset: 2px;
+}
+
+.screen1-container--demoImage .s1demo-slot__imgLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.screen1-container--demoImage .s1demo-slot__imgLayer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
+  /* Route all touches to the slot (not the `<img>` target) so pointer capture
+     and pinch reliably fire the same on mobile + desktop. */
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+
+.screen1-container--demoImage .s1demo-slot__hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.38);
+  pointer-events: none;
+}
+
+.screen1-container--demoImage .s1demo-slot--compact .s1demo-slot__hint {
+  font-size: 8px;
+}
+
+/* Inline pinch / drag gestures on the demo slots themselves
+   (no popup — the slot is its own resize surface).
+   `touch-action: none` prevents the browser from stealing pinch as page-zoom
+   and `cursor: grab` hints the gesture on desktop. */
+.s1demo-slot.s1demo-slot--interactive {
+  touch-action: none;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.s1demo-slot.s1demo-slot--interactive:active {
+  cursor: grabbing;
+}
+
+/* Locked: another slot is being edited; this one shouldn't steal taps. */
+.s1demo-slot.s1demo-slot--locked {
+  pointer-events: none;
+  cursor: default;
+  filter: brightness(0.85) saturate(0.7);
+  transition: filter 160ms ease;
+}
+
+/* Committed: upload was confirmed. Image is frozen — no zoom/drag cursor. */
+.s1demo-slot.s1demo-slot--committed {
+  cursor: default;
+  touch-action: manipulation;
+}
+
+/* Editing via bottom sheet: device curve mask stays on; slot is read-only preview. */
+.screen1-container--demoImage .s1demo-slot.s1demo-slot--sheetPreview {
+  z-index: 55;
+  outline: 2px solid rgba(var(--salonx-primary-rgb), 0.82);
+  outline-offset: 2px;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 5px rgba(var(--salonx-primary-rgb), 0.16),
+    0 12px 28px rgba(0, 0, 0, 0.38);
+  cursor: default;
+  touch-action: manipulation;
+}
+
+.screen1-container--demoImage
+  .s1demo-slot.s1demo-slot--sheetPreview
+  .s1demo-slot__imgLayer {
+  overflow: hidden;
+  background-image:
+    linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.05) 25%,
+      transparent 25%,
+      transparent 75%,
+      rgba(255, 255, 255, 0.05) 75%
+    ),
+    linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.05) 25%,
+      transparent 25%,
+      transparent 75%,
+      rgba(255, 255, 255, 0.05) 75%
+    );
+  background-size: 14px 14px;
+  background-position:
+    0 0,
+    7px 7px;
+}
+
+/* === Edit-before-upload state ============================================
+   While a slot is being adjusted, we drop the device's curve mask off its
+   parent panel so the user sees the rectangular slot without anything cut by
+   the curve, lift the slot above siblings, and ring it with a primary glow
+   so it's obvious which one is being edited.                              */
+.screen1-container--demoImage .s1demo-grayStack--editing,
+.screen1-container--demoImage .s1demo-grayPromo--editing {
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  /* Allow the slot's edit outline to escape the panel rect. */
+  overflow: visible;
+  z-index: 50;
+  /* Keep the browser from translating this touch into a vertical page scroll
+     while the user is pinching / panning the image (esp. iOS Safari). */
+  touch-action: none;
+}
+
+/* Slot in edit mode: lifted, outlined, and free of clipping so the entire
+   image (under cover-fit + transform) is visible while the user pinches. */
+.screen1-container--demoImage .s1demo-slot.s1demo-slot--editing {
+  z-index: 60;
+  overflow: visible;
+  outline: 2px solid rgba(var(--salonx-primary-rgb), 0.85);
+  outline-offset: 2px;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 6px rgba(var(--salonx-primary-rgb), 0.18),
+    0 14px 30px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  touch-action: none;
+}
+
+.screen1-container--demoImage .s1demo-slot.s1demo-slot--editing:active {
+  cursor: grabbing;
+}
+
+.screen1-container--demoImage
+  .s1demo-slot.s1demo-slot--editing
+  .s1demo-slot__imgLayer {
+  /* Keep image bounded to the slot rectangle while editing too — that
+     rectangle is what will land on device. The curve, though, is gone. */
+  overflow: hidden;
+}
+
+/* Floating action bar — confirm or cancel the in-progress edit. Fixed to
+   the viewport so it stays reachable on small phones / scrolled layouts. */
+.s1demo-editBar {
+  position: fixed;
+  z-index: 10070;
+  left: 50%;
+  bottom: max(18px, calc(env(safe-area-inset-bottom) + 14px));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 14px;
+  border-radius: 18px;
+  background: rgba(20, 20, 24, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 24px 56px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.s1demo-editBar__hint {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+}
+
+.s1demo-editBar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: min(calc(100vw - 24px), 440px);
+}
+
+.s1demo-editBar__btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 11px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    transform 90ms ease;
+}
+
+.s1demo-editBar__btn:active {
+  transform: translateY(1px);
+}
+
+.s1demo-editBar__btn--ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.s1demo-editBar__btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.s1demo-editBar__btn--toggle {
+  background: rgba(var(--salonx-primary-rgb), 0.12);
+  border-color: rgba(var(--salonx-primary-rgb), 0.45);
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.s1demo-editBar__btn--toggle strong {
+  font-weight: 800;
+  color: rgb(var(--salonx-primary-rgb));
+}
+
+.s1demo-editBar__btn--toggle:hover {
+  background: rgba(var(--salonx-primary-rgb), 0.2);
+}
+
+.s1demo-editBar__btn--danger {
+  background: rgba(220, 60, 70, 0.14);
+  border-color: rgba(255, 130, 130, 0.45);
+  color: rgba(255, 200, 200, 0.96);
+}
+
+.s1demo-editBar__btn--danger:hover {
+  background: rgba(240, 70, 80, 0.22);
+}
+
+.s1demo-editBar__btn--danger:active {
+  filter: brightness(1.06);
+}
+
+.s1demo-editBar__btn--primary {
+  background: rgb(var(--salonx-primary-rgb));
+  color: #0a0a0c;
+  min-width: 110px;
+}
+
+.s1demo-editBar__btn--primary:hover {
+  filter: brightness(1.06);
+}
+
+/* Bottom sheet — pinch / drag / wheel + action row (ported to `document.body`). */
+.s1demo-resizeSheet__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10074;
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.s1demo-resizeSheet {
+  position: fixed;
+  z-index: 10076;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: min(78vh, 560px);
+  padding: 10px 16px max(14px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  border-radius: 20px 20px 0 0;
+  background: rgba(18, 18, 22, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  box-shadow:
+    0 -12px 48px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.s1demo-resizeSheet__handle {
+  align-self: center;
+  width: 40px;
+  height: 5px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.22);
+  margin-bottom: 2px;
+}
+
+.s1demo-resizeSheet__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.94);
+  text-align: center;
+}
+
+.s1demo-resizeSheet__subtitle {
+  margin: -2px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.48);
+  text-align: center;
+}
+
+.s1demo-resizeSheet__viewport {
+  position: relative;
+  width: 100%;
+  max-width: min(100%, 420px);
+  margin: 0 auto;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  touch-action: none;
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.s1demo-resizeSheet__viewport:active {
+  cursor: grabbing;
+}
+
+.s1demo-resizeSheet__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+
+.s1demo-resizeSheet .s1demo-editBar__actions {
+  max-width: 100%;
+  padding-bottom: 2px;
+}
+
+/* During edit, render a subtle checker pattern behind the image so the user
+   can clearly see the slot rectangle vs. the (letterboxed) image — making
+   the cropping decision obvious in `contain` mode. */
+.screen1-container--demoImage
+  .s1demo-slot.s1demo-slot--editing
+  .s1demo-slot__imgLayer {
+  background-image:
+    linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.05) 25%,
+      transparent 25%,
+      transparent 75%,
+      rgba(255, 255, 255, 0.05) 75%
+    ),
+    linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.05) 25%,
+      transparent 25%,
+      transparent 75%,
+      rgba(255, 255, 255, 0.05) 75%
+    );
+  background-size: 14px 14px;
+  background-position:
+    0 0,
+    7px 7px;
+}
+
+/* Curve rail: solid black under image — after generic `--editing` checker rule;
+   `.s1demo-curveStripSlot.s1demo-slot` matches editing specificity so order wins. */
+.screen1-container--demoImage
+  .s1demo-curveStripSlot.s1demo-slot
+  .s1demo-slot__imgLayer {
+  background-image: none;
+  background-color: #000000;
 }

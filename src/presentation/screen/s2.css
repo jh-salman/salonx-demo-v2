@@ -173,11 +173,11 @@
 /* Decorative curve — top-right (header / identity zone) */
 .s2-topRightCurve {
   position: absolute;
-  top: -10px;
+  top: -25px;
   right: -5px;
   z-index: 15;
-  width: 99px;
-  height: 216px;
+  width: 80px;
+  height: 170x;
   pointer-events: none;
   line-height: 0;
   filter: drop-shadow(0 0 3px rgba(var(--salonx-primary-rgb), 0.45));
@@ -187,6 +187,33 @@
   display: block;
   width: 99px;
   height: 216px;
+}
+
+/* Today's date stamp — mirrors Calendar's `.cal-deco--rightStamp` */
+.s2-rightStamp {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  pointer-events: none;
+}
+.s2-rightStamp__dow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: #ffffff;
+  text-transform: uppercase;
+}
+.s2-rightStamp__num {
+  font-size: 22px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: -0.01em;
 }
 
 /* No photo BG — scrim disabled */

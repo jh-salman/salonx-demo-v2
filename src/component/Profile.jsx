@@ -5,10 +5,10 @@ import { SALONX_BRAND_BLUE_HEX } from '../theme/primaryTheme';
 const wrapperStyle = {
   position: 'relative',
   width: '360px',
-  height: '250px',
-  borderTopRightRadius: '600px',
+  height: '206px',
+  borderTopRightRadius: '50px',
   borderBottomRightRadius: '51px',
-  padding: '16px',
+  padding: '53px 16px 0 16px',
   textAlign: 'center',
   overflow: 'hidden',
   isolation: 'isolate',
@@ -19,7 +19,7 @@ const backdropLayerStyle = {
   position: 'absolute',
   inset: 0,
   zIndex: 0,
-  borderTopRightRadius: '600px',
+  borderTopRightRadius: '50px',
   borderBottomRightRadius: '51px',
   backgroundColor: 'rgba(0, 0, 0, 0.4)',
   backdropFilter: 'blur(5px)',
@@ -34,7 +34,7 @@ const contentLayerStyle = {
 
 const headerStyle = {
   position: 'relative',
-  marginBottom: '12px',
+  marginBottom: '6px',
   zIndex: 1,
 };
 
@@ -42,17 +42,18 @@ const imageStyle = {
   position: 'relative',
   zIndex: 2,
   display: 'block',
-  width: '230px',
-  height: '160px',
+  width: '190px',
+  height: '120px',
   objectFit: 'cover',
-  borderRadius: '16px',
+  borderRadius: '14px',
   margin: '0 auto',
 };
 
 const sliderWrapperStyle = {
   position: 'absolute',
   bottom: '-30px',
-  left: '-16px',
+  right: '16px',
+  left: 'auto',
   zIndex: 3,
 };
 
@@ -100,7 +101,7 @@ const nameStyle = {
   position: 'relative',
   zIndex: 1,
   color: '#CFFFFF',
-  fontSize: '24px',
+  fontSize: '20px',
   fontWeight: '600',
 };
 

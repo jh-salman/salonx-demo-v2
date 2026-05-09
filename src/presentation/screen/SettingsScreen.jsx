@@ -8,6 +8,7 @@ import {
   SALONX_BRAND_BLUE_HEX,
 } from '../../theme/primaryTheme';
 import '../style/settings.css';
+import { S1_DEMO_IMAGE_ROUTE } from './Screen1DemoImage';
 
 const PRESETS = [
   { label: 'Blue', hex: SALONX_BRAND_BLUE_HEX },
@@ -70,6 +71,15 @@ function SettingsScreen() {
           onChange={(e) => setPrimaryHex(e.target.value)}
         />
       </div>
+
+      <div className="settings-sectionLabel">Demo</div>
+      <button
+        type="button"
+        className="settings-demoStylist"
+        onClick={() => navigate(S1_DEMO_IMAGE_ROUTE)}
+      >
+        Stylist screen (image demo)
+      </button>
 
       <button
         type="button"

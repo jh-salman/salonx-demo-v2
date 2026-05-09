@@ -40,7 +40,10 @@ const DAY_START_HOUR = 0;
 const DAY_END_HOUR = 24;
 const DAY_INITIAL_HOUR = 8;
 const SLOT_HEIGHT = 56;
-const TIME_AXIS_WIDTH = 40;
+// Axis width sized so iOS Safari renders "12 AM"/"10 PM" cleanly (the system
+// font there is slightly wider than desktop). Right-aligned labels sit just
+// before the gridline (Apple Calendar parity).
+const TIME_AXIS_WIDTH = 50;
 // Minutes from DAY_START_HOUR up to (and including) the DAY_END_HOUR row.
 // 24 h × 60 min = 1440 min — full day; latest valid end time is midnight.
 const MINUTES_PER_DAY = (DAY_END_HOUR - DAY_START_HOUR) * 60;
@@ -3563,8 +3566,8 @@ function CalendarDecorations() {
     <>
       <div className="cal-deco cal-deco--topRightCurve" aria-hidden>
         <svg
-          width="99"
-          height="216"
+          width="40"
+          height="100"
           viewBox="0 0 99 216"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
