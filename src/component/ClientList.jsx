@@ -160,7 +160,8 @@ const ClientList = ({ stylistFromPath = '/screen1' }) => {
   }, [calendarEvents]);
 
   const [now, setNow] = useState(() => Date.now());
-  const [modalForName, setModalForName] = useState(null);
+  /** Matches `TimersContext` / Calendar: one timer per appointment id (not client name). */
+  const [timerModalKey, setTimerModalKey] = useState(/** @type {string | null} */ (null));
 
   useEffect(() => {
     const hasRunning = Object.values(timers).some(
@@ -193,9 +194,9 @@ const ClientList = ({ stylistFromPath = '/screen1' }) => {
 
   // Promote expired timers in shared store to 'completed'
   useEffect(() => {
-    Object.entries(liveTimers).forEach(([name, t]) => {
-      if (t.kind === 'completed' && timers[name]?.kind === 'timerRunning') {
-        setTimer(name, { kind: 'completed' });
+    Object.entries(liveTimers).forEach(([key, t]) => {
+      if (t.kind === 'completed' && timers[key]?.kind === 'timerRunning') {
+        setTimer(key, { kind: 'completed' });
       }
     });
   }, [liveTimers, timers, setTimer]);
@@ -211,74 +212,74 @@ const ClientList = ({ stylistFromPath = '/screen1' }) => {
     [navigate, stylistFromPath],
   );
 
-  const handleTimerBoxClick = useCallback((name) => {
-    setModalForName(name);
+  const handleTimerBoxClick = useCallback((aptTimerKey) => {
+    setTimerModalKey(aptTimerKey);
   }, []);
 
   const handleStartTimer = useCallback(
     (totalSec) => {
-      if (!modalForName) return;
-      setTimer(modalForName, {
+      if (!timerModalKey) return;
+      setTimer(timerModalKey, {
         kind: 'timerRunning',
         endsAt: Date.now() + totalSec * 1000,
       });
       setNow(Date.now());
-      setModalForName(null);
+      setTimerModalKey(null);
     },
-    [modalForName, setTimer],
+    [timerModalKey, setTimer],
   );
 
   const handleStartStopwatch = useCallback(() => {
-    if (!modalForName) return;
-    setTimer(modalForName, {
+    if (!timerModalKey) return;
+    setTimer(timerModalKey, {
       kind: 'stopwatchRunning',
       startedAt: Date.now(),
     });
     setNow(Date.now());
-  }, [modalForName, setTimer]);
+  }, [timerModalKey, setTimer]);
 
   const handleStopStopwatch = useCallback(() => {
-    if (!modalForName) return;
-    clearTimer(modalForName);
-    setModalForName(null);
-  }, [modalForName, clearTimer]);
+    if (!timerModalKey) return;
+    clearTimer(timerModalKey);
+    setTimerModalKey(null);
+  }, [timerModalKey, clearTimer]);
 
   const handleStopTimer = useCallback(() => {
-    if (!modalForName) return;
-    clearTimer(modalForName);
-    setModalForName(null);
-  }, [modalForName, clearTimer]);
+    if (!timerModalKey) return;
+    clearTimer(timerModalKey);
+    setTimerModalKey(null);
+  }, [timerModalKey, clearTimer]);
 
   const handleResetTimer = useCallback(() => {
-    if (!modalForName) return;
-    clearTimer(modalForName);
-  }, [modalForName, clearTimer]);
+    if (!timerModalKey) return;
+    clearTimer(timerModalKey);
+  }, [timerModalKey, clearTimer]);
 
-  const activeAppointment = todaysAppointments.find((a) => a.name === modalForName);
-  const activeRunningState = modalForName ? liveTimers[modalForName] : null;
+  const activeAppointment = todaysAppointments.find((a) => a.id === timerModalKey);
+  const activeRunningState = timerModalKey ? liveTimers[timerModalKey] : null;
 
   return (
     <div style={wrapperStyle}>
       {todaysAppointments.map((a) => (
       <ClientCard
           key={a.id}
-          cardId={a.name}
+          cardId={String(a.id)}
           name={a.name}
           time={a.time}
           service={a.service}
           isActive
           cardGradient={cardGradient}
-          timerState={liveTimers[a.name]}
+          timerState={liveTimers[String(a.id)]}
           onTimerBoxClick={handleTimerBoxClick}
           onCardClick={a.apt ? () => handleClientClick(a.apt) : undefined}
         />
       ))}
 
       <TimerModal
-        open={modalForName !== null}
-        clientName={activeAppointment?.name || modalForName || ''}
+        open={timerModalKey !== null}
+        clientName={activeAppointment?.name || ''}
         runningState={activeRunningState}
-        onClose={() => setModalForName(null)}
+        onClose={() => setTimerModalKey(null)}
         onStartTimer={handleStartTimer}
         onStartStopwatch={handleStartStopwatch}
         onStopStopwatch={handleStopStopwatch}

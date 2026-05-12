@@ -13,14 +13,20 @@
 
 .screen0-bg {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: calc(100% + 4px);
   z-index: 0;
   overflow: hidden;
 }
 
 .screen0-bgDecor {
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: calc(100% + 4px);
   z-index: 0;
   background: linear-gradient(
     168deg,
@@ -49,7 +55,10 @@
 .screen0-bg::after {
   content: '';
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: calc(100% + 4px);
   pointer-events: none;
   background: linear-gradient(
     to bottom,

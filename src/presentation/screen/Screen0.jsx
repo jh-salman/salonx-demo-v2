@@ -150,6 +150,10 @@ function Screen0() {
             loop
             preload="auto"
             onError={() => setMediaFailed(true)}
+            onLoadedData={() => {
+              const el = marqueeVideoRef.current
+              if (el) void el.play().catch(() => {})
+            }}
             style={{
               transform,
               transformOrigin: 'center center',

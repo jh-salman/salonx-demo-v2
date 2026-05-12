@@ -34,7 +34,8 @@ function persistTimers(timers) {
 }
 
 /**
- * Timer state shape stored per key (clientName):
+ * Timer state shape stored per key (calendar appointment id as string — must match
+ * across Calendar chips, ClientList cards, and Screen2's `timerKey`).
  *   - { kind: 'timerRunning', endsAt: ms }
  *   - { kind: 'stopwatchRunning', startedAt: ms }
  *   - { kind: 'completed' }

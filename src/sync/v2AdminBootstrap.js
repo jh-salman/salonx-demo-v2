@@ -167,6 +167,22 @@ export function applyV2AdminConfigJson(cfg) {
       : ''
   const hasS4Image = Boolean(s4Img)
 
+  let marqueeSessionMissing = false
+  try {
+    marqueeSessionMissing =
+      Boolean(activeBrand) && !sessionStorage.getItem(MARQUEE_SESSION_KEY)
+  } catch {
+    marqueeSessionMissing = Boolean(activeBrand)
+  }
+
+  let climaxSessionMissing = false
+  try {
+    climaxSessionMissing =
+      Boolean(activeBrand) && !sessionStorage.getItem(CLIMAX_BG_SESSION_KEY)
+  } catch {
+    climaxSessionMissing = Boolean(activeBrand)
+  }
+
   /*
    * Theme follows the active brand projection whenever it differs from what we have —
    * not only when media sync runs (same revision + fresh load used to skip primaryHex).
@@ -193,6 +209,8 @@ export function applyV2AdminConfigJson(cfg) {
    */
   const shouldApplyProjectedMedia =
     revisionAdvanced ||
+    marqueeSessionMissing ||
+    climaxSessionMissing ||
     (!hasServerRevision &&
       (brandChanged || hasS1Images || hasS2Image || hasS4Image))
 

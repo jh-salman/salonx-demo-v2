@@ -1056,13 +1056,11 @@ export default function Screen2() {
   }, [apptKey, svcQueue, productQueue, hourlyRate, consultRate]);
   const [removeConfirm, setRemoveConfirm] = useState(null);
 
-  // ---------- Live timer for the active client ----------
-  // Reads from the shared TimersContext (the same store ClientList /
-  // Calendar use), keyed by client name. The chip shows when a timer or
-  // stopwatch is running, or when one has just finished. Tapping it opens
-  // the existing TimerModal so start/stop/reset works identically to S1.
+  // ---------- Live timer for the active appointment (or client fallback) ----------
+  // Shared TimersContext with Calendar chips + ClientList. Key is per-appointment
+  // when Screen2 was opened with an apt from Calendar (`apptKey`); otherwise client name.
   const { timers, setTimer, clearTimer } = useTimers();
-  const timerKey = activeClientName;
+  const timerKey = apptKey || activeClientName;
   const persistedTimer = timers[timerKey] || null;
 
   const [tickNow, setTickNow] = useState(() => Date.now());

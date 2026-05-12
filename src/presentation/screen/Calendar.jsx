@@ -934,11 +934,9 @@ export default function CalendarScreenWeb() {
           durationMinutes,
         },
       ]);
-      // Reset the running/completed timer for this client when parked — the
-      // appointment is no longer on the schedule, so any in-flight timer or
-      // "completed" indicator should be cleared. The timer can be set again
-      // when (and if) the appointment is un-parked back to a slot.
-      if (apt.clientName) clearTimer(apt.clientName);
+      // Reset the running/completed timer for this appointment when parked —
+      // keys are per appointment id (see Calendar + Screen2 timerKey).
+      if (apt.id) clearTimer(String(apt.id));
       clientName = apt.clientName || "";
       action = "parked";
     } else if (moveConfirm.kind === "move" || moveConfirm.kind === "resize") {
@@ -2064,11 +2062,41 @@ export default function CalendarScreenWeb() {
       };
 
       if (editingApt) {
-        setEvents((prev) =>
-          prev.map((ev) =>
-            ev.id === editingApt.id ? { ...ev, ...baseExtras, start, end } : ev,
-          ),
-        );
+        if (repeat && repeat.enabled && repeat.count > 1) {
+          const occurrences = [{ start, end }];
+          const stepFn =
+            repeat.interval === "day"
+              ? (d, n) => addDays(d, n)
+              : repeat.interval === "month"
+                ? (d, n) => addMonths(d, n)
+                : (d, n) => addWeeks(d, n);
+          for (let i = 1; i < repeat.count; i += 1) {
+            const occStart = stepFn(start, i);
+            const occEnd = stepFn(end, i);
+            occurrences.push({ start: occStart, end: occEnd });
+          }
+          const seriesId =
+            occurrences.length > 1
+              ? editingApt.seriesId || `series-${Date.now().toString(36)}`
+              : undefined;
+          const newEvents = occurrences.map((o, idx) => ({
+            id: idx === 0 ? editingApt.id : makeEventId(),
+            ...baseExtras,
+            start: o.start,
+            end: o.end,
+            ...(seriesId ? { seriesId } : {}),
+          }));
+          setEvents((prev) => [
+            ...prev.filter((ev) => ev.id !== editingApt.id),
+            ...newEvents,
+          ]);
+        } else {
+          setEvents((prev) =>
+            prev.map((ev) =>
+              ev.id === editingApt.id ? { ...ev, ...baseExtras, start, end } : ev,
+            ),
+          );
+        }
       } else {
         const occurrences = [{ start, end }];
         if (repeat && repeat.enabled && repeat.count > 1) {
@@ -2398,7 +2426,8 @@ export default function CalendarScreenWeb() {
                     const left = colIndex * colW;
                     const isOverlap = totalCols > 1;
                     const isDragging = dragApt === apt.id;
-                    const timerState = runningTimers[apt.clientName];
+                    const timerKey = apt.id != null ? String(apt.id) : '';
+                    const timerState = timerKey ? runningTimers[timerKey] : undefined;
                     const hasActiveTimer =
                       timerState &&
                       (timerState.kind === "timerRunning" ||
@@ -3191,13 +3220,11 @@ function NewAppointmentOverlay({
       color,
       price: typeof price === "number" ? price : Number(price) || 0,
       notes,
-      repeat: editing
-        ? { enabled: false, interval: "week", count: 1 }
-        : {
-            enabled: repeatEnabled,
-            interval: repeatInterval,
-            count: clamp(parseInt(repeatCount, 10) || 1, 1, 24),
-          },
+      repeat: {
+        enabled: repeatEnabled,
+        interval: repeatInterval,
+        count: clamp(parseInt(repeatCount, 10) || 1, 1, 24),
+      },
     });
   };
 
@@ -3308,48 +3335,46 @@ function NewAppointmentOverlay({
             <span className="cal-field__counter">{notes.length}/500</span>
           </label>
 
-          {!editing ? (
-            <div className="cal-field">
-              <div className="cal-toggleRow">
-                <span className="cal-field__label">Repeat</span>
-                <button
-                  type="button"
-                  className={`cal-toggle${repeatEnabled ? " is-on" : ""}`}
-                  aria-pressed={repeatEnabled}
-                  onClick={() => setRepeatEnabled((v) => !v)}
-                >
-                  <span className="cal-toggle__knob" />
-                </button>
-              </div>
-              {repeatEnabled ? (
-                <div className="cal-repeatBlock">
-                  <div className="cal-segment">
-                    {REPEAT_INTERVALS.map((opt) => (
-                      <button
-                        type="button"
-                        key={opt.id}
-                        className={`cal-segment__opt${repeatInterval === opt.id ? " is-active" : ""}`}
-                        onClick={() => setRepeatInterval(opt.id)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <label className="cal-field cal-field--inline">
-                    <span className="cal-field__label">Number of times</span>
-                    <input
-                      type="number"
-                      className="cal-field__input"
-                      min={1}
-                      max={24}
-                      value={repeatCount}
-                      onChange={(e) => setRepeatCount(e.target.value)}
-                    />
-                  </label>
-                </div>
-              ) : null}
+          <div className="cal-field">
+            <div className="cal-toggleRow">
+              <span className="cal-field__label">Repeat</span>
+              <button
+                type="button"
+                className={`cal-toggle${repeatEnabled ? " is-on" : ""}`}
+                aria-pressed={repeatEnabled}
+                onClick={() => setRepeatEnabled((v) => !v)}
+              >
+                <span className="cal-toggle__knob" />
+              </button>
             </div>
-          ) : null}
+            {repeatEnabled ? (
+              <div className="cal-repeatBlock">
+                <div className="cal-segment">
+                  {REPEAT_INTERVALS.map((opt) => (
+                    <button
+                      type="button"
+                      key={opt.id}
+                      className={`cal-segment__opt${repeatInterval === opt.id ? " is-active" : ""}`}
+                      onClick={() => setRepeatInterval(opt.id)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="cal-field cal-field--inline">
+                  <span className="cal-field__label">Number of times</span>
+                  <input
+                    type="number"
+                    className="cal-field__input"
+                    min={1}
+                    max={24}
+                    value={repeatCount}
+                    onChange={(e) => setRepeatCount(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
 
           <div className="cal-modal__row">
             <button
