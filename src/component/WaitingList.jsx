@@ -10,8 +10,8 @@ const CARD_WIDTH = 380;
 /** 2× former 28px mini rows; shorter than ~70px appointment cards */
 const CARD_HEIGHT = 56;
 
-/** Screen1: matches appointment card stack + L3 inset (see ClientList). */
-const S1_CARD_STACK_GAP_PX = 8;
+/** Screen1: matches appointment card stack (see ClientList). */
+const S1_CARD_STACK_GAP_PX = 10;
 
 const containerStyle = {
   display: 'flex',

@@ -150,8 +150,15 @@ function Screen1() {
                             })}
                         </div>
                     </div>
-                    <div className="curvedline-container" aria-hidden>
+                    <div className="curvedline-container">
                         <CurvedLine />
+                        <a
+                            href="https://dangerjonescreative.com/"
+                            className="screen1-cobraCreditLink"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="Danger Jones Creative (opens in new tab)"
+                        />
                     </div>
                 </div>
 

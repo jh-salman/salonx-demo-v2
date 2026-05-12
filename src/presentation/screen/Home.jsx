@@ -2,14 +2,17 @@ import Screen0 from './Screen0';
 
 function Home() {
   return (
-    <div style={{
-        minHeight: '100dvh',
+    <div
+      style={{
         height: '100%',
         width: '100%',
-        maxWidth: '100vw',
+        minHeight: 0,
         backgroundColor: 'black',
-    }}>
-     <Screen0 />
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Screen0 />
     </div>
   )
 }

@@ -22,6 +22,14 @@ export function ThemeProvider({ children }) {
     applySalonxPrimaryTheme(primaryHex);
   }, [primaryHex]);
 
+  useEffect(() => {
+    const onV2Admin = () => {
+      setPrimaryHexState(readStoredPrimaryHex());
+    };
+    window.addEventListener('salonx:v2admin-theme', onV2Admin);
+    return () => window.removeEventListener('salonx:v2admin-theme', onV2Admin);
+  }, []);
+
   const setPrimaryHex = useCallback((hex) => {
     const next = normalizePrimaryHex(hex);
     try {

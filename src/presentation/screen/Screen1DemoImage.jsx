@@ -7,7 +7,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Scissors,
   User,
@@ -22,6 +22,7 @@ import ClientList from '../../component/ClientList';
 import SetTimmer from '../../component/SetTimmer';
 import WaitingList from '../../component/WaitingList';
 import DynamicDate from '../../component/DynamicDate';
+import { StylistTopBarBrandSvg } from '../../component/StylistTopBarBrandSvg';
 import {
   buildAptNavPayload,
   readPersistedScreen2Apt,
@@ -32,17 +33,10 @@ import {
 } from '../../data/calendarEventsStore';
 import '../style/screen1.css';
 
-/** Same UI as Screen1 — duplicate route for screenshots / demo imagery. */
+/** Default stylist home — same S1 shell; image slots are view-only (no upload). */
+export const SCREEN1_ROUTE = '/screen1';
+/** Full access: add / replace / resize / commit images on demo slots. */
 export const S1_DEMO_IMAGE_ROUTE = '/s1-demo-image';
-
-const SCREEN_DEMO_ACTIVE = 0;
-const SCREEN_DEMO_TOOLBAR = [
-  { Icon: Scissors, label: 'Stylist', to: S1_DEMO_IMAGE_ROUTE },
-  { Icon: User, label: 'Clients', to: '/clients' },
-  { Icon: Lightning, label: 'Checkout', to: '/climax' },
-  { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
-  { Icon: Gear, label: 'Settings', to: '/settings' },
-];
 
 /** @typedef {'topBar' | 'hero' | 'promo' | 'curveStrip'} S1DemoSlotId */
 /** @typedef {{ scale: number; rotate: number; tx: number; ty: number; fit: 'cover' | 'contain' }} S1DemoSlotAdjust */
@@ -108,6 +102,7 @@ function readS1DemoPersisted() {
       const v = im[slot];
       if (typeof v === 'string') nextImages[slot] = v;
     }
+    nextImages.topBar = '';
 
     const nextAdjust = initialDemoAdjust();
     for (const slot of slots) {
@@ -139,7 +134,10 @@ function persistS1Demo(
   try {
     sessionStorage.setItem(
       S1_DEMO_IMAGE_SESSION_KEY,
-      JSON.stringify({ images, adjust }),
+      JSON.stringify({
+        images: { ...images, topBar: '' },
+        adjust,
+      }),
     );
   } catch (_) {
     /* quota / private browsing */
@@ -191,7 +189,7 @@ function resetFileInputLater(/** @type {HTMLInputElement} */ input) {
 /** Layout box per slot — matches screen1.css on-device slots (demo gray areas). */
 const SLOT_PLACEMENT_BOX =
   /** @type {Record<S1DemoSlotId, { w: number; h: number }>} */ ({
-    topBar: { w: 393, h: 20 },
+    topBar: { w: 393, h: 40 },
     hero: { w: 393, h: 157 },
     promo: { w: 395, h: 70 },
     /** `.curvedline-container`: 65 × full device height (--s1-curve-w × --s1-bg-h) */
@@ -522,6 +520,7 @@ function S1DemoResizeBottomSheet({
  *   suppressDoubleClickPicker?: boolean;
  *   openSlotPicker: (slot: S1DemoSlotId) => void;
  *   onAdjust: (slot: S1DemoSlotId, updater: (a: S1DemoSlotAdjust) => S1DemoSlotAdjust) => void;
+ *   imageUploadEnabled?: boolean;
  * }} props
  */
 function S1DemoImageSlot({
@@ -538,6 +537,7 @@ function S1DemoImageSlot({
   suppressDoubleClickPicker = false,
   openSlotPicker,
   onAdjust,
+  imageUploadEnabled = true,
 }) {
   const elRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const pointersRef = useRef(new Map());
@@ -687,6 +687,7 @@ function S1DemoImageSlot({
       const gesturesOn = !(isEditing && !slotGesturesEnabled);
 
       const replacedByLongPress =
+        imageUploadEnabled &&
         gesturesOn &&
         src &&
         !movedRef.current &&
@@ -726,6 +727,7 @@ function S1DemoImageSlot({
       slotId,
       onAdjust,
       openSlotPicker,
+      imageUploadEnabled,
     ],
   );
 
@@ -816,6 +818,7 @@ function S1DemoImageSlot({
         // Mobile Safari: relying on pointerup opens the picker poorly and can stack
         // two requests; synthetic `click` after tap is what keeps user activation coherent.
         if (!src) {
+          if (!imageUploadEnabled) return;
           if (suppressDoubleClickPicker && e.detail > 1) {
             e.preventDefault();
             e.stopPropagation();
@@ -830,6 +833,7 @@ function S1DemoImageSlot({
         if (disabled) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
+          if (!imageUploadEnabled) return;
           // Empty slot → open the picker. Committed slots are intentionally
           // inert (the upload is locked); use long-press to replace.
           if (!src) openSlotPicker(slotId);
@@ -854,6 +858,30 @@ function S1DemoImageSlot({
 
 function Screen1DemoImage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  /** `/s1-demo-image` = full image workflow; `/screen1` = same UI, slots view-only (no picker). */
+  const allowImageUpload = location.pathname === S1_DEMO_IMAGE_ROUTE;
+
+  const stylistToolbarTarget =
+    location.pathname === S1_DEMO_IMAGE_ROUTE
+      ? S1_DEMO_IMAGE_ROUTE
+      : SCREEN1_ROUTE;
+
+  const screenDemoToolbar = useMemo(
+    () => [
+      { Icon: Scissors, label: 'Stylist', to: stylistToolbarTarget },
+      { Icon: User, label: 'Clients', to: '/clients' },
+      { Icon: Lightning, label: 'Checkout', to: '/climax' },
+      { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
+      { Icon: Gear, label: 'Settings', to: '/settings' },
+    ],
+    [stylistToolbarTarget],
+  );
+
+  const isStylistToolbarActive =
+    location.pathname === SCREEN1_ROUTE ||
+    location.pathname === S1_DEMO_IMAGE_ROUTE;
+
   const calendarEvents = useCalendarEvents();
   const {
     selectSlider,
@@ -886,6 +914,17 @@ function Screen1DemoImage() {
   useEffect(() => {
     persistS1Demo(demoImages, demoAdjust);
   }, [demoImages, demoAdjust]);
+
+  useEffect(() => {
+    const onV2Admin = () => {
+      const next = readS1DemoPersisted();
+      if (!next) return;
+      setDemoImages({ ...next.images, topBar: '' });
+      setDemoAdjust(next.adjust);
+    };
+    window.addEventListener('salonx:v2admin-s1demo', onV2Admin);
+    return () => window.removeEventListener('salonx:v2admin-s1demo', onV2Admin);
+  }, []);
 
   /** Slot currently in adjust-before-upload mode (null = nothing pending). */
   const [editingSlot, setEditingSlot] = useState(
@@ -941,6 +980,12 @@ function Screen1DemoImage() {
     setEditSnapshot(null);
   }, [editingSlot, editSnapshot]);
 
+  useEffect(() => {
+    if (!allowImageUpload && editingSlot != null) {
+      cancelEdit();
+    }
+  }, [allowImageUpload, editingSlot, cancelEdit]);
+
   const resetEditAdjust = useCallback(() => {
     if (!editingSlot) return;
     setDemoAdjust((prev) => ({
@@ -965,14 +1010,18 @@ function Screen1DemoImage() {
     }));
   }, [editingSlot]);
 
-  const openSlotPicker = useCallback((/** @type {S1DemoSlotId} */ slot) => {
-    const now = Date.now();
-    const prev = lastPickerOpenRef.current;
-    if (prev.slot === slot && now - prev.t < 320) return;
-    lastPickerOpenRef.current = { t: now, slot };
-    pendingSlotRef.current = slot;
-    fileInputRef.current?.click();
-  }, []);
+  const openSlotPicker = useCallback(
+    (/** @type {S1DemoSlotId} */ slot) => {
+      if (!allowImageUpload) return;
+      const now = Date.now();
+      const prev = lastPickerOpenRef.current;
+      if (prev.slot === slot && now - prev.t < 320) return;
+      lastPickerOpenRef.current = { t: now, slot };
+      pendingSlotRef.current = slot;
+      fileInputRef.current?.click();
+    },
+    [allowImageUpload],
+  );
 
   /** Clear image and exit edit (slot becomes empty — no Cancel snapshot restore). */
   const removeWhileEditing = useCallback(() => {
@@ -1070,15 +1119,17 @@ function Screen1DemoImage() {
 
   return (
     <div className="screen1-container screen1-container--demoImage">
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="s1demo-fileInput"
-        accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.gif"
-        aria-label="Choose image for demo placeholder"
-        tabIndex={-1}
-        onChange={onDemoFileChange}
-      />
+      {allowImageUpload ? (
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="s1demo-fileInput"
+          accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.gif"
+          aria-label="Choose image for demo placeholder"
+          tabIndex={-1}
+          onChange={onDemoFileChange}
+        />
+      ) : null}
       <div className="date-screen1">
         <DynamicDate />
       </div>
@@ -1104,19 +1155,12 @@ function Screen1DemoImage() {
               }}
             >
               <div className="s1demo-grayStack">
-                <S1DemoImageSlot
-                  slotId="topBar"
-                  className="s1demo-grayStack__topBar s1demo-slot--compact"
-                  ariaLabel="Top bar: tap to add image, then resize before uploading"
-                  hintEmpty="Tap"
-                  src={demoImages.topBar}
-                  adjust={demoAdjust.topBar}
-                  isEditing={editingSlot === 'topBar'}
-                  disabled={editingSlot != null && editingSlot !== 'topBar'}
-                  slotGesturesEnabled={editingSlot !== 'topBar'}
-                  openSlotPicker={openSlotPicker}
-                  onAdjust={handleAdjust}
-                />
+                <div
+                  className="s1demo-grayStack__topBar s1demo-brandBar"
+                  aria-hidden="true"
+                >
+                  <StylistTopBarBrandSvg />
+                </div>
                 <S1DemoImageSlot
                   slotId="hero"
                   className="s1demo-grayStack__hero"
@@ -1129,6 +1173,7 @@ function Screen1DemoImage() {
                   slotGesturesEnabled={editingSlot !== 'hero'}
                   openSlotPicker={openSlotPicker}
                   onAdjust={handleAdjust}
+                  imageUploadEnabled={allowImageUpload}
                 />
               </div>
             </div>
@@ -1145,6 +1190,7 @@ function Screen1DemoImage() {
               slotGesturesEnabled={editingSlot !== 'promo'}
               openSlotPicker={openSlotPicker}
               onAdjust={handleAdjust}
+              imageUploadEnabled={allowImageUpload}
             />
             <div
               className="client-list-wrapper client-list"
@@ -1152,7 +1198,7 @@ function Screen1DemoImage() {
                 transform: isTimer ? 'translateX(-100%)' : 'translateX(0%)',
               }}
             >
-              <ClientList stylistFromPath={S1_DEMO_IMAGE_ROUTE} />
+              <ClientList stylistFromPath={location.pathname} />
               <WaitingList />
             </div>
             <div
@@ -1164,8 +1210,8 @@ function Screen1DemoImage() {
               <SetTimmer />
             </div>
             <div className="screen1-toolbar" role="toolbar" aria-label="Screen toolbar">
-              {SCREEN_DEMO_TOOLBAR.map(({ Icon, label, to }, i) => {
-                const isActive = i === SCREEN_DEMO_ACTIVE;
+              {screenDemoToolbar.map(({ Icon, label, to }, i) => {
+                const isActive = i === 0 ? isStylistToolbarActive : false;
                 return (
                   <button
                     key={label}
@@ -1175,7 +1221,7 @@ function Screen1DemoImage() {
                     aria-current={isActive ? 'page' : undefined}
                     onClick={() => {
                       if (to === '/clients') {
-                        navigate(to, { state: { from: S1_DEMO_IMAGE_ROUTE } });
+                        navigate(to, { state: { from: location.pathname } });
                         return;
                       }
                       navigate(
@@ -1185,7 +1231,7 @@ function Screen1DemoImage() {
                               state: {
                                 apt: toolbarApt,
                                 ...(to === '/climax'
-                                  ? { from: S1_DEMO_IMAGE_ROUTE }
+                                  ? { from: location.pathname }
                                   : {}),
                               },
                             }
@@ -1219,16 +1265,40 @@ function Screen1DemoImage() {
                 suppressDoubleClickPicker
                 openSlotPicker={openSlotPicker}
                 onAdjust={handleAdjust}
+                imageUploadEnabled={allowImageUpload}
               />
             </div>
             <CurvedLine hideBodyFill={!!demoImages.curveStrip} />
+            <a
+              href="https://dangerjonescreative.com/"
+              className="screen1-cobraCreditLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Danger Jones Creative (opens in new tab)"
+              style={
+                editingSlot === 'curveStrip' ? { pointerEvents: 'none' } : undefined
+              }
+              tabIndex={editingSlot === 'curveStrip' ? -1 : undefined}
+            />
           </div>
         </div>
       </div>
 
-      <div className="screen1-blackBelow" aria-hidden />
+      <div className="screen1-blackBelow">
+        <nav className="screen1-stageLinks" aria-label="Stage links (demo, not connected)">
+          <button type="button" className="screen1-stageLinks__fake">
+            Set 1
+          </button>
+          <button type="button" className="screen1-stageLinks__fake">
+            Set 2
+          </button>
+          <button type="button" className="screen1-stageLinks__fake">
+            Set 3
+          </button>
+        </nav>
+      </div>
 
-      {editingSlot === 'curveStrip' ? (
+      {allowImageUpload && editingSlot === 'curveStrip' ? (
         <div
           className="s1demo-editBar"
           role="dialog"
@@ -1289,7 +1359,8 @@ function Screen1DemoImage() {
         </div>
       ) : null}
 
-      {sheetEditingSlot &&
+      {allowImageUpload &&
+      sheetEditingSlot &&
       sheetImageSrc &&
       sheetEditingSlot !== 'curveStrip' ? (
         <S1DemoResizeBottomSheet

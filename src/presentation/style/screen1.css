@@ -261,6 +261,45 @@
   z-index: 1;
 }
 
+/* Placeholder “hyperlinks” — look like links, do not navigate (per product spec). */
+.screen1-stageLinks {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 28px;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.screen1-stageLinks__fake {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen1-stageLinks__fake:hover {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.screen1-stageLinks__fake:focus-visible {
+  outline: 2px solid rgba(var(--salonx-primary-rgb), 0.65);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 /* Kept in sync with appointmentTimerBox.css — duration/iterations set on elements that use it */
 @keyframes timerCompletedBlink {
   0%, 100% {
@@ -515,7 +554,7 @@
   box-shadow: 0 0 14px rgba(var(--salonx-primary-rgb), 0.18);
 }
 
-/* ---- S1 demo image route (/s1-demo-image) — gray wireframe placeholders ---- */
+/* ---- S1 stylist: `/screen1` (view-only slots) + `/s1-demo-image` (full image upload) ---- */
 /*
  * Size the two gray blocks here (width / height):
  *   --s1demo-gray-top-w, --s1demo-gray-top-h  → thin top bar
@@ -523,21 +562,30 @@
  *   --s1demo-gray-hero-bleed-r → widens stacked block to screen right edge
  *   --s1demo-gray-stack-margin-top → MUST match masked stack vertical offset from screen top
  *   --s1demo-gray-promo-top → masked promo row absolute top (curve mask aligns to this Y)
+ *   --s1demo-section-gap → vertical rhythm: brand↔hero ↔ promo ↔ list (single value)
  * Optional: --s1demo-gray-stack-gap (space between them)
  * Pinch modal placement preview: keep DEMO_SLOT_PLACEMENT_BOX in Screen1DemoImage.jsx aligned with these boxes.
  */
 .screen1-container--demoImage {
+  --s1demo-section-gap: 10px;
   --s1demo-gray-top-w: 100%;
-  --s1demo-gray-top-h: 20px;
+  /* Flex row height only — brand SVG is `position:absolute` and may paint larger (layout unchanged). */
+  --s1demo-gray-top-h: 40px;
   --s1demo-gray-hero-w: 100%;
   --s1demo-gray-hero-h: 157px;
+  --s1demo-gray-promo-h: 70px;
   --s1demo-gray-stack-gap: 0px;
   /* Matches .profile-panel: left 5px + width 380px ⇒ bleed to bg right edge under the curve strip */
   --s1demo-gray-hero-bleed-r: calc(var(--s1-bg-w, 393px) - 385px);
-  /* Must match .s1demo-grayStack margin-top — drives mask vertical alignment */
-  --s1demo-gray-stack-margin-top: 20px;
-  /* Promo row; keep in sync with .s1demo-grayPromo { top } */
-  --s1demo-gray-promo-top: 215px;
+  /* Same as section gap — drives mask vertical alignment */
+  --s1demo-gray-stack-margin-top: var(--s1demo-section-gap);
+  /* Stack top + brand + gap + hero + gap — keeps hero→promo gap === brand→hero gap */
+  --s1demo-gray-promo-top: calc(
+    var(--s1demo-gray-stack-margin-top) + var(--s1demo-gray-top-h) +
+      var(--s1demo-section-gap) + var(--s1demo-gray-hero-h) + var(--s1demo-section-gap)
+  );
+  /* Toolbar at 790px — keep list bottom pinned when promo/list shift down */
+  --s1demo-client-list-bottom: 790px;
 }
 
 /* Demo profile slot: allow curved mask + widened hero bleed */
@@ -572,17 +620,31 @@
   -webkit-mask-mode: alpha;
   mask-mode: alpha;
 }
-.screen1-container--demoImage .s1demo-grayStack__topBar {
+/* Top strip: fixed flex height; SVG is out of flow so 2× art does not push hero/promo. */
+.screen1-container--demoImage .s1demo-grayStack__topBar.s1demo-brandBar {
+  position: relative;
   flex: 0 0 var(--s1demo-gray-top-h);
   width: var(--s1demo-gray-top-w);
   max-width: 100%;
   align-self: flex-start;
-  border-radius: 11px;
-  background: #3c3c40;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: visible;
+  box-sizing: border-box;
+}
+.screen1-container--demoImage .s1demo-brandBar__svg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  transform: translate(-50%, calc(-50% + 5px));
+  width: min(100%, 560px);
+  height: auto;
+  max-height: 72px;
+  display: block;
+  margin: 0;
+  pointer-events: none;
 }
 .screen1-container--demoImage .s1demo-grayStack__hero {
-  margin-top: 10px;
+  margin-top: var(--s1demo-section-gap);
   flex: 0 0 var(--s1demo-gray-hero-h);
   box-sizing: border-box;
   /* Full width of widened stack — right edge meets curve via parent mask */
@@ -602,12 +664,23 @@
   top: var(--s1-panel-top);
   left: var(--s1-panel-left);
   width: 395px;
-  height: 70px;
+  height: var(--s1demo-gray-promo-h);
   z-index: 2;
   box-sizing: border-box;
-  border-radius: 15px;
-  background: #3a3a3f;
-  border: 1.5px solid rgba(var(--salonx-primary-rgb), 0.5);
+  /* Same rim as `ClientCard` / `accentCardGradientCss` (outer radius + 1.5px gradient stroke). */
+  border-radius: 11.5px;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(#3a3a3f, #3a3a3f) padding-box,
+    linear-gradient(
+        to right,
+        rgb(var(--salonx-primary-rgb)) 0%,
+        rgba(var(--salonx-primary-rgb), 0.8) 18%,
+        rgba(var(--salonx-primary-rgb), 0.4) 45%,
+        rgba(var(--salonx-primary-rgb), 0) 85%
+      )
+      border-box;
+  background-clip: padding-box, border-box;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   pointer-events: none;
   -webkit-mask-image: url('/curve-mask.svg');
@@ -621,6 +694,24 @@
   mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
   -webkit-mask-mode: alpha;
   mask-mode: alpha;
+}
+
+/* Same vertical gap below promo as between hero sections; mask tracks --s1-panel-top. */
+.screen1-container--demoImage .client-list-wrapper,
+.screen1-container--demoImage .timer-panel {
+  --s1-panel-top: calc(
+    var(--s1demo-gray-promo-top) + var(--s1demo-gray-promo-h) + var(--s1demo-section-gap)
+  );
+  top: var(--s1-panel-top);
+}
+.screen1-container--demoImage .client-list-wrapper {
+  height: calc(var(--s1demo-client-list-bottom) - var(--s1-panel-top));
+}
+
+.screen1-container--demoImage .timerModal__panel {
+  top: calc(
+    var(--s1demo-gray-promo-top) + var(--s1demo-gray-promo-h) + var(--s1demo-section-gap)
+  );
 }
 
 /* Demo only: uploads sit on the right rail under the neon stroke (`CurvedLine hideBodyFill`). */
@@ -703,6 +794,11 @@
 
 .screen1-container--demoImage .s1demo-grayPromo.s1demo-slot {
   pointer-events: auto;
+}
+
+/* Inner radius matches `ClientCard` inner (10px) for image / empty state. */
+.screen1-container--demoImage .s1demo-grayPromo .s1demo-slot__imgLayer {
+  border-radius: 10px;
 }
 
 .screen1-container--demoImage .s1demo-slot:focus-visible {
@@ -1101,4 +1197,27 @@
   .s1demo-slot__imgLayer {
   background-image: none;
   background-color: #000000;
+}
+
+/* Partner credit — full cobra strip hit target (additive; CurvedLine stays decorative). */
+.screen1-cobraCreditLink {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  pointer-events: auto;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Demo route: narrow outer rail so curve-strip image slot still receives most taps. */
+.screen1-container--demoImage .curvedline-container--demoSlot .screen1-cobraCreditLink {
+  inset: 0 0 0 auto;
+  width: min(28px, 38%);
+  max-width: 100%;
+  height: 100%;
+  z-index: 4;
 }

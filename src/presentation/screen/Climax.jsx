@@ -22,6 +22,7 @@ import {
   useCalendarEvents,
 } from "../../data/calendarEventsStore";
 import { useTheme } from "../../context/ThemeContext";
+import { readClimaxBgPersisted } from "../../sync/v2AdminBootstrap.js";
 
 // Climax = checkout. Everything here is driven by the active appointment:
 //   * services + products = `appointmentStateStore` keyed by apt id (the same
@@ -615,6 +616,25 @@ export default function Climax() {
 
   const hasNoTicketLines = services.length === 0 && products.length === 0;
 
+  const [climaxBg, setClimaxBg] = useState(() => readClimaxBgPersisted());
+  useEffect(() => {
+    const onSync = () => setClimaxBg(readClimaxBgPersisted());
+    window.addEventListener("salonx:v2admin-climax", onSync);
+    return () => window.removeEventListener("salonx:v2admin-climax", onSync);
+  }, []);
+
+  const climaxInlaySrc = climaxBg?.image?.trim()
+    ? climaxBg.image.trim()
+    : "/climax-inlay.png";
+  const climaxInlayAdjust = climaxBg?.adjust ?? {
+    scale: 1,
+    rotate: 0,
+    tx: 0,
+    ty: 0,
+    fit: "cover",
+  };
+  const climaxInlayTransform = `translate(${climaxInlayAdjust.tx}%, ${climaxInlayAdjust.ty}%) rotate(${climaxInlayAdjust.rotate}deg) scale(${climaxInlayAdjust.scale}) translateZ(0)`;
+
   return (
     <div
       ref={climaxRootRef}
@@ -641,9 +661,16 @@ export default function Climax() {
         <div className="climax-inlayPhotoWrap" aria-hidden>
           <img
             className="climax-inlayPhoto"
-            src="/climax-inlay.png"
+            src={climaxInlaySrc}
             alt=""
             decoding="async"
+            style={{
+              /* Full-bleed stage: always cover so no side letterboxing (admin "contain" is editor-only). */
+              objectFit: "cover",
+              objectPosition: "center center",
+              transform: climaxInlayTransform,
+              transformOrigin: "center center",
+            }}
           />
         </div>
         <div className="climax-inlay" aria-hidden />

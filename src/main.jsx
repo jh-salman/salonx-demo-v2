@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { RouterProvider } from 'react-router-dom'
@@ -7,8 +7,10 @@ import { AppProvider } from './context/AppContext.jsx'
 import { TimersProvider } from './context/TimersContext.jsx'
 import { ThemeProvider } from './context/ThemeContext.jsx'
 import { applySalonxPrimaryTheme, readStoredPrimaryHex } from './theme/primaryTheme.js'
-
-applySalonxPrimaryTheme(readStoredPrimaryHex())
+import {
+  startV2AdminRealtimeSync,
+  syncFromV2Admin,
+} from './sync/v2AdminBootstrap.js'
 
 const SHELL_MIN_W = 350
 const SHELL_MAX_W = 550
@@ -17,30 +19,53 @@ const DESIGN_W = 393
 const DESIGN_H = 852
 
 function ResponsivePhoneShell({ children }) {
+  /** Keep last full-screen height so virtual keyboard does not shrink the shell and rescale content. */
+  const stableHRef = useRef(
+    typeof window !== 'undefined' ? window.innerHeight : DESIGN_H,
+  )
   const [size, setSize] = useState({
     fullW: typeof window !== 'undefined' ? window.innerWidth : SHELL_MAX_W,
     h: typeof window !== 'undefined' ? window.innerHeight : DESIGN_H,
   })
 
   useEffect(() => {
+    const vv = window.visualViewport
     const compute = () => {
-      setSize({
-        fullW: window.innerWidth,
-        h: window.innerHeight,
-      })
+      const fullW = window.innerWidth
+      const innerH = window.innerHeight
+
+      if (vv) {
+        const kbInset = Math.max(0, innerH - vv.height - vv.offsetTop)
+        // Ignore small shifts (URL bar); real keyboards are usually taller.
+        if (kbInset > 96) {
+          setSize({ fullW, h: stableHRef.current })
+          return
+        }
+      }
+
+      stableHRef.current = innerH
+      setSize({ fullW, h: innerH })
     }
     compute()
     window.addEventListener('resize', compute)
     window.addEventListener('orientationchange', compute)
+    if (vv) {
+      vv.addEventListener('resize', compute)
+      vv.addEventListener('scroll', compute)
+    }
     return () => {
       window.removeEventListener('resize', compute)
       window.removeEventListener('orientationchange', compute)
+      if (vv) {
+        vv.removeEventListener('resize', compute)
+        vv.removeEventListener('scroll', compute)
+      }
     }
   }, [])
 
   // Column width: min(screen, 550), min 350 — content scales to fill this width edge-to-edge.
   const columnW = Math.max(SHELL_MIN_W, Math.min(SHELL_MAX_W, size.fullW))
-  // Layout viewport height only (no visualViewport / keyboard shrinking).
+  // Stable height while keyboard is open (see compute above); otherwise tracks innerHeight.
   const shellH = size.h
   // Independent X/Y scale: fills columnW × shellH so all 393×852 content is visible (may look “chepta”).
   const scaleX = columnW / DESIGN_W
@@ -110,16 +135,24 @@ function ResponsivePhoneShell({ children }) {
   )
 }
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <ThemeProvider>
-      <AppProvider>
-        <TimersProvider>
-          <ResponsivePhoneShell>
-            <RouterProvider router={router} />
-          </ResponsivePhoneShell>
-        </TimersProvider>
-      </AppProvider>
-    </ThemeProvider>
-  </StrictMode>,
-)
+async function startApp() {
+  await syncFromV2Admin()
+  applySalonxPrimaryTheme(readStoredPrimaryHex())
+  startV2AdminRealtimeSync()
+
+  createRoot(document.getElementById('root')).render(
+    <StrictMode>
+      <ThemeProvider>
+        <AppProvider>
+          <TimersProvider>
+            <ResponsivePhoneShell>
+              <RouterProvider router={router} />
+            </ResponsivePhoneShell>
+          </TimersProvider>
+        </AppProvider>
+      </ThemeProvider>
+    </StrictMode>,
+  )
+}
+
+void startApp()

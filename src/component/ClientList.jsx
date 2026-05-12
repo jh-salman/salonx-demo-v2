@@ -18,8 +18,8 @@ import { accentCardGradientCss } from '../theme/primaryTheme';
 const CARD_WIDTH = 380;
 const CARD_HEIGHT = 70;
 
-/** Screen1: same gap between L3, appointment rows, and waiting list (matches panel inset). */
-const S1_CARD_STACK_GAP_PX = 8;
+/** Screen1: same gap between appointment rows (matches demo `--s1demo-section-gap` rhythm). */
+const S1_CARD_STACK_GAP_PX = 10;
 
 const ClientCard = ({
   cardId,

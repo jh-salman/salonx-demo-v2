@@ -1,0 +1,339 @@
+/* Login / marquee (Screen0) — tiny bottom glass dock; hero stays visible */
+
+.screen0-root {
+  position: relative;
+  flex: 1 1 auto;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  background-color: #000;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+.screen0-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.screen0-bgDecor {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    168deg,
+    rgb(var(--salonx-primary-dark-rgb, 29, 78, 216)) 0%,
+    #12121a 42%,
+    #070708 100%
+  );
+}
+
+.screen0-bg img,
+.screen0-bg video {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  display: block;
+  object-fit: cover;
+  object-position: center center;
+  margin: 0;
+  padding: 0;
+}
+
+/* Light touch — art stays readable; no heavy bar across the hero */
+.screen0-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.08) 0%,
+    rgba(0, 0, 0, 0.12) 50%,
+    rgba(0, 0, 0, 0.28) 100%
+  );
+}
+
+.screen0-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Design px: raised when visualViewport is shorter than keyboard (see Screen0.jsx). */
+  bottom: var(--screen0-kb-lift, 0px);
+  z-index: 10;
+  padding: 10px 14px max(14px, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+  background: transparent;
+}
+
+.screen0-bottom > * {
+  pointer-events: auto;
+}
+
+/* Compact glass chip — Welcome or single-row phone */
+.screen0-dock {
+  max-width: min(340px, calc(100vw - 28px));
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(12, 12, 18, 0.38);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 10px 40px rgba(0, 0, 0, 0.35);
+  transition:
+    border-radius 0.28s ease,
+    max-width 0.28s ease,
+    background 0.22s ease;
+}
+
+.screen0-dock--login {
+  max-width: min(380px, calc(100vw - 24px));
+  border-radius: 22px;
+  background: rgba(10, 10, 14, 0.42);
+}
+
+.screen0-dockWelcome {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 12px 28px;
+  min-height: 46px;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen0-dockWelcome:hover {
+  color: #fff;
+}
+
+.screen0-dockWelcome:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.screen0-dockRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 6px;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.screen0-dockIconBack {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen0-dockIconBack:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.screen0-dockIconBack:focus-visible {
+  outline: 2px solid rgba(var(--salonx-primary-rgb), 0.65);
+  outline-offset: 1px;
+}
+
+.screen0-dockIconBack:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.screen0-dockField {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.screen0-dockField:focus-within {
+  border-color: rgba(var(--salonx-primary-rgb), 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 0 2px rgba(var(--salonx-primary-rgb), 0.18);
+}
+
+.screen0-fakeSample {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 16px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.38);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.screen0-fakeBlink {
+  animation: screen0-fakeBlink 1.05s step-end infinite;
+}
+
+@keyframes screen0-fakeBlink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.screen0-dockInput {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  margin: 0;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 16px;
+  line-height: 1.3;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  outline: none;
+  caret-color: var(--salonx-primary, #3b82f6);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.screen0-dockInput--ghost {
+  color: transparent;
+  text-shadow: none;
+  -webkit-text-fill-color: transparent;
+}
+
+.screen0-dockInput:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.screen0-dockGo {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 14px;
+  min-height: 40px;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1a1000;
+  background: linear-gradient(135deg, #ffe566 0%, #f59e0b 45%, #ea580c 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22) inset,
+    0 4px 14px rgba(234, 88, 12, 0.35);
+  -webkit-tap-highlight-color: transparent;
+  animation: screen0-rockPulse 1.1s ease-in-out infinite;
+}
+
+.screen0-dockGo:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.screen0-dockGo:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.screen0-dockGo:disabled {
+  animation: none;
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
+@keyframes screen0-rockPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.screen0-enterFlash {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: radial-gradient(
+    circle at 50% 55%,
+    rgba(255, 230, 120, 0.35) 0%,
+    transparent 55%
+  );
+  animation: screen0-enterFlash 0.55s ease-out forwards;
+}
+
+@keyframes screen0-enterFlash {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.screen0-srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

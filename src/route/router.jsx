@@ -1,6 +1,5 @@
 import { createBrowserRouter } from "react-router-dom";
 import Home from "../presentation/screen/Home";
-import Screen1 from "../presentation/screen/Screen1";
 import Screen2 from "../presentation/screen/Screen2";
 import Screen3 from "../presentation/screen/Screen3";
 import Climax from "../presentation/screen/Climax";
@@ -18,11 +17,11 @@ export const router = createBrowserRouter([
   },
   {
     path: "/screen1",
-    element: <Screen1 />
+    element: <Screen1DemoImage />,
   },
   {
     path: "/s1-demo-image",
-    element: <Screen1DemoImage />
+    element: <Screen1DemoImage />,
   },
   {
     path: "/screen2",
