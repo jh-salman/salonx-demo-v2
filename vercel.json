@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "rewrites": [
+    {
+      "source": "/salonx-admin/:path*",
+      "destination": "https://admin.xsalonx.com/:path*"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

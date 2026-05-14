@@ -74,7 +74,7 @@
   right: 0;
   /* Design px: raised when visualViewport is shorter than keyboard (see Screen0.jsx). */
   bottom: var(--screen0-kb-lift, 0px);
-  z-index: 10;
+  z-index: 11;
   padding: 10px 14px max(14px, env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
@@ -84,8 +84,123 @@
   background: transparent;
 }
 
-.screen0-bottom > * {
+.screen0-bottomInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: min(380px, calc(100vw - 28px));
   pointer-events: auto;
+}
+
+/* Tap-outside target only — no backdrop blur so the marquee stays sharp. */
+.screen0-kbScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  margin: 0;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.screen0-kbScrim:focus {
+  outline: none;
+}
+
+.screen0-glassKeypad {
+  width: 100%;
+  max-width: min(340px, calc(100vw - 28px));
+  padding: 12px 10px 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(12, 12, 18, 0.52);
+  backdrop-filter: blur(22px) saturate(165%);
+  -webkit-backdrop-filter: blur(22px) saturate(165%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 12px 44px rgba(0, 0, 0, 0.42);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.screen0-glassKeypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.screen0-glassKeypad-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.screen0-glassKey {
+  margin: 0;
+  padding: 0;
+  min-height: 48px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.12s ease,
+    transform 0.08s ease;
+}
+
+.screen0-glassKey:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.screen0-glassKey:active:not(:disabled) {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.screen0-glassKey:focus-visible {
+  outline: 2px solid rgba(var(--salonx-primary-rgb), 0.55);
+  outline-offset: 1px;
+}
+
+.screen0-glassKey:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.screen0-glassKey--wide {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.screen0-glassKey--accent {
+  font-size: 18px;
+  font-weight: 800;
+  color: #1a1000;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: linear-gradient(145deg, #ffe566 0%, #f59e0b 50%, #ea580c 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22) inset,
+    0 4px 12px rgba(234, 88, 12, 0.28);
+}
+
+.screen0-glassKey--accent:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.screen0-glassKey--accent:active:not(:disabled) {
+  transform: scale(0.96);
+  filter: brightness(0.98);
 }
 
 /* Compact glass chip — Welcome or single-row phone */

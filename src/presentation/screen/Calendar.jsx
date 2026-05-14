@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   addDays,
   addMinutes,
@@ -382,6 +382,17 @@ export default function CalendarScreenWeb() {
   const runningTimers = useRunningTimers();
   const { clearTimer } = useTimers();
   const navigate = useNavigate();
+  const location = useLocation();
+  const calendarExitPath = useMemo(() => {
+    const raw = location.state?.from;
+    const from = typeof raw === "string" && raw.startsWith("/") ? raw : null;
+    if (!from || from === "/calendar") return "/climax";
+    return from;
+  }, [location.state]);
+
+  const handleExitCalendar = useCallback(() => {
+    navigate(calendarExitPath);
+  }, [navigate, calendarExitPath]);
 
   // Tap dispatcher — distinguish single (→ options modal) from double (→ client card)
   const tapRef = useRef({ aptId: null, lastTapTs: 0, pendingTimer: null });
@@ -2145,26 +2156,37 @@ export default function CalendarScreenWeb() {
     <div className="cal-root">
       <CalendarDecorations />
       <div className="cal-header">
-        <div className="cal-tabs" role="tablist" aria-label="Calendar view">
-          <button className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`} onClick={() => setViewMode("day")}>
-            Day
-          </button>
-          <button className={`cal-tab ${viewMode === "week" ? "is-active" : ""}`} onClick={() => setViewMode("week")}>
-            5 Day
-          </button>
-          <button
-            className={`cal-tab ${viewMode === "month" ? "is-active" : ""}`}
-            onClick={() => {
-              setViewMode("month");
-              setMonthSheetDate(null);
-            }}
-          >
-            Month
-          </button>
-          <span className="cal-tabDivider is-1" aria-hidden="true" />
-          <span className="cal-tabDivider is-2" aria-hidden="true" />
-          <span className="cal-tabIndicator" data-mode={viewMode} />
+        <button
+          type="button"
+          className="cal-nav cal-headerBack"
+          onClick={handleExitCalendar}
+          aria-label="Back"
+        >
+          <ArrowIcon dir="left" />
+        </button>
+        <div className="cal-header__tabsCell">
+          <div className="cal-tabs" role="tablist" aria-label="Calendar view">
+            <button className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`} onClick={() => setViewMode("day")}>
+              Day
+            </button>
+            <button className={`cal-tab ${viewMode === "week" ? "is-active" : ""}`} onClick={() => setViewMode("week")}>
+              5 Day
+            </button>
+            <button
+              className={`cal-tab ${viewMode === "month" ? "is-active" : ""}`}
+              onClick={() => {
+                setViewMode("month");
+                setMonthSheetDate(null);
+              }}
+            >
+              Month
+            </button>
+            <span className="cal-tabDivider is-1" aria-hidden="true" />
+            <span className="cal-tabDivider is-2" aria-hidden="true" />
+            <span className="cal-tabIndicator" data-mode={viewMode} />
+          </div>
         </div>
+        <span className="cal-header__trailing" aria-hidden="true" />
       </div>
 
       {viewMode !== "month" ? (

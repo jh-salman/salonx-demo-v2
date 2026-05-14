@@ -1,0 +1,19 @@
+{
+  "name": "SalonX",
+  "short_name": "SalonX",
+  "description": "SalonX demo — add to Home Screen for fullscreen presentation.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#0a0a0c",
+  "icons": [
+    {
+      "src": "/salonx.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

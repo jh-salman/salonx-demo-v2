@@ -8,6 +8,7 @@ import { TimersProvider } from './context/TimersContext.jsx'
 import { ThemeProvider } from './context/ThemeContext.jsx'
 import { applySalonxPrimaryTheme, readStoredPrimaryHex } from './theme/primaryTheme.js'
 import {
+  applyCachedV2AdminConfigFromStorage,
   startV2AdminRealtimeSync,
   syncFromV2Admin,
 } from './sync/v2AdminBootstrap.js'
@@ -19,10 +20,13 @@ const DESIGN_W = 393
 const DESIGN_H = 852
 
 function ResponsivePhoneShell({ children }) {
-  /** Keep last full-screen height so virtual keyboard does not shrink the shell and rescale content. */
+  /** Full window height before the OS keyboard — never shrink the phone shell to keyboard height. */
   const stableHRef = useRef(
     typeof window !== 'undefined' ? window.innerHeight : DESIGN_H,
   )
+  /** iOS: innerHeight + visualViewport can shrink together; lock while #screen0-phone is focused. */
+  const layoutKeyboardLockRef = useRef(false)
+
   const [size, setSize] = useState({
     fullW: typeof window !== 'undefined' ? window.innerWidth : SHELL_MAX_W,
     h: typeof window !== 'undefined' ? window.innerHeight : DESIGN_H,
@@ -30,25 +34,72 @@ function ResponsivePhoneShell({ children }) {
 
   useEffect(() => {
     const vv = window.visualViewport
-    const compute = () => {
-      const fullW = window.innerWidth
-      const innerH = window.innerHeight
 
-      if (vv) {
-        const kbInset = Math.max(0, innerH - vv.height - vv.offsetTop)
-        // Ignore small shifts (URL bar); real keyboards are usually taller.
-        if (kbInset > 96) {
-          setSize({ fullW, h: stableHRef.current })
-          return
-        }
+    const compute = () => {
+      if (layoutKeyboardLockRef.current) {
+        const fullW = window.innerWidth
+        setSize({ fullW, h: stableHRef.current })
+        return
       }
 
-      stableHRef.current = innerH
+      const fullW = window.innerWidth
+      const innerH = window.innerHeight
+      const vvH = vv?.height ?? innerH
+      const vvTop = vv?.offsetTop ?? 0
+      const uncovered = vv ? Math.max(0, innerH - vvH - vvTop) : 0
+      /** Classic inset, or iOS quirk where both layout + vv shrink — vv much shorter than last stable. */
+      const keyboardLikely =
+        uncovered > 40 ||
+        (vv != null &&
+          innerH > 320 &&
+          vvH < stableHRef.current * 0.88 &&
+          stableHRef.current > 400)
+
+      if (keyboardLikely) {
+        setSize({ fullW, h: stableHRef.current })
+        return
+      }
+
+      stableHRef.current = Math.max(stableHRef.current, innerH)
       setSize({ fullW, h: innerH })
     }
+
+    const lockForScreen0Phone = () => {
+      const innerH = window.innerHeight
+      const vvH = vv?.height ?? innerH
+      stableHRef.current = Math.max(stableHRef.current, innerH, vvH)
+      layoutKeyboardLockRef.current = true
+      setSize({ fullW: window.innerWidth, h: stableHRef.current })
+    }
+
+    const unlockScreen0Phone = () => {
+      layoutKeyboardLockRef.current = false
+      const innerH = window.innerHeight
+      stableHRef.current = Math.max(stableHRef.current, innerH)
+      setSize({ fullW: window.innerWidth, h: innerH })
+    }
+
+    const onFocusIn = (e) => {
+      const t = e.target
+      if (t && typeof t === 'object' && 'id' in t && t.id === 'screen0-phone') {
+        lockForScreen0Phone()
+      }
+    }
+    const onFocusOut = (e) => {
+      const t = e.target
+      if (!t || typeof t !== 'object' || !('id' in t) || t.id !== 'screen0-phone') return
+      window.setTimeout(() => {
+        const ae = document.activeElement
+        if (ae && 'id' in ae && ae.id === 'screen0-phone') return
+        unlockScreen0Phone()
+      }, 200)
+    }
+
     compute()
     window.addEventListener('resize', compute)
     window.addEventListener('orientationchange', compute)
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('focusout', onFocusOut)
     if (vv) {
       vv.addEventListener('resize', compute)
       vv.addEventListener('scroll', compute)
@@ -56,6 +107,8 @@ function ResponsivePhoneShell({ children }) {
     return () => {
       window.removeEventListener('resize', compute)
       window.removeEventListener('orientationchange', compute)
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('focusout', onFocusOut)
       if (vv) {
         vv.removeEventListener('resize', compute)
         vv.removeEventListener('scroll', compute)
@@ -135,8 +188,8 @@ function ResponsivePhoneShell({ children }) {
   )
 }
 
-async function startApp() {
-  await syncFromV2Admin()
+function startApp() {
+  applyCachedV2AdminConfigFromStorage()
   applySalonxPrimaryTheme(readStoredPrimaryHex())
   startV2AdminRealtimeSync()
 
@@ -153,6 +206,8 @@ async function startApp() {
       </ThemeProvider>
     </StrictMode>,
   )
+
+  void syncFromV2Admin()
 }
 
 void startApp()

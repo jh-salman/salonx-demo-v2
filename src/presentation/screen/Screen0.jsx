@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { readMarqueePersisted } from '../../sync/v2AdminBootstrap.js'
 import { writeDemoLoginPhone } from '../../lib/demoLoginPhone.js'
+import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js'
 import '../style/screen0.css'
 
 function digitsOnly(s) {
@@ -28,11 +29,13 @@ function Screen0() {
   const navigate = useNavigate()
   const rootRef = useRef(null)
   const marqueeVideoRef = useRef(null)
+  const phoneInputRef = useRef(null)
   const postRockStarNavTimerRef = useRef(null)
   const [marquee, setMarquee] = useState(() => readMarqueePersisted())
   const [step, setStep] = useState('landing')
   const [phone, setPhone] = useState('')
   const [phoneFocused, setPhoneFocused] = useState(false)
+  const [glassKeyboardOpen, setGlassKeyboardOpen] = useState(false)
   const [entering, setEntering] = useState(false)
   /** Hero URL 404 / decode error / video fail — show gradient fallback only. */
   const [mediaFailed, setMediaFailed] = useState(false)
@@ -44,14 +47,17 @@ function Screen0() {
   }, [])
 
   const customSrc = marquee?.image?.trim() ?? ''
+  const isVideo =
+    Boolean(customSrc) &&
+    (marquee?.mediaKind === 'video' || urlLooksLikeVideo(customSrc))
+  const deliverySrc = customSrc
+    ? optimizeMediaDeliveryUrl(customSrc, isVideo ? 'video' : 'image')
+    : ''
 
   useEffect(() => {
     setMediaFailed(false)
   }, [customSrc])
 
-  const isVideo =
-    Boolean(customSrc) &&
-    (marquee?.mediaKind === 'video' || urlLooksLikeVideo(customSrc))
   const adjust = marquee?.adjust ?? {
     scale: 1,
     rotate: 0,
@@ -72,7 +78,7 @@ function Screen0() {
     const el = marqueeVideoRef.current
     if (!el || !isVideo) return
     void el.play().catch(() => {})
-  }, [isVideo, customSrc])
+  }, [isVideo, deliverySrc])
 
   /** Lift bottom dock above the on-screen keyboard without rescaling the hero (uses visualViewport). */
   useEffect(() => {
@@ -114,13 +120,24 @@ function Screen0() {
     [],
   )
 
-  const onPhoneChange = useCallback((e) => {
-    setPhone(digitsOnly(e.target.value))
+  const appendPhoneDigit = useCallback((d) => {
+    setPhone((prev) => digitsOnly(`${prev}${d}`).slice(0, 10))
+  }, [])
+
+  const phoneBackspace = useCallback(() => {
+    setPhone((prev) => prev.slice(0, -1))
+  }, [])
+
+  const closeGlassKeyboard = useCallback(() => {
+    setGlassKeyboardOpen(false)
+    setPhoneFocused(false)
+    phoneInputRef.current?.blur()
   }, [])
 
   const goRockStar = useCallback(() => {
     const d = digitsOnly(phone)
     if (d.length !== 10 || entering) return
+    setGlassKeyboardOpen(false)
     writeDemoLoginPhone(d)
     setEntering(true)
     if (postRockStarNavTimerRef.current != null) {
@@ -135,6 +152,31 @@ function Screen0() {
   const showFakeSample =
     step === 'login' && phone.length === 0 && !phoneFocused
 
+  const handlePhoneKeyDown = useCallback(
+    (e) => {
+      if (entering) return
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault()
+        appendPhoneDigit(e.key)
+        return
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault()
+        phoneBackspace()
+      }
+    },
+    [appendPhoneDigit, entering, phoneBackspace],
+  )
+
+  const handlePhoneBlur = useCallback(() => {
+    window.setTimeout(() => {
+      const ae = document.activeElement
+      if (ae && typeof ae === 'object' && 'id' in ae && ae.id === 'screen0-phone') return
+      setPhoneFocused(false)
+      setGlassKeyboardOpen(false)
+    }, 120)
+  }, [])
+
   return (
     <div className="screen0-root" ref={rootRef}>
       <div className="screen0-bg" aria-hidden="true">
@@ -143,13 +185,17 @@ function Screen0() {
           // eslint-disable-next-line jsx-a11y/media-has-caption
           <video
             ref={marqueeVideoRef}
-            key={customSrc}
-            src={customSrc}
+            key={deliverySrc}
+            src={deliverySrc}
             muted
             playsInline
             loop
-            preload="auto"
+            preload="metadata"
             onError={() => setMediaFailed(true)}
+            onCanPlay={() => {
+              const el = marqueeVideoRef.current
+              if (el) void el.play().catch(() => {})
+            }}
             onLoadedData={() => {
               const el = marqueeVideoRef.current
               if (el) void el.play().catch(() => {})
@@ -163,8 +209,10 @@ function Screen0() {
         {showImageLayer ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={customSrc}
+            src={deliverySrc}
             alt=""
+            fetchPriority="high"
+            decoding="async"
             onError={() => setMediaFailed(true)}
             style={{
               transform,
@@ -176,8 +224,75 @@ function Screen0() {
 
       {entering ? <div className="screen0-enterFlash" aria-hidden /> : null}
 
+      {!entering && glassKeyboardOpen && step === 'login' ? (
+        <button
+          type="button"
+          className="screen0-kbScrim"
+          aria-label="Dismiss number pad"
+          tabIndex={-1}
+          onClick={closeGlassKeyboard}
+        />
+      ) : null}
+
       {!entering ? (
       <div className="screen0-bottom">
+        <div className="screen0-bottomInner">
+        {glassKeyboardOpen && step === 'login' ? (
+          <div
+            className="screen0-glassKeypad"
+            role="group"
+            aria-label="Number pad"
+            onPointerDown={(e) => e.preventDefault()}
+          >
+            <div className="screen0-glassKeypad-grid">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className="screen0-glassKey"
+                  aria-label={d}
+                  disabled={entering}
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => appendPhoneDigit(d)}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+            <div className="screen0-glassKeypad-row">
+              <button
+                type="button"
+                className="screen0-glassKey screen0-glassKey--wide"
+                aria-label="Delete digit"
+                disabled={entering || phone.length === 0}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => phoneBackspace()}
+              >
+                ⌫
+              </button>
+              <button
+                type="button"
+                className="screen0-glassKey"
+                aria-label="0"
+                disabled={entering}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => appendPhoneDigit('0')}
+              >
+                0
+              </button>
+              <button
+                type="button"
+                className="screen0-glassKey screen0-glassKey--accent"
+                aria-label="Done"
+                disabled={entering}
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={closeGlassKeyboard}
+              >
+                ✓
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div
           className={`screen0-dock${step === 'login' ? ' screen0-dock--login' : ''}`}
         >
@@ -199,6 +314,8 @@ function Screen0() {
                   setStep('landing')
                   setPhone('')
                   setPhoneFocused(false)
+                  setGlassKeyboardOpen(false)
+                  phoneInputRef.current?.blur()
                 }}
                 aria-label="Back"
               >
@@ -212,21 +329,26 @@ function Screen0() {
                   </span>
                 ) : null}
                 <input
+                  ref={phoneInputRef}
                   id="screen0-phone"
                   className={`screen0-dockInput${showFakeSample ? ' screen0-dockInput--ghost' : ''}`}
                   name="phone"
-                  type="tel"
-                  inputMode="numeric"
-                  autoComplete="tel-national"
+                  type="text"
+                  inputMode="none"
+                  autoComplete="off"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
                   enterKeyHint="done"
+                  readOnly
                   placeholder=""
                   value={formatPhoneDisplay(phone)}
-                  onChange={onPhoneChange}
-                  onFocus={() => setPhoneFocused(true)}
-                  onBlur={() => setPhoneFocused(false)}
+                  onFocus={() => {
+                    setPhoneFocused(true)
+                    setGlassKeyboardOpen(true)
+                  }}
+                  onBlur={handlePhoneBlur}
+                  onKeyDown={handlePhoneKeyDown}
                   disabled={entering}
                 />
               </label>
@@ -235,6 +357,9 @@ function Screen0() {
                   type="button"
                   className="screen0-dockGo"
                   disabled={entering}
+                  onPointerDown={(e) => {
+                    if (!entering && phone.length === 10) e.preventDefault()
+                  }}
                   onClick={goRockStar}
                 >
                   Rock Star
@@ -242,6 +367,7 @@ function Screen0() {
               ) : null}
             </div>
           )}
+        </div>
         </div>
       </div>
       ) : null}

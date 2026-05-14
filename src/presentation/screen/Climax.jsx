@@ -23,6 +23,7 @@ import {
 } from "../../data/calendarEventsStore";
 import { useTheme } from "../../context/ThemeContext";
 import { readClimaxBgPersisted } from "../../sync/v2AdminBootstrap.js";
+import { optimizeMediaDeliveryUrl } from "../../lib/mediaDeliveryUrl.js";
 
 // Climax = checkout. Everything here is driven by the active appointment:
 //   * services + products = `appointmentStateStore` keyed by apt id (the same
@@ -623,9 +624,13 @@ export default function Climax() {
     return () => window.removeEventListener("salonx:v2admin-climax", onSync);
   }, []);
 
-  const climaxInlaySrc = climaxBg?.image?.trim()
-    ? climaxBg.image.trim()
-    : "/climax-inlay.png";
+  const climaxInlaySrc = useMemo(() => {
+    const raw = climaxBg?.image?.trim()
+      ? climaxBg.image.trim()
+      : "/climax-inlay.png";
+    if (!raw.startsWith("http")) return raw;
+    return optimizeMediaDeliveryUrl(raw, "image");
+  }, [climaxBg?.image]);
   const climaxInlayAdjust = climaxBg?.adjust ?? {
     scale: 1,
     rotate: 0,

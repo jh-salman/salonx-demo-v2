@@ -1,4 +1,4 @@
-import React, { useContext, useMemo } from 'react'
+import React, { useContext, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { Scissors, User, Lightning, CalendarBlank, Gear, CaretRight } from 'phosphor-react';
 import CurvedLine from '../../component/CurvedLine'
@@ -18,6 +18,8 @@ import {
   isSameLocalDay,
   useCalendarEvents,
 } from '../../data/calendarEventsStore';
+import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js';
+import { readS1DemoCurveStripFromSession } from '../../lib/s1DemoCurveStripSession.js';
 import '../style/screen1.css';
 
 const SCREEN1_ACTIVE = 0;
@@ -62,6 +64,22 @@ function Screen1() {
         .sort((a, b) => a.start.getTime() - b.start.getTime());
       return todays.length ? buildAptNavPayload(todays[0]) : null;
     }, [calendarEvents]);
+
+    const [curveStrip, setCurveStrip] = useState(() =>
+      readS1DemoCurveStripFromSession(),
+    );
+    useEffect(() => {
+      const onV2Admin = () => setCurveStrip(readS1DemoCurveStripFromSession());
+      window.addEventListener('salonx:v2admin-s1demo', onV2Admin);
+      return () =>
+        window.removeEventListener('salonx:v2admin-s1demo', onV2Admin);
+    }, []);
+
+    const curveMediaTransform = useMemo(() => {
+      if (!curveStrip) return undefined;
+      const { tx, ty, rotate, scale } = curveStrip.adjust;
+      return `translate(${tx}%, ${ty}%) rotate(${rotate}deg) scale(${scale})`;
+    }, [curveStrip]);
 
     return (
         <div className="screen1-container">
@@ -150,8 +168,53 @@ function Screen1() {
                             })}
                         </div>
                     </div>
-                    <div className="curvedline-container">
-                        <CurvedLine />
+                    <div
+                        className={`curvedline-container curvedline-container--clientCurve${
+                            curveStrip ? ' curvedline-container--clientCurveHasMedia' : ''
+                        }`}
+                    >
+                        <div className="s1demo-curveStripLayer">
+                            {curveStrip ? (
+                                <div
+                                    className="s1demo-slot s1demo-curveStripSlot s1demo-slot--committed s1demo-curveStripSlot--clientReadonly"
+                                    aria-hidden
+                                >
+                                    <div className="s1demo-slot__imgLayer">
+                                        {curveStrip.isVideo ? (
+                                            <video
+                                                src={optimizeMediaDeliveryUrl(
+                                                    curveStrip.src,
+                                                    'video',
+                                                )}
+                                                muted
+                                                playsInline
+                                                loop
+                                                autoPlay
+                                                draggable={false}
+                                                style={{
+                                                    objectFit: curveStrip.adjust.fit,
+                                                    transform: curveMediaTransform,
+                                                }}
+                                            />
+                                        ) : (
+                                            <img
+                                                src={optimizeMediaDeliveryUrl(
+                                                    curveStrip.src,
+                                                    'image',
+                                                )}
+                                                alt=""
+                                                draggable={false}
+                                                style={{
+                                                    objectFit: curveStrip.adjust.fit,
+                                                    transform: curveMediaTransform,
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                        <CurvedLine hideBodyFill={Boolean(curveStrip)} />
                         <a
                             href="https://dangerjonescreative.com/"
                             className="screen1-cobraCreditLink"

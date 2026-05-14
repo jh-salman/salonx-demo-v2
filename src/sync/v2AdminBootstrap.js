@@ -6,32 +6,146 @@ import {
 } from '../theme/primaryTheme.js'
 
 const S1_SESSION_KEY = '@salonx/s1-demo-image/v1'
-/** Marquee / login hero (`Screen0`) — v2-admin Build Station tab "Marquee" (`s2`). */
+/** Marquee / login hero (`Screen0`) — Build Station "Marquee" (`s2`). */
 export const MARQUEE_SESSION_KEY = '@salonx/s2-marquee/v1'
-/** Climax checkout bg (`Climax.jsx` inlay) — Build Station tab "Climax" (`s4`). */
+/** Climax inlay — Build Station "Climax" (`s4`). */
 export const CLIMAX_BG_SESSION_KEY = '@salonx/s4-climax/v1'
-/** Tracks v2-admin `activeBrandId` so Stylist media swaps when admin activates another brand. */
 const V2_ACTIVE_BRAND_KEY = '@salonx/v2admin-active-brand'
-/** v2-admin `webProjectionAt` / publish marker — advances only on Apply to App (and explicit publish). */
+/** Last published marker from admin (`webProjectionAt`) — bumps on Apply to App. */
 const CONFIG_REV_KEY = '@salonx/v2admin-config-rev'
+const V2_CONFIG_CACHE_KEY = '@salonx/v2admin-config-cache/v1'
 
-/** Slots that can carry images (top bar is fixed SVG in app — ignore URLs). */
 const S1_IMAGE_URL_SLOTS = ['hero', 'promo', 'curveStrip']
+
+/** @returns {Record<string, { scale: number; rotate: number; tx: number; ty: number; fit: 'cover' | 'contain' }>} */
+function defaultS1AdjustRecord() {
+  const slot = () => ({
+    scale: 1,
+    rotate: 0,
+    tx: 0,
+    ty: 0,
+    fit: /** @type {'contain'} */ ('contain'),
+  })
+  return {
+    topBar: slot(),
+    hero: slot(),
+    promo: slot(),
+    curveStrip: slot(),
+  }
+}
+
+function mergeS1AdjustFromConfig(cfg) {
+  const base = defaultS1AdjustRecord()
+  const ad =
+    cfg.s1Demo &&
+    typeof cfg.s1Demo === 'object' &&
+    cfg.s1Demo.adjust &&
+    typeof cfg.s1Demo.adjust === 'object'
+      ? cfg.s1Demo.adjust
+      : {}
+  for (const slot of ['topBar', 'hero', 'promo', 'curveStrip']) {
+    const a = ad[slot]
+    if (!a || typeof a !== 'object') continue
+    base[slot] = {
+      scale:
+        typeof a.scale === 'number'
+          ? Math.min(60, Math.max(0.35, a.scale))
+          : base[slot].scale,
+      rotate:
+        typeof a.rotate === 'number'
+          ? Math.min(180, Math.max(-180, a.rotate))
+          : 0,
+      tx:
+        typeof a.tx === 'number'
+          ? Math.min(50, Math.max(-50, a.tx))
+          : 0,
+      ty:
+        typeof a.ty === 'number'
+          ? Math.min(50, Math.max(-50, a.ty))
+          : 0,
+      fit: a.fit === 'cover' || a.fit === 'contain' ? a.fit : 'contain',
+    }
+  }
+  return base
+}
+
+/** @returns {Record<string, 'image' | 'video'>} */
+function mergeS1MediaKindsFromConfig(cfg) {
+  const base = {
+    topBar: /** @type {'image'} */ ('image'),
+    hero: /** @type {'image'} */ ('image'),
+    promo: /** @type {'image'} */ ('image'),
+    curveStrip: /** @type {'image'} */ ('image'),
+  }
+  const mk =
+    cfg.s1Demo &&
+    typeof cfg.s1Demo === 'object' &&
+    cfg.s1Demo.mediaKinds &&
+    typeof cfg.s1Demo.mediaKinds === 'object'
+      ? cfg.s1Demo.mediaKinds
+      : {}
+  for (const slot of ['topBar', 'hero', 'promo', 'curveStrip']) {
+    const v = mk[slot]
+    if (v === 'video') base[slot] = 'video'
+  }
+  return base
+}
+
+function hasS1SessionPayload() {
+  if (typeof sessionStorage === 'undefined') return false
+  try {
+    return Boolean(sessionStorage.getItem(S1_SESSION_KEY))
+  } catch {
+    return false
+  }
+}
+
+function hasMarqueeSessionPayload() {
+  if (typeof sessionStorage === 'undefined') return false
+  try {
+    return Boolean(sessionStorage.getItem(MARQUEE_SESSION_KEY))
+  } catch {
+    return false
+  }
+}
+
+function hasClimaxSessionPayload() {
+  if (typeof sessionStorage === 'undefined') return false
+  try {
+    return Boolean(sessionStorage.getItem(CLIMAX_BG_SESSION_KEY))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Base URL for v2-admin (no trailing slash).
+ * Prod without env: same-origin `/salonx-admin` proxy (see `vercel.json`).
+ */
+export function getV2AdminBase() {
+  const fromEnv =
+    typeof import.meta.env.VITE_V2_ADMIN_URL === 'string'
+      ? import.meta.env.VITE_V2_ADMIN_URL.trim().replace(/\/$/, '')
+      : ''
+  if (fromEnv) return fromEnv
+  if (typeof window !== 'undefined' && window.__SALONX_V2_ADMIN_URL__) {
+    const w = String(window.__SALONX_V2_ADMIN_URL__).trim().replace(/\/$/, '')
+    if (w) return w
+  }
+  if (import.meta.env.PROD) return '/salonx-admin'
+  return ''
+}
 
 let warnedMissingV2AdminUrl = false
 function warnIfNoV2AdminBase() {
   if (warnedMissingV2AdminUrl) return
-  const base = import.meta.env.VITE_V2_ADMIN_URL?.trim?.()
-  if (base) return
+  if (getV2AdminBase()) return
   warnedMissingV2AdminUrl = true
-  if (import.meta.env.DEV) {
-    console.warn(
-      '[salonx-web-v2] VITE_V2_ADMIN_URL is unset — Marquee, Climax, and Stylist screens will not sync from the admin panel. Add it to .env (e.g. http://localhost:3000).',
-    )
-  }
+  console.warn(
+    '[salonx-web-v2] Set VITE_V2_ADMIN_URL (build) or window.__SALONX_V2_ADMIN_URL__ / vercel.json proxy.',
+  )
 }
 
-/** @param {unknown} images */
 function s1HasAnyImageUrl(images) {
   if (!images || typeof images !== 'object') return false
   return S1_IMAGE_URL_SLOTS.some(
@@ -65,7 +179,6 @@ function clampMarqueePan(n) {
 /**
  * @param {string | null} raw
  * @param {'cover' | 'contain'} defaultFit
- * @returns {{ image: string; mediaKind?: 'image' | 'video'; adjust: { scale: number; rotate: number; tx: number; ty: number; fit: 'cover' | 'contain' } } | null}
  */
 function parseSimpleScreenJson(raw, defaultFit) {
   if (!raw) return null
@@ -93,7 +206,6 @@ function parseSimpleScreenJson(raw, defaultFit) {
   }
 }
 
-/** Normalized marquee payload for `Screen0`. */
 export function readMarqueePersisted() {
   if (typeof sessionStorage === 'undefined') return null
   return parseSimpleScreenJson(
@@ -102,7 +214,6 @@ export function readMarqueePersisted() {
   )
 }
 
-/** Normalized Climax inlay image + adjust for `Climax.jsx`. */
 export function readClimaxBgPersisted() {
   if (typeof sessionStorage === 'undefined') return null
   return parseSimpleScreenJson(
@@ -183,10 +294,6 @@ export function applyV2AdminConfigJson(cfg) {
     climaxSessionMissing = Boolean(activeBrand)
   }
 
-  /*
-   * Theme follows the active brand projection whenever it differs from what we have —
-   * not only when media sync runs (same revision + fresh load used to skip primaryHex).
-   */
   if (typeof cfg.primaryHex === 'string') {
     const hex = normalizePrimaryHex(cfg.primaryHex)
     const prev = readStoredPrimaryHex()
@@ -194,7 +301,7 @@ export function applyV2AdminConfigJson(cfg) {
       try {
         localStorage.setItem(PRIMARY_STORAGE_KEY, hex)
       } catch {
-        /* quota / private mode */
+        /* */
       }
       applySalonxPrimaryTheme(hex)
       if (typeof window !== 'undefined') {
@@ -203,14 +310,17 @@ export function applyV2AdminConfigJson(cfg) {
     }
   }
 
-  /*
-   * - configRevision from API changed → admin saved (any field) → apply projected media.
-   * - Legacy payloads without revision: brand switch, or any S1/S2/S4 image URL present.
-   */
+  const needsS1Hydration = hasS1Images && !hasS1SessionPayload()
+  const needsMarqueeHydration = hasS2Image && !hasMarqueeSessionPayload()
+  const needsClimaxHydration = hasS4Image && !hasClimaxSessionPayload()
+
   const shouldApplyProjectedMedia =
     revisionAdvanced ||
     marqueeSessionMissing ||
     climaxSessionMissing ||
+    needsS1Hydration ||
+    needsMarqueeHydration ||
+    needsClimaxHydration ||
     (!hasServerRevision &&
       (brandChanged || hasS1Images || hasS2Image || hasS4Image))
 
@@ -220,7 +330,7 @@ export function applyV2AdminConfigJson(cfg) {
     cfg.s1Demo &&
     typeof cfg.s1Demo === 'object' &&
     cfg.s1Demo.images &&
-    cfg.s1Demo.adjust
+    s1HasAnyImageUrl(cfg.s1Demo.images)
 
   try {
     if (s1Ready) {
@@ -232,7 +342,8 @@ export function applyV2AdminConfigJson(cfg) {
         S1_SESSION_KEY,
         JSON.stringify({
           images: imgs,
-          adjust: cfg.s1Demo.adjust,
+          adjust: mergeS1AdjustFromConfig(cfg),
+          mediaKinds: mergeS1MediaKindsFromConfig(cfg),
         }),
       )
     }
@@ -291,55 +402,124 @@ export function applyV2AdminConfigJson(cfg) {
   }
 }
 
-/**
- * Pull theme + Screen 1 demo media from v2-admin so any device/browser can stay in sync.
- * Set `VITE_V2_ADMIN_URL` (e.g. https://your-admin.vercel.app) in `.env` for salonx-web-v2.
- */
+function readV2ConfigCache() {
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(V2_CONFIG_CACHE_KEY)
+    if (!raw) return null
+    const o = JSON.parse(raw)
+    if (!o || typeof o !== 'object' || !o.body || typeof o.body !== 'object')
+      return null
+    const etag = typeof o.etag === 'string' ? o.etag.trim() : ''
+    return { etag, body: o.body }
+  } catch {
+    return null
+  }
+}
+
+function writeV2ConfigCache(etag, body) {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(
+      V2_CONFIG_CACHE_KEY,
+      JSON.stringify({ etag: etag || '', body, savedAt: Date.now() }),
+    )
+  } catch {
+    /* */
+  }
+}
+
+export function applyCachedV2AdminConfigFromStorage() {
+  const c = readV2ConfigCache()
+  if (c?.body) applyV2AdminConfigJson(c.body)
+}
+
 export async function syncFromV2Admin() {
   warnIfNoV2AdminBase()
-  const base = import.meta.env.VITE_V2_ADMIN_URL?.trim?.()?.replace(/\/$/, '')
+  const base = getV2AdminBase()
   if (!base) return false
 
   try {
+    const cached = readV2ConfigCache()
+    const headers = {}
+    if (cached?.etag) headers['If-None-Match'] = cached.etag
+
+    const sameOrigin = base.startsWith('/')
     const res = await fetch(`${base}/api/config?forWeb=1`, {
-      mode: 'cors',
+      mode: sameOrigin ? 'same-origin' : 'cors',
       cache: 'no-store',
+      headers,
     })
+    if (res.status === 304) {
+      if (cached?.body) applyV2AdminConfigJson(cached.body)
+      return true
+    }
     if (!res.ok) return false
 
     const cfg = await res.json()
     applyV2AdminConfigJson(cfg)
+    const etag = res.headers.get('ETag')?.trim() || ''
+    writeV2ConfigCache(etag, cfg)
     return true
   } catch {
     return false
   }
 }
 
-/**
- * Subscribe to v2-admin config changes over SSE (`/api/config/stream`).
- * Returns a disposer; call on teardown (e.g. HMR) if needed.
- */
+const POLL_MS_PROXIED = 400
+const POLL_MS_SSE_BACKUP = 8000
+
 export function startV2AdminRealtimeSync() {
   warnIfNoV2AdminBase()
-  const base = import.meta.env.VITE_V2_ADMIN_URL?.trim?.()?.replace(/\/$/, '')
-  if (!base || typeof EventSource === 'undefined') return () => {}
+  const base = getV2AdminBase()
+  if (!base) return () => {}
+
+  const proxied = base.startsWith('/')
+  const pollMs = proxied ? POLL_MS_PROXIED : POLL_MS_SSE_BACKUP
+
+  const pollId = setInterval(() => {
+    void syncFromV2Admin()
+  }, pollMs)
 
   let es
-  try {
-    es = new EventSource(`${base}/api/config/stream?forWeb=1`)
-    es.onmessage = (ev) => {
-      try {
-        const cfg = JSON.parse(ev.data)
-        applyV2AdminConfigJson(cfg)
-      } catch {
-        /* */
+  if (!proxied && typeof EventSource !== 'undefined') {
+    try {
+      es = new EventSource(`${base}/api/config/stream?forWeb=1`)
+      es.onmessage = (ev) => {
+        try {
+          const cfg = JSON.parse(ev.data)
+          applyV2AdminConfigJson(cfg)
+          writeV2ConfigCache('', cfg)
+        } catch {
+          /* */
+        }
       }
+    } catch {
+      es = undefined
     }
-  } catch {
-    return () => {}
+  }
+
+  const bump = () => {
+    void syncFromV2Admin()
+  }
+  const onVis = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      bump()
+    }
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', bump)
+    document.addEventListener('visibilitychange', onVis)
   }
 
   return () => {
+    clearInterval(pollId)
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', bump)
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVis)
+    }
     try {
       es?.close()
     } catch {

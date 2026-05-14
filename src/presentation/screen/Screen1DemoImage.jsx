@@ -31,6 +31,7 @@ import {
   isSameLocalDay,
   useCalendarEvents,
 } from '../../data/calendarEventsStore';
+import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js';
 import '../style/screen1.css';
 
 /** Default stylist home — same S1 shell; image slots are view-only (no upload). */
@@ -66,6 +67,14 @@ const initialDemoAdjust = () => ({
   curveStrip: defaultSlotAdjust(),
 });
 
+/** @returns {Record<S1DemoSlotId, 'image' | 'video'>} */
+const initialDemoMediaKinds = () => ({
+  topBar: /** @type {'image'} */ ('image'),
+  hero: /** @type {'image'} */ ('image'),
+  promo: /** @type {'image'} */ ('image'),
+  curveStrip: /** @type {'image'} */ ('image'),
+});
+
 function clampScale(s) {
   // Pinch / wheel can magnify up to 60× (10× the previous 6× cap) for extreme crops.
   return Math.min(60, Math.max(0.35, s));
@@ -77,7 +86,7 @@ function clampPan(n) {
 /** Persist demo slot images across route changes (`useState` resets on remount). */
 const S1_DEMO_IMAGE_SESSION_KEY = '@salonx/s1-demo-image/v1';
 
-/** @typedef {{ images: Record<string, string>; adjust: Record<string, S1DemoSlotAdjust> }} S1PersistedShape */
+/** @typedef {{ images: Record<string, string>; adjust: Record<string, S1DemoSlotAdjust>; mediaKinds?: Record<string, string> }} S1PersistedShape */
 
 /** @returns {S1PersistedShape | null} */
 function readS1DemoPersisted() {
@@ -87,7 +96,7 @@ function readS1DemoPersisted() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
-    const { images: im, adjust: ad } = parsed;
+    const { images: im, adjust: ad, mediaKinds: mkRaw } = parsed;
     if (!im || typeof im !== 'object' || !ad || typeof ad !== 'object')
       return null;
 
@@ -120,7 +129,21 @@ function readS1DemoPersisted() {
       const fit = a.fit === 'contain' || a.fit === 'cover' ? a.fit : 'contain';
       nextAdjust[slot] = { scale, tx, ty, rotate, fit };
     }
-    return { images: nextImages, adjust: nextAdjust };
+    const nextMediaKinds = initialDemoMediaKinds();
+    if (mkRaw && typeof mkRaw === 'object') {
+      for (const slot of slots) {
+        const m = mkRaw[slot];
+        if (m === 'video') nextMediaKinds[slot] = 'video';
+      }
+    }
+    const curveUrl = nextImages.curveStrip;
+    if (
+      typeof curveUrl === 'string' &&
+      /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(curveUrl.trim())
+    ) {
+      nextMediaKinds.curveStrip = 'video';
+    }
+    return { images: nextImages, adjust: nextAdjust, mediaKinds: nextMediaKinds };
   } catch (_) {
     return null;
   }
@@ -129,6 +152,7 @@ function readS1DemoPersisted() {
 function persistS1Demo(
   /** @type {Record<S1DemoSlotId, string>} */ images,
   /** @type {Record<S1DemoSlotId, S1DemoSlotAdjust>} */ adjust,
+  /** @type {Record<S1DemoSlotId, 'image' | 'video'>} */ mediaKinds,
 ) {
   if (typeof sessionStorage === 'undefined') return;
   try {
@@ -137,6 +161,7 @@ function persistS1Demo(
       JSON.stringify({
         images: { ...images, topBar: '' },
         adjust,
+        mediaKinds,
       }),
     );
   } catch (_) {
@@ -173,6 +198,12 @@ function isChosenImageFile(/** @type {File | undefined} */ file) {
     return true;
   /* Last resort — let through unknown types from picker (better than silently failing). */
   return !file.type;
+}
+
+function isChosenVideoFile(/** @type {File | undefined} */ file) {
+  if (!file || file.size <= 0) return false;
+  if (file.type && file.type.startsWith('video/')) return true;
+  return /\.(mp4|webm|mov|m4v)$/i.test(file.name);
 }
 
 /** Clearing `<input>` value synchronously inside `change` breaks some iOS WebKit builds. */
@@ -432,7 +463,7 @@ function S1DemoResizeBottomSheet({
         >
           <img
             className="s1demo-resizeSheet__img"
-            src={imageSrc}
+            src={optimizeMediaDeliveryUrl(imageSrc, 'image')}
             alt=""
             draggable={false}
             style={{ objectFit: adjust.fit, transform }}
@@ -521,6 +552,7 @@ function S1DemoResizeBottomSheet({
  *   openSlotPicker: (slot: S1DemoSlotId) => void;
  *   onAdjust: (slot: S1DemoSlotId, updater: (a: S1DemoSlotAdjust) => S1DemoSlotAdjust) => void;
  *   imageUploadEnabled?: boolean;
+ *   mediaKind?: 'image' | 'video';
  * }} props
  */
 function S1DemoImageSlot({
@@ -538,6 +570,7 @@ function S1DemoImageSlot({
   openSlotPicker,
   onAdjust,
   imageUploadEnabled = true,
+  mediaKind = 'image',
 }) {
   const elRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const pointersRef = useRef(new Map());
@@ -842,12 +875,25 @@ function S1DemoImageSlot({
     >
       {src ? (
         <div className="s1demo-slot__imgLayer">
-          <img
-            src={src}
-            alt=""
-            draggable={false}
-            style={{ objectFit: adjust.fit, transform }}
-          />
+          {mediaKind === 'video' && slotId === 'curveStrip' ? (
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <video
+              src={optimizeMediaDeliveryUrl(src, 'video')}
+              muted
+              playsInline
+              loop
+              autoPlay
+              draggable={false}
+              style={{ objectFit: adjust.fit, transform }}
+            />
+          ) : (
+            <img
+              src={optimizeMediaDeliveryUrl(src, 'image')}
+              alt=""
+              draggable={false}
+              style={{ objectFit: adjust.fit, transform }}
+            />
+          )}
         </div>
       ) : (
         <span className="s1demo-slot__hint">{hintEmpty}</span>
@@ -910,10 +956,13 @@ function Screen1DemoImage() {
   const [demoAdjust, setDemoAdjust] = useState(
     () => s1PersistedMountRef.current?.adjust ?? initialDemoAdjust(),
   );
+  const [demoMediaKinds, setDemoMediaKinds] = useState(
+    () => s1PersistedMountRef.current?.mediaKinds ?? initialDemoMediaKinds(),
+  );
 
   useEffect(() => {
-    persistS1Demo(demoImages, demoAdjust);
-  }, [demoImages, demoAdjust]);
+    persistS1Demo(demoImages, demoAdjust, demoMediaKinds);
+  }, [demoImages, demoAdjust, demoMediaKinds]);
 
   useEffect(() => {
     const onV2Admin = () => {
@@ -921,6 +970,7 @@ function Screen1DemoImage() {
       if (!next) return;
       setDemoImages({ ...next.images, topBar: '' });
       setDemoAdjust(next.adjust);
+      setDemoMediaKinds(next.mediaKinds ?? initialDemoMediaKinds());
     };
     window.addEventListener('salonx:v2admin-s1demo', onV2Admin);
     return () => window.removeEventListener('salonx:v2admin-s1demo', onV2Admin);
@@ -933,10 +983,12 @@ function Screen1DemoImage() {
   /**
    * Snapshot taken when entering edit mode. If the user cancels, we revert
    * to this so unconfirmed pinch / drag / new image is discarded.
-   * @type {[ { src: string; adjust: S1DemoSlotAdjust } | null, Function ]}
+   * @type {[ { src: string; adjust: S1DemoSlotAdjust; mediaKinds: Record<S1DemoSlotId, 'image' | 'video'> } | null, Function ]}
    */
   const [editSnapshot, setEditSnapshot] = useState(
-    /** @type {{ src: string; adjust: S1DemoSlotAdjust } | null} */ (null),
+    /** @type {{ src: string; adjust: S1DemoSlotAdjust; mediaKinds: Record<S1DemoSlotId, 'image' | 'video'> } | null} */ (
+      null
+    ),
   );
 
   /**
@@ -953,6 +1005,7 @@ function Screen1DemoImage() {
       setEditSnapshot({
         src: demoImages[slot] || '',
         adjust: { ...demoAdjust[slot] },
+        mediaKinds: { ...demoMediaKinds },
       });
       if (srcOverride !== undefined) {
         setDemoImages((prev) => ({ ...prev, [slot]: srcOverride }));
@@ -962,7 +1015,7 @@ function Screen1DemoImage() {
       }
       setEditingSlot(slot);
     },
-    [demoImages, demoAdjust],
+    [demoImages, demoAdjust, demoMediaKinds],
   );
 
   const confirmEdit = useCallback(() => {
@@ -972,9 +1025,10 @@ function Screen1DemoImage() {
 
   const cancelEdit = useCallback(() => {
     if (editingSlot && editSnapshot) {
-      const { src, adjust } = editSnapshot;
+      const { src, adjust, mediaKinds } = editSnapshot;
       setDemoImages((prev) => ({ ...prev, [editingSlot]: src }));
       setDemoAdjust((prev) => ({ ...prev, [editingSlot]: adjust }));
+      setDemoMediaKinds(mediaKinds);
     }
     setEditingSlot(null);
     setEditSnapshot(null);
@@ -1018,6 +1072,13 @@ function Screen1DemoImage() {
       if (prev.slot === slot && now - prev.t < 320) return;
       lastPickerOpenRef.current = { t: now, slot };
       pendingSlotRef.current = slot;
+      const input = fileInputRef.current;
+      if (input) {
+        input.accept =
+          slot === 'curveStrip'
+            ? 'image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.gif,video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v'
+            : 'image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.gif';
+      }
       fileInputRef.current?.click();
     },
     [allowImageUpload],
@@ -1029,6 +1090,9 @@ function Screen1DemoImage() {
     if (!slot) return;
     setDemoImages((prev) => ({ ...prev, [slot]: '' }));
     setDemoAdjust((prev) => ({ ...prev, [slot]: defaultSlotAdjust() }));
+    if (slot === 'curveStrip') {
+      setDemoMediaKinds((prev) => ({ ...prev, curveStrip: 'image' }));
+    }
     setEditingSlot(null);
     setEditSnapshot(null);
   }, [editingSlot]);
@@ -1066,6 +1130,20 @@ function Screen1DemoImage() {
       const file = input.files?.[0];
       const slot = pendingSlotRef.current;
 
+      if (slot === 'curveStrip' && isChosenVideoFile(file)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          enterEditMode(slot, String(reader.result), defaultSlotAdjust());
+          setDemoMediaKinds((prev) => ({ ...prev, curveStrip: 'video' }));
+          resetFileInputLater(input);
+        };
+        reader.onerror = () => {
+          resetFileInputLater(input);
+        };
+        reader.readAsDataURL(/** @type {Blob} */ (file));
+        return;
+      }
+
       if (!isChosenImageFile(file)) {
         resetFileInputLater(input);
         return;
@@ -1074,6 +1152,9 @@ function Screen1DemoImage() {
       const reader = new FileReader();
       reader.onload = () => {
         enterEditMode(slot, String(reader.result), defaultSlotAdjust());
+        if (slot === 'curveStrip') {
+          setDemoMediaKinds((prev) => ({ ...prev, curveStrip: 'image' }));
+        }
         resetFileInputLater(input);
       };
       reader.onerror = () => {
@@ -1192,6 +1273,17 @@ function Screen1DemoImage() {
               onAdjust={handleAdjust}
               imageUploadEnabled={allowImageUpload}
             />
+            <a
+              href="https://youtu.be/O-6GcaV833c"
+              className="screen1-promoYoutubeLink"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Danger Jones — watch on YouTube (opens in new tab)"
+              style={
+                editingSlot === 'promo' ? { pointerEvents: 'none' } : undefined
+              }
+              tabIndex={editingSlot === 'promo' ? -1 : undefined}
+            />
             <div
               className="client-list-wrapper client-list"
               style={{
@@ -1221,6 +1313,10 @@ function Screen1DemoImage() {
                     aria-current={isActive ? 'page' : undefined}
                     onClick={() => {
                       if (to === '/clients') {
+                        navigate(to, { state: { from: location.pathname } });
+                        return;
+                      }
+                      if (to === '/calendar') {
                         navigate(to, { state: { from: location.pathname } });
                         return;
                       }
@@ -1266,6 +1362,7 @@ function Screen1DemoImage() {
                 openSlotPicker={openSlotPicker}
                 onAdjust={handleAdjust}
                 imageUploadEnabled={allowImageUpload}
+                mediaKind={demoMediaKinds.curveStrip === 'video' ? 'video' : 'image'}
               />
             </div>
             <CurvedLine hideBodyFill={!!demoImages.curveStrip} />

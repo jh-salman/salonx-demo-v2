@@ -97,6 +97,118 @@
   align-items: stretch;
 }
 
+/* `/screen1` client: admin curve strip in the right rail (session read-only).
+   Scoped so profile / list / header layout stays identical to pre-demo client. */
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurveHasMedia {
+  pointer-events: auto;
+}
+
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurve
+  .s1demo-curveStripLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurve
+  .curvedline-svg {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+
+.screen1-container:not(.screen1-container--demoImage)
+  .s1demo-curveStripSlot.s1demo-curveStripSlot--clientReadonly.s1demo-slot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: #000000;
+  pointer-events: none;
+  cursor: default;
+  touch-action: manipulation;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-mask-image: url('/curve-strip-content-mask.svg');
+  mask-image: url('/curve-strip-content-mask.svg');
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
+}
+
+.screen1-container:not(.screen1-container--demoImage)
+  .s1demo-curveStripSlot--clientReadonly.s1demo-slot
+  .s1demo-slot__imgLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-image: none;
+  background-color: #000000;
+}
+
+.screen1-container:not(.screen1-container--demoImage)
+  .s1demo-curveStripSlot--clientReadonly
+  .s1demo-slot__imgLayer
+  img,
+.screen1-container:not(.screen1-container--demoImage)
+  .s1demo-curveStripSlot--clientReadonly
+  .s1demo-slot__imgLayer
+  video {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+
+.screen1-container:not(.screen1-container--demoImage)
+  .s1demo-curveStripSlot--clientReadonly
+  .s1demo-slot__imgLayer
+  video {
+  flex-shrink: 0;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  object-position: center;
+}
+
+/* Narrow outer rail when curve media is shown so credit link does not cover the strip. */
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurveHasMedia
+  .screen1-cobraCreditLink {
+  inset: 0 0 0 auto;
+  width: min(28px, 38%);
+  max-width: 100%;
+  height: 100%;
+  z-index: 4;
+}
+
 .profile-panel {
   position: absolute;
   top: 0;
@@ -816,17 +928,28 @@
   overflow: hidden;
 }
 
-.screen1-container--demoImage .s1demo-slot__imgLayer img {
+.screen1-container--demoImage .s1demo-slot__imgLayer img,
+.screen1-container--demoImage .s1demo-slot__imgLayer video {
   width: 100%;
   height: 100%;
+  max-width: none;
   object-fit: cover;
   transform-origin: center center;
   user-select: none;
   -webkit-user-drag: none;
-  /* Route all touches to the slot (not the `<img>` target) so pointer capture
+  /* Route all touches to the slot (not the media target) so pointer capture
      and pinch reliably fire the same on mobile + desktop. */
   pointer-events: none;
   -webkit-touch-callout: none;
+}
+
+/* Video fills the slot like images; intrinsic aspect ratio can otherwise shrink the box in flex. */
+.screen1-container--demoImage .s1demo-slot__imgLayer video {
+  flex-shrink: 0;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+  object-position: center;
 }
 
 .screen1-container--demoImage .s1demo-slot__hint {
@@ -1220,4 +1343,37 @@
   max-width: 100%;
   height: 100%;
   z-index: 4;
+}
+
+/* Promo row: YouTube (Life Coach); same mask as promo slot; off while editing promo. */
+.screen1-container--demoImage .screen1-promoYoutubeLink {
+  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
+  --s1-curve-h: var(--s1-bg-h, 852px);
+  --s1-panel-left: 5px;
+  --s1-panel-top: var(--s1demo-gray-promo-top);
+  position: absolute;
+  top: var(--s1-panel-top);
+  left: var(--s1-panel-left);
+  width: 395px;
+  height: var(--s1demo-gray-promo-h);
+  z-index: 10;
+  box-sizing: border-box;
+  pointer-events: auto;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-mask-image: url('/curve-mask.svg');
+  mask-image: url('/curve-mask.svg');
+  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  mask-size: var(--s1-mask-w) var(--s1-curve-h);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
+    calc(var(--s1-curve-top) - var(--s1-panel-top));
+  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
 }
