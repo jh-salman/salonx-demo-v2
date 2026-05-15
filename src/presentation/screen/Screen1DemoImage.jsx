@@ -1199,6 +1199,7 @@ function Screen1DemoImage() {
       : '';
 
   return (
+    <div className="screen1-frame">
     <div className="screen1-container screen1-container--demoImage">
       {allowImageUpload ? (
         <input
@@ -1301,49 +1302,7 @@ function Screen1DemoImage() {
             >
               <SetTimmer />
             </div>
-            <div className="screen1-toolbar" role="toolbar" aria-label="Screen toolbar">
-              {screenDemoToolbar.map(({ Icon, label, to }, i) => {
-                const isActive = i === 0 ? isStylistToolbarActive : false;
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    className={`screen1-toolbar__btn${isActive ? ' screen1-toolbar__btn--solid' : ''}`}
-                    aria-label={label}
-                    aria-current={isActive ? 'page' : undefined}
-                    onClick={() => {
-                      if (to === '/clients') {
-                        navigate(to, { state: { from: location.pathname } });
-                        return;
-                      }
-                      if (to === '/calendar') {
-                        navigate(to, { state: { from: location.pathname } });
-                        return;
-                      }
-                      navigate(
-                        to,
-                        toolbarApt && (to === '/screen2' || to === '/climax')
-                          ? {
-                              state: {
-                                apt: toolbarApt,
-                                ...(to === '/climax'
-                                  ? { from: location.pathname }
-                                  : {}),
-                              },
-                            }
-                          : undefined,
-                      );
-                    }}
-                  >
-                    <Icon
-                      size={isActive ? 26 : 24}
-                      weight={isActive ? 'fill' : 'regular'}
-                      aria-hidden
-                    />
-                  </button>
-                );
-              })}
-            </div>
+            {/* Global bottom toolbar is rendered by AppLayout (router.jsx). */}
           </div>
           <div className="curvedline-container curvedline-container--demoSlot">
             <div className="s1demo-curveStripLayer">
@@ -1473,6 +1432,7 @@ function Screen1DemoImage() {
           onToggleFit={toggleFit}
         />
       ) : null}
+    </div>
     </div>
   );
 }

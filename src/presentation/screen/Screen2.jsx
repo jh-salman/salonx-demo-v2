@@ -1463,6 +1463,7 @@ export default function Screen2() {
   }, [removeConfirm, markS2ServicesVisited, markS2LiftVisited]);
 
   return (
+    <div className="s2-frame">
     <div className="s2-root">
       <div className="s2-bg" />
 
@@ -2987,6 +2988,7 @@ export default function Screen2() {
         onStopTimer={handleTimerStop}
         onResetTimer={handleTimerReset}
       />
+    </div>
     </div>
   );
 }

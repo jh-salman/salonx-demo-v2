@@ -5,40 +5,56 @@
   width: 100%;
   min-height: 100%;
   min-width: 0;
+  box-sizing: border-box;
+  /* Fill the routed shell; insets match other screens + room for fixed BottomToolbar. */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  /* BottomToolbar icon row + home-indicator slice (`--salonx-bottom-toolbar-row-h` shrinks in PWA). */
+  padding-bottom: calc(
+    var(--salonx-bottom-toolbar-row-h) +
+      var(--salonx-bottom-toolbar-safe-h, env(safe-area-inset-bottom, 0px))
+  );
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: rgba(255, 255, 255, 0.92);
   position: relative;
   background: #000;
+  /* Header strip height — matches .climax-brandbar; centers absolute back btn in that band. */
+  --climax-brandbar-h: 92px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  /* Clip intentional horizontal bleed from the hero image (see .climax-inlayPhoto). */
-  overflow-x: hidden;
+  /* Outer shell never scrolls; inner `.climax-scroll` handles vertical scroll. */
+  overflow: hidden;
   /* Let JS observe horizontal swipe-back; vertical scrolling stays native inside glass. */
   touch-action: pan-y;
 }
 
 .climax-backBtn {
-  position: absolute;
-  left: 8px;
-  top: max(8px, env(safe-area-inset-top, 0px));
+  position: relative;
+  flex: 0 0 auto;
+  align-self: center;
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   padding: 0;
-  border: none;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
-  background: transparent;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: rgba(255, 255, 255, 0.95);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
 }
 
 .climax-backBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .climax-backBtn:focus-visible {
@@ -48,17 +64,39 @@
 
 .climax-brandbar {
   flex: 0 0 auto;
-  height: 92px;
-  display: grid;
-  place-items: center;
-  background: rgba(20, 20, 20, 0.0);
+  height: var(--climax-brandbar-h);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: rgba(20, 20, 20, 0);
+}
+
+.climax-brandbar__logoWrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+/* Mirrors back button width so the logo stays optically centered. */
+.climax-brandbar__edgeSpacer {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  visibility: hidden;
 }
 
 .climax-brandbar__logo {
   height: 70px;
   width: auto;
+  max-width: min(240px, 62vw);
   object-fit: contain;
-  margin-top: 6px;
+  margin-top: 0;
   filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.75));
 }
 

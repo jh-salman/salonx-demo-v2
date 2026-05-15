@@ -1,32 +1,31 @@
-/* Login / marquee (Screen0) — tiny bottom glass dock; hero stays visible */
+/* Login / marquee (Screen0) — simple flex column: hero fills, dock sits below.
+ * No absolute/calc/mask on the main containers; safe areas via padding only. */
 
 .screen0-root {
   position: relative;
-  flex: 1 1 auto;
-  height: 100%;
   width: 100%;
-  min-height: 0;
+  height: 100vh;
   background-color: #000;
   font-family: system-ui, -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
 }
 
 .screen0-bg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -2px;
-  width: calc(100% + 4px);
-  z-index: 0;
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
 .screen0-bgDecor {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -2px;
-  width: calc(100% + 4px);
+  inset: 0;
   z-index: 0;
   background: linear-gradient(
     168deg,
@@ -38,12 +37,10 @@
 
 .screen0-bg img,
 .screen0-bg video {
-  position: absolute;
-  inset: 0;
+  position: relative;
   z-index: 1;
   width: 100%;
   height: 100%;
-  max-width: none;
   display: block;
   object-fit: cover;
   object-position: center center;
@@ -55,10 +52,8 @@
 .screen0-bg::after {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -2px;
-  width: calc(100% + 4px);
+  inset: 0;
+  z-index: 2;
   pointer-events: none;
   background: linear-gradient(
     to bottom,
@@ -69,19 +64,17 @@
 }
 
 .screen0-bottom {
-  position: absolute;
-  left: 0;
-  right: 0;
-  /* Design px: raised when visualViewport is shorter than keyboard (see Screen0.jsx). */
-  bottom: var(--screen0-kb-lift, 0px);
+  flex-shrink: 0;
+  width: 100%;
   z-index: 11;
-  padding: 10px 14px max(14px, env(safe-area-inset-bottom, 0px));
+  padding: 10px 14px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  pointer-events: none;
   background: transparent;
+  /* Keyboard lift (see Screen0.jsx) — reserves space below the dock so it floats up. */
+  margin-bottom: var(--screen0-kb-lift, 0px);
 }
 
 .screen0-bottomInner {
@@ -90,8 +83,7 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  max-width: min(380px, calc(100vw - 28px));
-  pointer-events: auto;
+  max-width: 380px;
 }
 
 /* Tap-outside target only — no backdrop blur so the marquee stays sharp. */

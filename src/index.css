@@ -13,6 +13,10 @@
   --salonx-shell-height: calc(
     100vh - var(--salonx-safe-area-top) - var(--salonx-safe-area-bottom)
   );
+  /* BottomToolbar inner row (~8px + 26px icon + 8px); used by screen roots for padding-bottom */
+  --salonx-bottom-toolbar-row-h: 42px;
+  /* Matches `.bottom-toolbar-safe` — avoids content sitting under toolbar when tweaked (iOS PWA). */
+  --salonx-bottom-toolbar-safe-h: env(safe-area-inset-bottom, 0px);
 }
 
 @supports (height: 100dvh) {
@@ -23,6 +27,25 @@
   }
 }
 
+/* Add to Home / PWA — match shorter `.bottom-toolbar-row` (see BottomToolbar.css) */
+@media (display-mode: standalone) {
+  :root {
+    --salonx-bottom-toolbar-row-h: 32px;
+  }
+}
+
+/*
+ * Safari “Add to Home” only — ~50% shorter home-indicator slice; icon band stays tappable/readable.
+ */
+html.salonx-ios-pwa {
+  --salonx-bottom-toolbar-safe-h: calc(env(safe-area-inset-bottom, 0px) * 0.5);
+  /*
+   * Min height of the icon band (flex-grow fills `shell min-height − safe` so glyphs stay
+   * vertically centered above the home-indicator slice without shrinking icons to 16px).
+   */
+  --salonx-bottom-toolbar-row-h: 30px;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -30,7 +53,7 @@
   font-family: sans-serif;
 }
 
-/* Fills the 393×852 frame; each route root should use width/height 100% inside this. */
+/* Route roots flex-fill the viewport shell when wrapped in these classes. */
 .salonx-route-mount {
   flex: 1 1 auto;
   min-height: 0;
@@ -41,7 +64,6 @@
   overflow: hidden;
 }
 
-/* Bridges ResponsivePhoneShell → RouterProvider so each route root can flex-fill the 393×852 frame. */
 .salonx-router-shell {
   flex: 1 1 auto;
   min-height: 0;
@@ -61,8 +83,7 @@ html {
   min-height: 100dvh;
 }
 
-body,
-#root {
+body {
   height: 100%;
   width: 100%;
   min-height: 100%;
@@ -70,11 +91,43 @@ body,
   min-height: 100vh;
   min-height: 100dvh;
   overflow: hidden;
-  /* Letterboxing outside 550px shell + safe overscroll */
   background: #000;
-  /* Prevent rubber-band scrolling on iOS Safari */
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
-  /* Stop browser pinch-zoom from breaking the responsive transform scale */
   touch-action: pan-x pan-y;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  min-height: var(--salonx-shell-height);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The direct child of #root (`.app-layout` from router.jsx) is the app shell.
+ * Lock it to exactly the device viewport (100dvh / 100vh fallback) so the
+ * outer screen box never scrolls on any device — inner scroll containers
+ * (lists, sheets, modals) handle their own overflow.
+ *
+ * `clip-path: inset(safe-top 0 0 0)` hides anything that lands in the top
+ * safe-area band (status bar / notch) regardless of how it's positioned
+ * (absolute, negative `top`, high z-index, etc.). The BottomToolbar lives at
+ * the bottom and is unaffected by a top-only inset. */
+#root > * {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-clip-path: inset(env(safe-area-inset-top, 0px) 0 0 0);
+  clip-path: inset(env(safe-area-inset-top, 0px) 0 0 0);
 }

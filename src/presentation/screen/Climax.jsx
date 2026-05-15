@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CaretLeft, CaretRight } from "phosphor-react";
+import { ArrowLeft, CaretRight } from "phosphor-react";
 import "../style/climax.css";
 import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { MOCK_SERVICES } from "../../data/mockServices";
@@ -627,7 +627,7 @@ export default function Climax() {
   const climaxInlaySrc = useMemo(() => {
     const raw = climaxBg?.image?.trim()
       ? climaxBg.image.trim()
-      : "/climax-inlay.png";
+      : "/climax-inlay-2.png";
     if (!raw.startsWith("http")) return raw;
     return optimizeMediaDeliveryUrl(raw, "image");
   }, [climaxBg?.image]);
@@ -638,7 +638,7 @@ export default function Climax() {
     ty: 0,
     fit: "cover",
   };
-  /** Stock `/climax-inlay.png` — ignore session adjust so default art matches shipped layout. */
+  /** Stock `/climax-inlay-2.png` — ignore session adjust so default art matches shipped layout. */
   const hasCustomClimaxImage = Boolean(climaxBg?.image?.trim());
   const displayAdjust = hasCustomClimaxImage
     ? climaxInlayAdjust
@@ -661,16 +661,19 @@ export default function Climax() {
       onPointerUp={onClimaxSwipePointerUp}
       onPointerCancel={onClimaxSwipePointerCancel}
     >
-      <button
-        type="button"
-        className="climax-backBtn"
-        onClick={handleClimaxBack}
-        aria-label="Back"
-      >
-        <CaretLeft size={28} weight="bold" aria-hidden />
-      </button>
       <div className="climax-brandbar" aria-label="Co-brand header area">
-        <img className="climax-brandbar__logo" src="/l3vel3.png" alt="L3VEL3" />
+        <button
+          type="button"
+          className="climax-backBtn"
+          onClick={handleClimaxBack}
+          aria-label="Back"
+        >
+          <ArrowLeft size={22} weight="bold" aria-hidden />
+        </button>
+        <div className="climax-brandbar__logoWrap">
+          <img className="climax-brandbar__logo" src="/l3vel3.png" alt="L3VEL3" />
+        </div>
+        <div className="climax-brandbar__edgeSpacer" aria-hidden />
       </div>
 
       <div className="climax-stage" aria-label="ClimaX stage">

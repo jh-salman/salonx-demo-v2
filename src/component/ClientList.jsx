@@ -15,7 +15,7 @@ import TimerModal from './TimerModal';
 import { useTheme } from '../context/ThemeContext';
 import { accentCardGradientCss } from '../theme/primaryTheme';
 
-const CARD_WIDTH = 380;
+/** Row height; width fills `.client-list-wrapper` (responsive — no fixed phone column). */
 const CARD_HEIGHT = 70;
 
 /** Screen1: same gap between appointment rows (matches demo `--s1demo-section-gap` rhythm). */
@@ -34,7 +34,10 @@ const ClientCard = ({
 }) => {
   const outerStyle = {
     position: 'relative',
-    width: `${CARD_WIDTH}px`,
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    alignSelf: 'stretch',
     height: `${CARD_HEIGHT}px`,
     marginBottom: `${S1_CARD_STACK_GAP_PX}px`,
     padding: '1.5px',

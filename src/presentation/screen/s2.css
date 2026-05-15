@@ -146,6 +146,24 @@
 }
 
 /* ROOT: fills phone frame, no overflow */
+/* Outer frame — reserves iOS PWA top/bottom safe areas without touching the
+ * existing `.s2-root` layout (masks, curves, absolute children all unchanged).
+ * Status bar / home indicator sit on this black band; `.s2-root` flex-fills
+ * the space inside. */
+.s2-frame {
+  width: 100%;
+  height: 100vh;
+  background-color: #000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  /* No padding-bottom: `.s2-bottomDock` / `.s2-toolbar` already reserve the
+   * home-indicator safe area via their own padding. Doubling it here left a
+   * visible black gap between the toolbar and the viewport edge. */
+  box-sizing: border-box;
+}
+
 .s2-root {
   position: relative;
   isolation: isolate;
@@ -514,10 +532,11 @@
   align-items: stretch;
   gap: var(--s2-screen-card-gap);
   padding-top: 0;
-  /* Scroll padding: gap after last card + safe area (toolbar handles inset on actions) */
-  padding-bottom: calc(
-    var(--s2-screen-card-gap) + env(safe-area-inset-bottom, 0px)
-  );
+  /* Bottom toolbar (.s2-toolbar) inside .s2-bottomDock already reserves the
+   * home-indicator safe area via its own padding-bottom; doubling it here
+   * pushed the dock visibly off the viewport edge. Keep 0 so .s2-bottomDock
+   * sits flush against the screen bottom. */
+  padding-bottom: 0;
   padding-left: calc(var(--s2-page-gutter) + env(safe-area-inset-left, 0px));
   padding-right: calc(var(--s2-page-gutter) + env(safe-area-inset-right, 0px));
   margin-top: var(--s2-header-stack-gap);

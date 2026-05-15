@@ -1,30 +1,19 @@
-import React, { useMemo, useState } from 'react';
-import { Plus, X, MagnifyingGlass } from 'phosphor-react';
+import React, { useState } from 'react';
+import { Plus, X } from 'phosphor-react';
 
-// ---------- Generic searchable picker (modal style) ----------
+// ---------- Picker list (modal style) ----------
 
 export function SearchablePickerModal({
   title,
   items,
-  searchKeys = ['name'],
   renderItem,
   onSelect,
   onAddNew,
   addNewLabel = '+ Add new',
   onClose,
 }) {
-  const [q, setQ] = useState('');
-
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter((it) =>
-      searchKeys.some((k) => String(it[k] || '').toLowerCase().includes(needle)),
-    );
-  }, [q, items, searchKeys]);
-
   return (
-    <div className="cal-modal cal-modal--picker" role="dialog" aria-modal="true">
+    <div className="cal-modal cal-modal--picker cal-modal--pickerSheet" role="dialog" aria-modal="true">
       <button className="cal-modal__backdrop" onClick={onClose} aria-label="Close" />
       <div className="cal-modal__card cal-modal__card--picker">
         <div className="cal-modal__formHead">
@@ -34,24 +23,13 @@ export function SearchablePickerModal({
           </button>
         </div>
 
-        <div className="cal-pickerSearch">
-          <MagnifyingGlass size={14} weight="bold" aria-hidden className="cal-pickerSearch__icon" />
-          <input
-            className="cal-pickerSearch__input"
-            placeholder="Search…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            autoFocus
-          />
-        </div>
-
         <div className="cal-pickerList">
           {onAddNew ? (
             <button
               type="button"
               className="cal-pickerItem cal-pickerItem--add"
               onClick={() => {
-                onAddNew(q.trim());
+                onAddNew('');
               }}
             >
               <Plus size={14} weight="bold" aria-hidden />
@@ -59,10 +37,10 @@ export function SearchablePickerModal({
             </button>
           ) : null}
 
-          {filtered.length === 0 ? (
-            <div className="cal-pickerEmpty">No matches</div>
+          {items.length === 0 ? (
+            <div className="cal-pickerEmpty">Nothing to show</div>
           ) : (
-            filtered.map((item) => (
+            items.map((item) => (
               <button
                 type="button"
                 key={item.id}

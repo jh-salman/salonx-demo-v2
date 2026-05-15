@@ -7,7 +7,6 @@ import {
   normalizePrimaryHex,
   SALONX_BRAND_BLUE_HEX,
 } from '../../theme/primaryTheme';
-import BottomToolbar from '../../component/BottomToolbar';
 import '../style/settings.css';
 import { S1_DEMO_IMAGE_ROUTE } from './Screen1DemoImage';
 
@@ -97,8 +96,6 @@ function SettingsScreen() {
           Home
         </button>
       </div>
-
-      <BottomToolbar activeIndex={4} originPath="/settings" />
     </div>
   );
 }

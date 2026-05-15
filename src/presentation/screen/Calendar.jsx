@@ -17,7 +17,6 @@ import {
   endOfWeek,
 } from "date-fns";
 import { Bell, ClipboardText, PencilSimpleLine, Plus, UserList, X } from "phosphor-react";
-import BottomToolbar from "../../component/BottomToolbar";
 import { useRunningTimers, useTimers } from "../../context/TimersContext";
 import {
   NewCustomerScreen,
@@ -3901,8 +3900,6 @@ export default function CalendarScreenWeb() {
           onSave={handleSaveAppointment}
         />
       ) : null}
-
-      <BottomToolbar activeIndex={3} originPath="/calendar" />
     </div>
   );
 }
@@ -4162,7 +4159,6 @@ function NewAppointmentOverlay({
         <SearchablePickerModal
           title="Select client"
           items={clients}
-          searchKeys={["name", "phone", "email"]}
           renderItem={(c) => (
             <span className="cal-pickerItem__row">
               <span className="cal-pickerItem__name">{c.name}</span>
@@ -4183,7 +4179,6 @@ function NewAppointmentOverlay({
         <SearchablePickerModal
           title="Select service"
           items={services}
-          searchKeys={["name"]}
           renderItem={(s) => (
             <span className="cal-pickerItem__row">
               <span className="cal-pickerItem__name">{s.name}</span>

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, X, MagnifyingGlass } from 'phosphor-react';
+import { Plus, MagnifyingGlass, CaretRight, CaretLeft, X } from 'phosphor-react';
 import { MOCK_CLIENTS } from '../../data/mockClients';
 import {
   CLIENT_AVATAR_DB_UPDATED,
@@ -22,22 +22,12 @@ import {
 } from '../../data/screen2RemoteStore';
 import { normalizeClientKey } from '../../data/screen2RemoteApi';
 import { startCalendarRealtimeSync } from '../../sync/calendarRealtimeSync';
-import BottomToolbar from '../../component/BottomToolbar';
 import '../style/clients.css';
+import '../style/calendar.css';
 
-// "Select client" picker. Wired to the bottom-toolbar Profile (User) icon so the
-// stylist can jump straight to a client's detail page from anywhere.
-//
-// Tap a client tile → navigates to Screen2 with a synthetic `apt` payload
-// containing `clientName` (no real Calendar event id, since the user isn't
-// coming from an appointment). Screen2 then loads consultation notes /
-// per-client photos by name as it always has.
-//
-// `from: '/clients'` is also passed so Screen2's top-left Back button returns
-// here instead of the default Stylist screen.
+// Client picker styled like Settings: simple list + search, themed with --salonx-primary.
 
 const NEW_CLIENTS_STORAGE_KEY = '@salonx/clientsExtra/v1';
-const BRAND_LABEL = 'DANGER JONES';
 
 function loadExtraClients() {
   if (typeof window === 'undefined') return [];
@@ -77,7 +67,6 @@ export default function Clients() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Where the close (X) button should send the user. Falls back to Stylist.
   const backTarget =
     (location?.state?.from && String(location.state.from)) || '/screen1';
 
@@ -86,6 +75,9 @@ export default function Clients() {
   const [idbAvatarByKey, setIdbAvatarByKey] = useState({});
   const [catalogClients, setCatalogClients] = useState([]);
   const [query, setQuery] = useState('');
+  const [newClientOpen, setNewClientOpen] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const newClientInputRef = useRef(null);
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
@@ -106,7 +98,6 @@ export default function Clients() {
   }, []);
 
   const allClients = useMemo(() => {
-    // Dedupe by lowercased name — extras win (most recent definition).
     const map = new Map();
     const base =
       isAppointmentsApiAvailable() && catalogClients.length > 0
@@ -122,7 +113,6 @@ export default function Clients() {
     [allClients],
   );
 
-  // Hydrate consultation cache from Postgres when API is available.
   useEffect(() => {
     if (!isAppointmentsApiAvailable() || !clientNames.length) return undefined;
     let cancelled = false;
@@ -236,128 +226,226 @@ export default function Clients() {
         start: null,
         end: null,
       };
-      // Persist for refresh-survival; Screen2's Back will read `from: '/clients'`.
       writePersistedScreen2Apt(apt, '/clients');
       navigate('/screen2', { state: { apt, from: '/clients' } });
     },
     [navigate],
   );
 
-  const handleNewClient = useCallback(() => {
-    const raw = window.prompt('New client name');
-    const name = (raw || '').trim();
-    if (!name) return;
-    const exists = allClients.some(
-      (c) => clientKey(c.name) === clientKey(name),
-    );
-    if (exists) {
-      // Just open the existing one — don't add a duplicate
-      const existing = allClients.find(
+  const closeNewClientModal = useCallback(() => {
+    setNewClientOpen(false);
+    setNewClientName('');
+  }, []);
+
+  useEffect(() => {
+    if (!newClientOpen) return undefined;
+    const id = window.requestAnimationFrame(() => {
+      newClientInputRef.current?.focus();
+    });
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeNewClientModal();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.cancelAnimationFrame(id);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [newClientOpen, closeNewClientModal]);
+
+  const commitNewClient = useCallback(
+    (nameRaw) => {
+      const name = (nameRaw || '').trim();
+      if (!name) return;
+      const exists = allClients.some(
         (c) => clientKey(c.name) === clientKey(name),
       );
-      if (existing) openClient(existing);
-      return;
-    }
-    const newClient = {
-      id: `c-extra-${Date.now().toString(36)}`,
-      name,
-      phone: '',
-      email: '',
-      notes: '',
-    };
-    const next = [...extraClients, newClient];
-    setExtraClients(next);
-    saveExtraClients(next);
-    openClient(newClient);
-  }, [allClients, extraClients, openClient]);
+      if (exists) {
+        const existing = allClients.find(
+          (c) => clientKey(c.name) === clientKey(name),
+        );
+        if (existing) {
+          closeNewClientModal();
+          openClient(existing);
+        }
+        return;
+      }
+      const newClient = {
+        id: `c-extra-${Date.now().toString(36)}`,
+        name,
+        phone: '',
+        email: '',
+        notes: '',
+      };
+      const next = [...extraClients, newClient];
+      setExtraClients(next);
+      saveExtraClients(next);
+      closeNewClientModal();
+      openClient(newClient);
+    },
+    [
+      allClients,
+      extraClients,
+      openClient,
+      closeNewClientModal,
+    ],
+  );
 
-  const closeScreen = useCallback(() => {
+  const handleSubmitNewClient = useCallback(
+    (e) => {
+      e.preventDefault();
+      commitNewClient(newClientName);
+    },
+    [commitNewClient, newClientName],
+  );
+
+  const handleBack = useCallback(() => {
     navigate(backTarget);
   }, [navigate, backTarget]);
 
   return (
     <div className="clients-root">
-      <div className="clients-bg" aria-hidden />
+      <div className="clients-main">
+        <div className="clients-top">
+          <button
+            type="button"
+            className="clients-back"
+            aria-label="Back"
+            onClick={handleBack}
+          >
+            <CaretLeft size={24} weight="bold" aria-hidden />
+          </button>
+          <h1 className="clients-title">Clients</h1>
+        </div>
 
-      <header className="clients-header">
-        <div className="clients-brand">{BRAND_LABEL}</div>
-        <h1 className="clients-title">SELECT CLIENT</h1>
-        <span className="clients-titleRule" aria-hidden />
-        <button
-          type="button"
-          className="clients-close"
-          aria-label="Close"
-          onClick={closeScreen}
-        >
-          <X size={18} weight="regular" aria-hidden />
-        </button>
-      </header>
+        <p className="clients-sub">
+          Pick someone to open their stage. Toolbar profile also lands here when you tap
+          the person icon elsewhere.
+        </p>
 
-      <div className="clients-search">
-        <MagnifyingGlass size={16} weight="regular" aria-hidden className="clients-search__icon" />
-        <input
-          className="clients-search__input"
-          type="search"
-          placeholder="Search clients"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search clients"
-        />
-      </div>
+        <div className="clients-sectionLabel">Search</div>
+        <div className="clients-search">
+          <MagnifyingGlass
+            size={18}
+            weight="regular"
+            aria-hidden
+            className="clients-search__icon"
+          />
+          <input
+            className="clients-search__input"
+            type="search"
+            placeholder="Search by name…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search clients"
+            autoCapitalize="words"
+            autoCorrect="off"
+          />
+        </div>
 
-      <div className="clients-grid" role="list">
-        <button
-          type="button"
-          className="clients-tile clients-tile--new"
-          onClick={handleNewClient}
-          role="listitem"
-        >
-          <span className="clients-tile__avatar clients-tile__avatar--new" aria-hidden>
-            <Plus size={26} weight="bold" />
-          </span>
-          <span className="clients-tile__name">NEW CLIENT</span>
-        </button>
+        <div className="clients-sectionLabel">Directory</div>
+        <div className="clients-list" role="list">
+          <button
+            type="button"
+            className="clients-row clients-row--new"
+            onClick={() => {
+              setNewClientName('');
+              setNewClientOpen(true);
+            }}
+            role="listitem"
+          >
+            <span className="clients-row__avatar" aria-hidden>
+              <Plus size={22} weight="bold" />
+            </span>
+            <div className="clients-row__body">
+              <div className="clients-row__name">New client</div>
+            </div>
+            <CaretRight size={18} weight="bold" className="clients-row__chevron" aria-hidden />
+          </button>
 
-        {filtered.map((client) => {
-          const k = clientKey(client.name);
-          const rec = consultStore[k] || {};
-          const avatar =
-            consultTileImageUrl(client, rec) ||
-            idbAvatarByKey[k] ||
-            null;
-          return (
-            <button
-              key={client.id || client.name}
-              type="button"
-              className="clients-tile"
-              onClick={() => openClient(client)}
-              role="listitem"
-              aria-label={`Open ${client.name}`}
-            >
-              <span className="clients-tile__avatar">
-                {avatar ? (
-                  <img
-                    className="clients-tile__avatarImg"
-                    src={avatar}
-                    alt=""
-                    draggable={false}
-                  />
-                ) : (
-                  <span className="clients-tile__initials">{initialsFor(client.name)}</span>
-                )}
-              </span>
-              <span className="clients-tile__name">{(client.name || '').toUpperCase()}</span>
-            </button>
-          );
-        })}
+          {filtered.map((client) => {
+            const k = clientKey(client.name);
+            const rec = consultStore[k] || {};
+            const avatar =
+              consultTileImageUrl(client, rec) || idbAvatarByKey[k] || null;
+            return (
+              <button
+                key={client.id || client.name}
+                type="button"
+                className="clients-row"
+                onClick={() => openClient(client)}
+                role="listitem"
+                aria-label={`Open ${client.name}`}
+              >
+                <span className="clients-row__avatar">
+                  {avatar ? (
+                    <img
+                      className="clients-row__avatarImg"
+                      src={avatar}
+                      alt=""
+                      draggable={false}
+                    />
+                  ) : (
+                    <span className="clients-row__initials">{initialsFor(client.name)}</span>
+                  )}
+                </span>
+                <div className="clients-row__body">
+                  <div className="clients-row__name">{client.name || 'Unnamed'}</div>
+                </div>
+                <CaretRight size={18} weight="regular" className="clients-row__chevron" aria-hidden />
+              </button>
+            );
+          })}
+        </div>
 
         {filtered.length === 0 && query.trim() ? (
           <div className="clients-empty" role="status">
-            No clients match "{query.trim()}"
+            No clients match &quot;{query.trim()}&quot;
           </div>
         ) : null}
       </div>
-      <BottomToolbar activeIndex={1} originPath="/clients" />
+
+      {newClientOpen ? (
+        <div className="cal-modal cal-modal--full clients-newModal" role="dialog" aria-modal="true" aria-labelledby="clients-new-modal-title">
+          <button type="button" className="cal-modal__backdrop" onClick={closeNewClientModal} aria-label="Close" />
+          <form className="cal-modal__card cal-modal__card--form" onSubmit={handleSubmitNewClient}>
+            <div className="cal-modal__formHead">
+              <div id="clients-new-modal-title" className="cal-modal__title">
+                New client
+              </div>
+              <button
+                type="button"
+                className="cal-modal__iconBtn"
+                aria-label="Close"
+                onClick={closeNewClientModal}
+              >
+                <X size={16} weight="bold" aria-hidden />
+              </button>
+            </div>
+            <div className="cal-modal__subtitle">
+              Saves locally and opens their stage — same flow as Calendar&apos;s glass forms.
+            </div>
+            <label className="cal-field">
+              <span className="cal-field__label">Name</span>
+              <input
+                ref={newClientInputRef}
+                type="text"
+                className="cal-field__input"
+                autoComplete="off"
+                autoCapitalize="words"
+                placeholder="Jane Smith"
+                value={newClientName}
+                onChange={(e) => setNewClientName(e.target.value)}
+              />
+            </label>
+            <button type="submit" className="cal-modal__btn cal-modal__btn--primary">
+              Create &amp; open
+            </button>
+            <button type="button" className="cal-modal__close" onClick={closeNewClientModal}>
+              Cancel
+            </button>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }

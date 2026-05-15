@@ -6,8 +6,7 @@ import {
   useCalendarWaitlist,
 } from '../data/calendarEventsStore';
 
-const CARD_WIDTH = 380;
-/** 2× former 28px mini rows; shorter than ~70px appointment cards */
+/** Row height; width matches ClientList (full list column). */
 const CARD_HEIGHT = 56;
 
 /** Screen1: matches appointment card stack (see ClientList). */
@@ -158,7 +157,10 @@ function WaitingList() {
       },
       cardOuterStyle: {
         position: 'relative',
-        width: `${CARD_WIDTH}px`,
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        alignSelf: 'stretch',
         height: `${CARD_HEIGHT}px`,
         padding: '1.5px',
         borderRadius: '10.5px',

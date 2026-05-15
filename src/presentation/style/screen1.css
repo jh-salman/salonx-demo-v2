@@ -10,45 +10,94 @@
   color: #fff;
 }
 
+/* Outer frame — reserves iOS PWA top/bottom safe areas without altering
+ * `.screen1-container` mask/curve/panel layout. Same recipe as `.screen0-root`
+ * which we verified works on iOS PWA. */
+.screen1-frame {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  background-color: #000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
+}
+
 .screen1-container {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   flex: 1 1 auto;
-  min-height: 0;
-  height: 100%;
+  min-width: 0;
   width: 100%;
+  /*
+   * Do not rely on `height: 100%` up the React tree (StrictMode / context providers
+   * pass through with no DOM node — parent flex height can be missing). Pin to the
+   * real viewport shell so absolute children + `calc(100% - …)` resolve correctly.
+   */
+  min-height: var(--salonx-shell-height);
+  height: var(--salonx-shell-height);
 }
 
 .layout-wrapper {
   position: relative;
   z-index: 100;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  /* Occupy all space under .screen1-container so .screen1-background inset:0 fills */
+  height: 100%;
 }
 
 .screen1-background {
   position: absolute;
-  left: 0;
-  top: 0;
-  width: 393px;
-  height: 852px;
-  min-height: 852px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
   background: black;
   z-index: 10;
   overflow: visible;
-  /* Main curve strip — same numbers as `.curvedline-container` + `CurvedLine` width */
-  --s1-bg-w: 393px;
-  --s1-bg-h: 852px;
+  /* Logical frame for masks — percentage of this box (fills viewport via .screen1-container) */
+  --s1-bg-w: 100%;
+  --s1-bg-h: 100%;
   --s1-curve-top: -5px;
-  --s1-curve-right: -5px;
+  --s1-curve-right: -6px;
   --s1-curve-w: 65px;
-  --s1-curve-h: var(--s1-bg-h);
-  /* Curve sits at `right: var(--s1-curve-right)` so it overhangs the screen
-     by `|--s1-curve-right|` px on the right. The mask canvas needs to extend
-     by the SAME amount so the cutout lines up with the visible curve.
-     Mask cutout left edge in mask-coords = (--s1-bg-w − --s1-curve-w + |--s1-curve-right|) */
-  --s1-mask-w: calc(var(--s1-bg-w) + 5px); /* = 398px, screen + 5px curve-overhang */
-  /* Left edge of cutout in mask coords = mask canvas W − curve strip W = (--s1-bg-w + |overhang|) − curve-w (+ nudge if SVG edited) */
-  --s1-mask-cut-x: calc(var(--s1-bg-w) - var(--s1-curve-w) + 5px); /* +5 matches curve right: -5 overhang → pairs with curve-mask translate */
-  /* Dock row inside the 852px frame — list/timer reserve space above this */
+  /* Dock row — list/timer reserve space above this */
   --s1-toolbar-h: 64px;
+}
+
+/*
+ * Main-column mask: follow the wavy curve (`public/curve-mask.svg` + CurvedLine body).
+ * Two layers: solid white fills the full panel; the SVG stacks on top so its transparent
+ * bite cuts the rail — `mask-size: auto 100%` scales height with the panel but not width,
+ * so the bite does not grow when the layout is wider than a phone (straight gradient
+ * could not match the orange stroke).
+ */
+.company-header,
+.client-list-wrapper,
+.timer-panel,
+.screen1-container--demoImage .s1demo-grayStack,
+.screen1-container--demoImage .s1demo-grayPromo,
+.screen1-container--demoImage .screen1-promoYoutubeLink {
+  --s1-mask-offset-y: calc(var(--s1-curve-top) - var(--s1-panel-top));
+  -webkit-mask-image: url('/curve-mask.svg'), linear-gradient(#ffffff, #ffffff);
+  mask-image: url('/curve-mask.svg'), linear-gradient(#ffffff, #ffffff);
+  -webkit-mask-size: auto 100%, 100% 100%;
+  mask-size: auto 100%, 100% 100%;
+  -webkit-mask-position: right var(--s1-mask-offset-y), 0 0;
+  mask-position: right var(--s1-mask-offset-y), 0 0;
+  -webkit-mask-repeat: no-repeat, no-repeat;
+  mask-repeat: no-repeat, no-repeat;
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
 }
 
 /* When profile / muse slider is slid off left — tap to bring it back */
@@ -217,8 +266,8 @@
 .profile-panel {
   position: absolute;
   top: 0;
-  left: 5px;
-  width: 380px;
+  left: 0;
+  width: 100%;
   height: 203px;
   z-index: 2;
   transition: transform 0.5s ease;
@@ -227,47 +276,29 @@
 .topstats-panel {
   position: absolute;
   top: 0;
-  left: 5px;
-  width: 380px;
+  left: 0;
+  width: 100%;
   height: 203px;
   z-index: 1;
 }
 
 .company-header {
-  /* Explicit mask vars so mask-size never falls through if inheritance breaks on WebKit. */
-  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
-  --s1-curve-h: var(--s1-bg-h, 852px);
-  /* L3VEL3 row: keep 5px left inset; width +10px vs former 385px (aligned with client list column). */
-  --s1-panel-left: 5px;
+  --s1-panel-left: 0px;
   --s1-panel-top: 208px;
-  width: 395px;
+  width: 100%;
   height: 70px;
   top: var(--s1-panel-top);
   position: absolute;
   left: var(--s1-panel-left);
   box-sizing: border-box;
-  -webkit-mask-image: url('/curve-mask.svg');
-  mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
-    calc(var(--s1-curve-top) - var(--s1-panel-top));
-  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
 }
 
-/* Mask: same frame as `.screen1-background`; curve hole matches `.curvedline-container` (see `public/curve-mask.svg`). */
 .client-list-wrapper {
-  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
-  --s1-curve-h: var(--s1-bg-h, 852px);
-  --s1-panel-left: 5px;
+  --s1-panel-left: 0px;
   --s1-panel-top: 286px;
-  width: 395px;
-  /* Scroll appointments + Waiting List; ends above `.screen1-toolbar` (bottom‑pinned inside 852px frame) */
-  height: calc(var(--s1-bg-h, 852px) - var(--s1-panel-top) - var(--s1-toolbar-h, 64px));
+  width: 100%;
+  /* Scroll appointments + Waiting List; ends above bottom-pinned `.screen1-toolbar` */
+  height: calc(var(--s1-bg-h, 100%) - var(--s1-panel-top) - var(--s1-toolbar-h, 64px));
   top: var(--s1-panel-top);
   position: absolute;
   left: var(--s1-panel-left);
@@ -277,45 +308,21 @@
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  -webkit-mask-image: url('/curve-mask.svg');
-  mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
-    calc(var(--s1-curve-top) - var(--s1-panel-top));
-  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
 }
 .client-list-wrapper::-webkit-scrollbar {
   display: none;
 }
 
 .timer-panel {
-  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
-  --s1-curve-h: var(--s1-bg-h, 852px);
-  --s1-panel-left: 5px;
+  --s1-panel-left: 0px;
   --s1-panel-top: 286px;
   position: absolute;
   top: var(--s1-panel-top);
   left: var(--s1-panel-left);
-  width: 380px;
+  width: 100%;
   height: 384px;
   z-index: 2;
   transition: transform 0.5s ease;
-  -webkit-mask-image: url('/curve-mask.svg');
-  mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
-    calc(var(--s1-curve-top) - var(--s1-panel-top));
-  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
 }
 
 /* WebKit/iOS: promote masked regions without touching `transform` (client list uses inline translateX). */
@@ -323,7 +330,8 @@
 .client-list-wrapper,
 .timer-panel,
 .screen1-container--demoImage .s1demo-grayStack,
-.screen1-container--demoImage .s1demo-grayPromo {
+.screen1-container--demoImage .s1demo-grayPromo,
+.screen1-container--demoImage .screen1-promoYoutubeLink {
   isolation: isolate;
 }
 
@@ -331,7 +339,7 @@
   position: absolute;
   bottom: 0;
   left: 0;
-  width: 393px;
+  width: 100%;
   height: var(--s1-toolbar-h, 64px);
   display: flex;
   align-items: center;
@@ -372,13 +380,12 @@
 
 .screen1-blackBelow {
   /*
-   * Was height: 852px — stacked a second “screen” in the document and hid the real
-   * bottom toolbar on phones / PWA. Keep a thin strip above the dock for stage links only.
+   * Thin strip above the dock for stage links only (avoid stacking a second full screen).
    */
   position: absolute;
   left: 0;
   width: 100%;
-  max-width: 393px;
+  max-width: 100%;
   bottom: calc(var(--s1-toolbar-h, 64px) + env(safe-area-inset-bottom, 0px));
   height: auto;
   min-height: 0;
@@ -471,8 +478,8 @@
   position: absolute;
   /* Match the appointment-list + waiting list scroll section bounds */
   top: 286px;
-  left: 5px;
-  width: 380px;
+  left: 0;
+  width: 100%;
   height: 504px;
   z-index: 1;
   background: #0a0a0c;
@@ -707,8 +714,8 @@
   --s1demo-gray-hero-h: 157px;
   --s1demo-gray-promo-h: 70px;
   --s1demo-gray-stack-gap: 0px;
-  /* Matches .profile-panel: left 5px + width 380px ⇒ bleed to bg right edge under the curve strip */
-  --s1demo-gray-hero-bleed-r: calc(var(--s1-bg-w, 393px) - 385px);
+  /* Full-bleed content column (mask still carves the curve on the right) */
+  --s1demo-gray-hero-bleed-r: 0px;
   /* Same as section gap — drives mask vertical alignment */
   --s1demo-gray-stack-margin-top: var(--s1demo-section-gap);
   /* Stack top + brand + gap + hero + gap — keeps hero→promo gap === brand→hero gap */
@@ -716,8 +723,8 @@
     var(--s1demo-gray-stack-margin-top) + var(--s1demo-gray-top-h) +
       var(--s1demo-section-gap) + var(--s1demo-gray-hero-h) + var(--s1demo-section-gap)
   );
-  /* Toolbar flush at bottom of 852px frame — list bottom aligns to top of toolbar */
-  --s1demo-client-list-bottom: calc(var(--s1-bg-h, 852px) - var(--s1-toolbar-h, 64px));
+  /* List bottom aligns to top of toolbar */
+  --s1demo-client-list-bottom: calc(var(--s1-bg-h, 100%) - var(--s1-toolbar-h, 64px));
 }
 
 /* Demo profile slot: allow curved mask + widened hero bleed */
@@ -726,13 +733,10 @@
 }
 
 .screen1-container--demoImage .s1demo-grayStack {
-  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
-  --s1-curve-h: var(--s1-bg-h, 852px);
-  --s1-panel-left: 5px;
   --s1-panel-top: var(--s1demo-gray-stack-margin-top);
   margin-top: var(--s1demo-gray-stack-margin-top);
   /* Widen with hero so mask cuts one shape for top bar + hero */
-  width: calc(100% + var(--s1demo-gray-hero-bleed-r));
+  width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -740,17 +744,6 @@
   /* gap: var(--s1demo-gray-stack-gap); */
   box-sizing: border-box;
   pointer-events: none;
-  -webkit-mask-image: url('/curve-mask.svg');
-  mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
-    calc(var(--s1-curve-top) - var(--s1-panel-top));
-  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
 }
 /* Top strip: fixed flex height; SVG is out of flow so 2× art does not push hero/promo. */
 .screen1-container--demoImage .s1demo-grayStack__topBar.s1demo-brandBar {
@@ -788,14 +781,11 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 .screen1-container--demoImage .s1demo-grayPromo {
-  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
-  --s1-curve-h: var(--s1-bg-h, 852px);
-  --s1-panel-left: 5px;
   --s1-panel-top: var(--s1demo-gray-promo-top);
   position: absolute;
   top: var(--s1-panel-top);
-  left: var(--s1-panel-left);
-  width: 395px;
+  left: 0;
+  width: 100%;
   height: var(--s1demo-gray-promo-h);
   z-index: 2;
   box-sizing: border-box;
@@ -815,17 +805,6 @@
   background-clip: padding-box, border-box;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   pointer-events: none;
-  -webkit-mask-image: url('/curve-mask.svg');
-  mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
-    calc(var(--s1-curve-top) - var(--s1-panel-top));
-  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
 }
 
 /* Same vertical gap below promo as between hero sections; mask tracks --s1-panel-top. */
@@ -1368,14 +1347,11 @@
 
 /* Promo row: YouTube (Life Coach); same mask as promo slot; off while editing promo. */
 .screen1-container--demoImage .screen1-promoYoutubeLink {
-  --s1-mask-w: calc(var(--s1-bg-w, 393px) + 5px);
-  --s1-curve-h: var(--s1-bg-h, 852px);
-  --s1-panel-left: 5px;
   --s1-panel-top: var(--s1demo-gray-promo-top);
   position: absolute;
   top: var(--s1-panel-top);
-  left: var(--s1-panel-left);
-  width: 395px;
+  left: 0;
+  width: 100%;
   height: var(--s1demo-gray-promo-h);
   z-index: 10;
   box-sizing: border-box;
@@ -1386,15 +1362,4 @@
   padding: 0;
   margin: 0;
   -webkit-tap-highlight-color: transparent;
-  -webkit-mask-image: url('/curve-mask.svg');
-  mask-image: url('/curve-mask.svg');
-  -webkit-mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  mask-size: var(--s1-mask-w) var(--s1-curve-h);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: calc(-1 * var(--s1-panel-left))
-    calc(var(--s1-curve-top) - var(--s1-panel-top));
-  mask-position: calc(-1 * var(--s1-panel-left)) calc(var(--s1-curve-top) - var(--s1-panel-top));
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
 }
