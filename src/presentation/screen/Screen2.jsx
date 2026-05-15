@@ -21,6 +21,38 @@ import { MOCK_CLIENTS } from '../../data/mockClients';
 import { MOCK_PRODUCTS } from '../../data/mockProducts';
 import { MOCK_SERVICES } from '../../data/mockServices';
 import {
+  deleteClientAvatar,
+  getClientAvatar,
+  putClientAvatar,
+} from '../../data/clientAvatarDb';
+import {
+  CLIENTS_CATALOG_UPDATED,
+  catalogAvatarForClient,
+  findClientInCatalog,
+  persistClientAvatarToCatalog,
+  refreshClientsCatalogCache,
+  uploadClientProfileImage,
+} from '../../data/clientProfileAvatar';
+import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
+import { fetchServiceCatalog } from '../../data/calendarCatalogApi';
+import {
+  apptStateFromVisitPayload,
+  loadConsultStore,
+  loadRemoteAppointmentVisit,
+  loadRemoteConsultation,
+  mergeRemoteConsultIntoStore,
+  pauseRemoteConsultPersist,
+  pauseRemoteVisitPersist,
+  persistRemoteAppointmentVisit,
+  persistRemoteConsultation,
+  PRODUCTS_CATALOG_UPDATED,
+  refreshProductCatalogCache,
+  resumeRemoteConsultPersist,
+  resumeRemoteVisitPersist,
+  saveConsultStore,
+  visitPayloadFromApptState,
+} from '../../data/screen2RemoteStore';
+import {
   apptStateKey,
   buildAptNavPayload,
   getApptState,
@@ -279,31 +311,13 @@ function S2ProductPhoto({ imageUrl, fallbackBackground, wrapClassName, imgClassN
   );
 }
 
-// ---------- Consultation persistence (per-client, localStorage) ----------
-const CONSULT_STORAGE_KEY = '@salonx/consultations/v1';
+// ---------- Consultation persistence (per-client, localStorage + API) ----------
 const CONSULT_DEFAULT_TEXT = {
   LIFE: 'Sister-in-law expecting twins · cabin rebuild · Jennifer→FSU',
   CHAIR: 'Redken Shades EQ 7N · 7WB · use more 7N next time',
   PATH: 'Keep dimension · low maintenance · natural grow-out',
 };
 
-function loadConsultStore() {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(CONSULT_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch (_) {
-    return {};
-  }
-}
-function saveConsultStore(store) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(CONSULT_STORAGE_KEY, JSON.stringify(store));
-  } catch (_) {
-    /* noop */
-  }
-}
 function clientKey(name) {
   return (name || '').trim().toLowerCase();
 }
@@ -348,6 +362,10 @@ function getConsultRecord(store, name) {
     PATH_entries: migratePaneEntries(rec, 'PATH'),
     photos: Array.isArray(rec.photos) ? rec.photos : [], // [{ url, ts, label }]
     avatar: typeof rec.avatar === 'string' && rec.avatar ? rec.avatar : null,
+    avatarDataKey:
+      typeof rec.avatarDataKey === 'string' && rec.avatarDataKey.trim()
+        ? rec.avatarDataKey.trim()
+        : null,
     updatedAt: rec.updatedAt || null,
   };
 }
@@ -480,15 +498,57 @@ export default function Screen2() {
     return (fromNav && String(fromNav).trim()) || CLIENT.name;
   }, [activeApt]);
 
-  // Match against owner's MOCK_CLIENTS by case-insensitive name to enrich
-  // the header (phone / email / etc). Falls back gracefully if not found.
+  const [catalogClients, setCatalogClients] = useState([]);
+  const [productCatalog, setProductCatalog] = useState(MOCK_PRODUCTS);
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    let cancelled = false;
+    void refreshClientsCatalogCache().then((list) => {
+      if (!cancelled && list) setCatalogClients(list);
+    });
+    const onCatalog = () => {
+      void refreshClientsCatalogCache().then((list) => {
+        if (list) setCatalogClients(list);
+      });
+    };
+    window.addEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) {
+      setProductCatalog(MOCK_PRODUCTS);
+      return undefined;
+    }
+    let cancelled = false;
+    void refreshProductCatalogCache().then((list) => {
+      if (!cancelled && list?.length) setProductCatalog(list);
+    });
+    const onProducts = () => {
+      void refreshProductCatalogCache().then((list) => {
+        if (list?.length) setProductCatalog(list);
+      });
+    };
+    window.addEventListener(PRODUCTS_CATALOG_UPDATED, onProducts);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PRODUCTS_CATALOG_UPDATED, onProducts);
+    };
+  }, []);
+
+  // DB catalog first, then mock — includes `avatar` URL from Postgres.
   const activeClient = useMemo(() => {
+    const fromCatalog = findClientInCatalog({ name: activeClientName });
+    if (fromCatalog) return fromCatalog;
     const target = activeClientName.toLowerCase();
     const match = MOCK_CLIENTS.find(
       (c) => (c.name || '').toLowerCase() === target,
     );
     return match || { name: activeClientName, phone: '', email: '' };
-  }, [activeClientName]);
+  }, [activeClientName, catalogClients]);
 
   // Derived display values for the appointment we navigated from
   const activeApptInfo = useMemo(() => {
@@ -514,33 +574,140 @@ export default function Screen2() {
     getConsultRecord(loadConsultStore(), activeClientName),
   );
 
-  // Reload record if active client changes
+  const consultRecordRef = useRef(consultRecord);
+  consultRecordRef.current = consultRecord;
+
+  // Reload record if active client changes (local + remote when API available)
   useEffect(() => {
+    const key = clientKey(activeClientName);
     setConsultRecord(getConsultRecord(loadConsultStore(), activeClientName));
+    if (!isAppointmentsApiAvailable()) return undefined;
+    let cancelled = false;
+    void loadRemoteConsultation(activeClientName).then((data) => {
+      if (cancelled || !data?.stored || !data.record) return;
+      pauseRemoteConsultPersist();
+      const { store, didMerge } = mergeRemoteConsultIntoStore(
+        key,
+        data.record,
+        consultRecordRef.current,
+      );
+      if (didMerge) {
+        setConsultRecord(getConsultRecord(store, activeClientName));
+      }
+      window.setTimeout(() => resumeRemoteConsultPersist(), 400);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [activeClientName]);
 
   /** Profile photo sheet (camera / library); avatar persists per client via consultation store. */
   const [avatarPhotoSheetOpen, setAvatarPhotoSheetOpen] = useState(false);
 
-  const profilePhotoDisplayUrl =
-    typeof consultRecord.avatar === 'string' && consultRecord.avatar.trim()
-      ? consultRecord.avatar
-      : null;
+  const [avatarIdbUrl, setAvatarIdbUrl] = useState(null);
 
-  // Debounced persistence
-  const consultRecordRef = useRef(consultRecord);
-  consultRecordRef.current = consultRecord;
+  const profilePhotoDisplayUrl =
+    (typeof consultRecord.avatar === 'string' && consultRecord.avatar.trim()
+      ? consultRecord.avatar
+      : null) ||
+    catalogAvatarForClient(activeClient) ||
+    (typeof avatarIdbUrl === 'string' && avatarIdbUrl.trim() ? avatarIdbUrl : null);
+
+  useEffect(() => {
+    const inline =
+      typeof consultRecord.avatar === 'string' && consultRecord.avatar.trim();
+    if (inline) {
+      setAvatarIdbUrl(null);
+      return undefined;
+    }
+    const key = clientKey(activeClientName);
+    const store = loadConsultStore();
+    const rawRow = store[key] || {};
+    const idbKey =
+      (typeof rawRow.avatarDataKey === 'string' && rawRow.avatarDataKey.trim()) || key;
+    let cancelled = false;
+    getClientAvatar(idbKey).then((url) => {
+      if (cancelled) return;
+      setAvatarIdbUrl(typeof url === 'string' && url ? url : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeClientName, consultRecord.avatar, consultRecord.avatarDataKey]);
+
+  // Debounced persistence (large data: URLs go to IndexedDB; LS keeps a pointer only)
   useEffect(() => {
     const t = setTimeout(() => {
-      const store = loadConsultStore();
-      store[clientKey(activeClientName)] = {
-        ...consultRecordRef.current,
-        updatedAt: Date.now(),
-      };
-      saveConsultStore(store);
+      void (async () => {
+        const store = loadConsultStore();
+        const key = clientKey(activeClientName);
+        const raw = { ...consultRecordRef.current, updatedAt: Date.now() };
+        const av = typeof raw.avatar === 'string' ? raw.avatar.trim() : '';
+        const idbKeyExisting =
+          typeof raw.avatarDataKey === 'string' && raw.avatarDataKey.trim()
+            ? raw.avatarDataKey.trim()
+            : null;
+
+        if (av.startsWith('data:')) {
+          try {
+            await putClientAvatar(key, av);
+            raw.avatar = '';
+            raw.avatarDataKey = key;
+          } catch (_) {
+            /* keep inline if IDB fails */
+          }
+        } else if (av.startsWith('http://') || av.startsWith('https://')) {
+          if (idbKeyExisting) {
+            try {
+              await deleteClientAvatar(idbKeyExisting);
+            } catch (_) {
+              /* noop */
+            }
+          }
+          raw.avatarDataKey = null;
+          try {
+            await persistClientAvatarToCatalog({
+              clientId: activeClient.id,
+              name: activeClientName,
+              avatarUrl: av,
+            });
+          } catch (_) {
+            /* noop */
+          }
+        } else if (!av) {
+          if (!idbKeyExisting) {
+            try {
+              await deleteClientAvatar(key);
+            } catch (_) {
+              /* noop */
+            }
+            raw.avatarDataKey = null;
+          }
+          raw.avatar = '';
+          try {
+            await persistClientAvatarToCatalog({
+              clientId: activeClient.id,
+              name: activeClientName,
+              avatarUrl: '',
+            });
+          } catch (_) {
+            /* noop */
+          }
+        }
+
+        store[key] = raw;
+        saveConsultStore(store);
+        if (isAppointmentsApiAvailable()) {
+          try {
+            await persistRemoteConsultation(activeClientName, raw);
+          } catch (_) {
+            /* noop */
+          }
+        }
+      })();
     }, 250);
     return () => clearTimeout(t);
-  }, [consultRecord, activeClientName]);
+  }, [consultRecord, activeClientName, activeClient.id]);
 
   // ---------- New-note popup (per pane) ----------
   // Tap the mic on a pane → opens a modal where the user composes a brand-new
@@ -848,22 +1015,19 @@ export default function Screen2() {
     const file = e.target?.files?.[0];
     if (!file) return;
     const input = e.target;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = reader.result;
+    const slot = photoSlotRef.current;
+
+    const applyPhotoUrl = (url) => {
       setConsultRecord((prev) => {
         const photos = Array.isArray(prev.photos) ? [...prev.photos] : [];
-        const slot = photoSlotRef.current;
         const item = { url, ts: Date.now() };
         if (typeof slot === 'number' && slot >= 0 && slot < photos.length) {
           photos[slot] = { ...photos[slot], ...item };
         } else {
           photos.push(item);
         }
-        return { ...prev, photos };
+        return { ...prev, photos, updatedAt: Date.now() };
       });
-      // iOS / mobile Safari: camera picker can leave focus on a hidden input and
-      // swallow taps on the consult sheet until blur.
       requestAnimationFrame(() => {
         try {
           if (input) input.blur();
@@ -872,6 +1036,25 @@ export default function Screen2() {
         }
       });
     };
+
+    if (isAppointmentsApiAvailable()) {
+      void (async () => {
+        try {
+          const remoteUrl = await uploadClientProfileImage(file);
+          applyPhotoUrl(remoteUrl);
+          return;
+        } catch (err) {
+          console.warn('[Screen2] LOOK photo upload failed', err);
+        }
+        const reader = new FileReader();
+        reader.onload = () => applyPhotoUrl(reader.result);
+        reader.readAsDataURL(file);
+      })();
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => applyPhotoUrl(reader.result);
     reader.readAsDataURL(file);
   }, []);
 
@@ -905,27 +1088,63 @@ export default function Screen2() {
     });
   }, []);
 
-  const handleAvatarFileChosen = useCallback((e) => {
-    const file = e.target?.files?.[0];
-    const input = e.target;
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = reader.result;
-      if (typeof url === 'string') {
-        setConsultRecord((prev) => ({ ...prev, avatar: url }));
+  const handleAvatarFileChosen = useCallback(
+    (e) => {
+      const file = e.target?.files?.[0];
+      const input = e.target;
+      if (!file) return;
+
+      const finish = () => {
+        setAvatarPhotoSheetOpen(false);
+        requestAnimationFrame(() => {
+          try {
+            if (input) input.blur();
+          } catch (_) {
+            /* noop */
+          }
+        });
+      };
+
+      if (isAppointmentsApiAvailable()) {
+        void (async () => {
+          try {
+            const remoteUrl = await uploadClientProfileImage(file);
+            setConsultRecord((prev) => ({ ...prev, avatar: remoteUrl }));
+            await persistClientAvatarToCatalog({
+              clientId: activeClient.id,
+              name: activeClientName,
+              avatarUrl: remoteUrl,
+            });
+            finish();
+            return;
+          } catch (err) {
+            console.warn('[Screen2] profile photo upload failed', err);
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            const url = reader.result;
+            if (typeof url === 'string') {
+              setConsultRecord((prev) => ({ ...prev, avatar: url }));
+            }
+            finish();
+          };
+          reader.readAsDataURL(file);
+        })();
+        return;
       }
-      setAvatarPhotoSheetOpen(false);
-      requestAnimationFrame(() => {
-        try {
-          if (input) input.blur();
-        } catch (_) {
-          /* noop */
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = reader.result;
+        if (typeof url === 'string') {
+          setConsultRecord((prev) => ({ ...prev, avatar: url }));
         }
-      });
-    };
-    reader.readAsDataURL(file);
-  }, []);
+        finish();
+      };
+      reader.readAsDataURL(file);
+    },
+    [activeClient.id, activeClientName],
+  );
 
   const [addServicesOpen, setAddServicesOpen] = useState(false);
   const [addProductsOpen, setAddProductsOpen] = useState(false);
@@ -933,6 +1152,21 @@ export default function Screen2() {
 
   const [serviceCatalogList, setServiceCatalogList] = useState(loadServiceCatalogFromCalendarStorage);
   useEffect(() => {
+    if (isAppointmentsApiAvailable()) {
+      let cancelled = false;
+      void fetchServiceCatalog().then((data) => {
+        if (cancelled || !data?.stored || !Array.isArray(data.serviceCatalog)) return;
+        const normalized = data.serviceCatalog
+          .map(normalizeServiceCatalogEntry)
+          .filter(Boolean);
+        if (normalized.length) {
+          setServiceCatalogList(enrichServiceCatalogImages(normalized));
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     const sync = () => setServiceCatalogList(loadServiceCatalogFromCalendarStorage());
     window.addEventListener(CALENDAR_UPDATED_EVENT, sync);
     const onStorage = (e) => {
@@ -973,12 +1207,38 @@ export default function Screen2() {
   // (e.g. user taps a different appointment in the Calendar without unmounting
   // Screen2). Falls back to an empty queue for first-time appointments.
   const apptKey = apptStateKey(activeApt);
+
   useEffect(() => {
     const rec = getApptState(loadApptStateStore(), activeApt);
     setHourlyRate(rec.hourlyRate);
     setConsultRate(rec.consultRate);
     setSvcQueue(rec.svcQueue);
     setProductQueue(rec.productQueue);
+    if (!isAppointmentsApiAvailable() || !apptKey) return undefined;
+    let cancelled = false;
+    void loadRemoteAppointmentVisit(apptKey).then((data) => {
+      if (cancelled || !data?.stored || !data.visit) return;
+      const remote = apptStateFromVisitPayload(data.visit);
+      if (!remote) return;
+      pauseRemoteVisitPersist();
+      const store = loadApptStateStore();
+      store[apptKey] = {
+        svcQueue: remote.svcQueue,
+        productQueue: remote.productQueue,
+        hourlyRate: remote.hourlyRate,
+        consultRate: remote.consultRate,
+        updatedAt: remote.updatedAt,
+      };
+      saveApptStateStore(store);
+      setHourlyRate(remote.hourlyRate);
+      setConsultRate(remote.consultRate);
+      setSvcQueue(remote.svcQueue);
+      setProductQueue(remote.productQueue);
+      window.setTimeout(() => resumeRemoteVisitPersist(), 400);
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apptKey]);
 
@@ -1051,9 +1311,23 @@ export default function Screen2() {
         updatedAt: Date.now(),
       };
       saveApptStateStore(store);
+      if (isAppointmentsApiAvailable()) {
+        void persistRemoteAppointmentVisit(
+          apptKey,
+          visitPayloadFromApptState({
+            svcQueue,
+            productQueue,
+            hourlyRate,
+            consultRate,
+          }),
+        ).catch(() => {
+          /* noop */
+        });
+      }
     }, 250);
     return () => clearTimeout(handle);
   }, [apptKey, svcQueue, productQueue, hourlyRate, consultRate]);
+
   const [removeConfirm, setRemoveConfirm] = useState(null);
 
   // ---------- Live timer for the active appointment (or client fallback) ----------
@@ -2274,10 +2548,11 @@ export default function Screen2() {
         </div>
       ) : null}
 
-      {/* Note composer — absolute inside .s2-root (no visualViewport / keyboard avoiding). */}
+      {/* Note composer — absolute inside .s2-root; data-salonx-keyboard-lock ties into main.jsx visualViewport lock. */}
       {noteEditOpen ? (
         <div
           className="s2-noteOverlay"
+          data-salonx-keyboard-lock=""
           role="dialog"
           aria-modal="true"
           aria-label={`${noteEditOpen.mode === 'edit' ? 'Update' : 'New'} ${noteEditOpen.pane} note`}
@@ -2487,7 +2762,7 @@ export default function Screen2() {
             </header>
             <div className="s2-addProdScroll">
               <div className="s2-addProdGrid">
-                {MOCK_PRODUCTS.map((p) => {
+                {productCatalog.map((p) => {
                   const inQueue = productQueue.some((q) => q.id === p.id);
                 return (
                   <button

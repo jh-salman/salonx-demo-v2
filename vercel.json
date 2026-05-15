@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/salonx-admin/:path*",
-      "destination": "https://admin.xsalonx.com/:path*"
+      "destination": "https://demo-api-k8p3.onrender.com/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

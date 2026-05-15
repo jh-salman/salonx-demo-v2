@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { CaretLeft } from "phosphor-react";
+import { CaretLeft, CaretRight } from "phosphor-react";
 import "../style/climax.css";
 import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { MOCK_SERVICES } from "../../data/mockServices";
@@ -638,7 +638,18 @@ export default function Climax() {
     ty: 0,
     fit: "cover",
   };
-  const climaxInlayTransform = `translate(${climaxInlayAdjust.tx}%, ${climaxInlayAdjust.ty}%) rotate(${climaxInlayAdjust.rotate}deg) scale(${climaxInlayAdjust.scale}) translateZ(0)`;
+  /** Stock `/climax-inlay.png` — ignore session adjust so default art matches shipped layout. */
+  const hasCustomClimaxImage = Boolean(climaxBg?.image?.trim());
+  const displayAdjust = hasCustomClimaxImage
+    ? climaxInlayAdjust
+    : { scale: 1, rotate: 0, tx: 0, ty: 0, fit: /** @type {'cover'} */ ("cover") };
+  const objectFit = displayAdjust.fit === "contain" ? "contain" : "cover";
+  /** Same transform as v2-admin `slotImageTransform` (Build Station Climax preview). */
+  const climaxInlayTransform = `translate(${displayAdjust.tx}%, ${displayAdjust.ty}%) rotate(${displayAdjust.rotate}deg) scale(${
+    typeof displayAdjust.scale === "number" && !Number.isNaN(displayAdjust.scale)
+      ? displayAdjust.scale
+      : 1
+  })`;
 
   return (
     <div
@@ -670,8 +681,7 @@ export default function Climax() {
             alt=""
             decoding="async"
             style={{
-              /* Full-bleed stage: always cover so no side letterboxing (admin "contain" is editor-only). */
-              objectFit: "cover",
+              objectFit,
               objectPosition: "center center",
               transform: climaxInlayTransform,
               transformOrigin: "center center",
@@ -832,22 +842,18 @@ export default function Climax() {
             </div>
 
             {hasNoTicketLines && !apptKey ? (
-              <div
-                className="climax-row climax-row--static"
-                style={{ marginTop: 12, padding: 12 }}
-              >
-                <span className="climax-row__label" style={{ opacity: 0.6 }}>
+              <div className="climax-noAptRow">
+                <span className="climax-noAptRow__text">
                   No appointment selected. Open one from Stylist or Calendar.
                 </span>
                 <button
                   type="button"
-                  className="climax-pill is-on"
+                  className="climax-openStylistBtn"
                   onClick={() => navigate("/screen1")}
-                  aria-label="Go to Stylist"
-                  style={{ minWidth: 60 }}
+                  aria-label="Open Stylist to select an appointment"
                 >
-                  <span className="climax-pill__track" />
-                  <span className="climax-pill__thumb" />
+                  <span>Open</span>
+                  <CaretRight size={18} weight="bold" aria-hidden />
                 </button>
               </div>
             ) : null}

@@ -27,6 +27,33 @@ import {
 } from "../../component/calendar/CalendarOverlays";
 import { MOCK_CLIENTS } from "../../data/mockClients";
 import { MOCK_SERVICES } from "../../data/mockServices";
+import {
+  notifyCalendarUpdated,
+  setApiModeCalendarEventsMirror,
+} from "../../data/calendarEventsStore.js";
+import {
+  appointmentDtoToEvent,
+  createAppointmentRemote,
+  deleteAppointmentRemote,
+  fetchAppointmentsRange,
+  isAppointmentsApiAvailable,
+  updateAppointmentRemote,
+} from "../../data/v2AppointmentsApi.js";
+import {
+  fetchClientsCatalog,
+  fetchServiceCatalog,
+  saveClientsCatalogRemote,
+  saveServiceCatalogRemote,
+} from "../../data/calendarCatalogApi.js";
+import {
+  fetchCalendarToolbar,
+  saveCalendarToolbarRemote,
+} from "../../data/calendarToolbarApi.js";
+import {
+  readApiAppointmentsSessionCache,
+  writeApiAppointmentsSessionCache,
+} from "../../data/apiAppointmentsSessionCache.js";
+import { startCalendarRealtimeSync } from "../../sync/calendarRealtimeSync.js";
 import "../style/calendar.css";
 
 // The day grid spans the full 24-hour clock (midnight → midnight) so the
@@ -361,10 +388,19 @@ function loadPersistedCalendar() {
   }
 }
 
-function persistCalendar(state) {
+function persistCalendar(state, options = {}) {
+  const { skipEvents = false } = options;
+  const slice = skipEvents
+    ? {
+        clients: state.clients,
+        serviceCatalog: state.serviceCatalog,
+        parkedFromDrag: state.parkedFromDrag,
+        toolbarEvents: state.toolbarEvents,
+      }
+    : state;
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(CALENDAR_STORAGE_KEY, serializeCalendarState(state));
+    window.localStorage.setItem(CALENDAR_STORAGE_KEY, serializeCalendarState(slice));
     // Notify in-tab subscribers (Stylist screen, etc.) since `storage` events
     // do not fire for same-tab writes.
     try {
@@ -383,16 +419,15 @@ export default function CalendarScreenWeb() {
   const { clearTimer } = useTimers();
   const navigate = useNavigate();
   const location = useLocation();
-  const calendarExitPath = useMemo(() => {
+  const handleExitCalendar = useCallback(() => {
     const raw = location.state?.from;
     const from = typeof raw === "string" && raw.startsWith("/") ? raw : null;
-    if (!from || from === "/calendar") return "/climax";
-    return from;
-  }, [location.state]);
-
-  const handleExitCalendar = useCallback(() => {
-    navigate(calendarExitPath);
-  }, [navigate, calendarExitPath]);
+    if (from && from !== "/calendar") {
+      navigate(from);
+      return;
+    }
+    navigate(-1);
+  }, [navigate, location.state]);
 
   // Tap dispatcher — distinguish single (→ options modal) from double (→ client card)
   const tapRef = useRef({ aptId: null, lastTapTs: 0, pendingTimer: null });
@@ -400,22 +435,100 @@ export default function CalendarScreenWeb() {
   // the modal on that same tick, the synthetic click can land on a modal button
   // (e.g. Reschedule) and feel like a "sub popup" opened from one tap.
   const suppressModalClickUntilRef = useRef(0);
+  /** Abort initial / in-flight list fetch so a stale response cannot overwrite optimistic saves. */
+  const appointmentsFetchAbortRef = useRef(null);
+  /** Bumps on each list-fetch start and on save/delete — stale async completions must not call setEvents. */
+  const appointmentsListFetchTokenRef = useRef(0);
+  /** After first appointments list fetch attempt (success or hard failure). */
+  const appointmentsInitialFetchDoneRef = useRef(false);
+  /** After first calendar-toolbar GET finishes — avoids PUT clobbering server before hydrate. */
+  const [calendarToolbarRemoteReady, setCalendarToolbarRemoteReady] = useState(
+    () => !isAppointmentsApiAvailable(),
+  );
+  const [calendarCatalogRemoteReady, setCalendarCatalogRemoteReady] = useState(
+    () => !isAppointmentsApiAvailable(),
+  );
+  const toolbarUpdatedAtRef = useRef(null);
+  const clientsCatalogUpdatedAtRef = useRef(null);
+  const serviceCatalogUpdatedAtRef = useRef(null);
+  /** Skip debounced PUT after Socket.IO / GET hydrate — avoids 409 echo loops. */
+  const suppressServerPersistUntilRef = useRef(0);
+  const pauseServerPersist = useCallback((ms = 700) => {
+    suppressServerPersistUntilRef.current = Date.now() + ms;
+  }, []);
+  const shouldSkipServerPersist = useCallback(
+    () => Date.now() < suppressServerPersistUntilRef.current,
+    [],
+  );
+
+  /** Push toolbar JSON to server immediately (don't wait for 150ms debounce). */
+  const pushToolbarToServer = useCallback(
+    async (nextParked, nextToolbar) => {
+      if (!isAppointmentsApiAvailable() || !calendarToolbarRemoteReady) return;
+      try {
+        const data = await saveCalendarToolbarRemote({
+          parkedFromDrag: nextParked,
+          toolbarEvents: nextToolbar,
+          ...(toolbarUpdatedAtRef.current
+            ? { expectedUpdatedAt: toolbarUpdatedAtRef.current }
+            : {}),
+        });
+        if (data?.updatedAt) toolbarUpdatedAtRef.current = data.updatedAt;
+      } catch (err) {
+        if (err?.code === "CONFLICT" && err.payload) {
+          pauseServerPersist();
+          const revived = reviveCalendarSlices({
+            parkedFromDrag: err.payload.parkedFromDrag,
+            toolbarEvents: err.payload.toolbarEvents,
+          });
+          setParkedFromDrag(
+            Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : [],
+          );
+          setToolbarEvents(
+            Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : [],
+          );
+          if (err.payload.updatedAt) {
+            toolbarUpdatedAtRef.current = err.payload.updatedAt;
+          }
+          return;
+        }
+        console.warn("[Calendar] toolbar sync failed", err);
+      }
+    },
+    [calendarToolbarRemoteReady, pauseServerPersist],
+  );
 
   const [viewMode, setViewMode] = useState("day");
   const [currentDate, setCurrentDate] = useState(() => {
     const t = new Date();
     return new Date(t.getFullYear(), t.getMonth(), t.getDate());
   });
-  const [events, setEvents] = useState(
-    () => persisted?.events || buildInitialMockAppointments(),
-  );
+  const [events, setEvents] = useState(() => {
+    if (isAppointmentsApiAvailable()) {
+      const cached = readApiAppointmentsSessionCache();
+      return Array.isArray(cached) && cached.length > 0 ? cached : [];
+    }
+    return persisted?.events || buildInitialMockAppointments();
+  });
   const [now, setNow] = useState(() => new Date());
 
-  // Customer + service catalog state (mutable; new entries appended)
-  const [clients, setClients] = useState(() => persisted?.clients || MOCK_CLIENTS);
-  const [serviceCatalog, setServiceCatalog] = useState(
-    () => persisted?.serviceCatalog || MOCK_SERVICES,
-  );
+  // Customer + service catalog — from API/DB when demo-api is configured; mocks only offline.
+  const [clients, setClients] = useState(() => {
+    if (isAppointmentsApiAvailable()) {
+      return Array.isArray(persisted?.clients) && persisted.clients.length > 0
+        ? persisted.clients
+        : [];
+    }
+    return persisted?.clients || MOCK_CLIENTS;
+  });
+  const [serviceCatalog, setServiceCatalog] = useState(() => {
+    if (isAppointmentsApiAvailable()) {
+      return Array.isArray(persisted?.serviceCatalog) && persisted.serviceCatalog.length > 0
+        ? persisted.serviceCatalog
+        : [];
+    }
+    return persisted?.serviceCatalog || MOCK_SERVICES;
+  });
 
   // Phase 1 modal/overlay state
   const [aptOptionsApt, setAptOptionsApt] = useState(null); // appointment object
@@ -429,6 +542,7 @@ export default function CalendarScreenWeb() {
   // One-time safety: legacy persisted data could have duplicate ids which
   // makes drag state (`dragApt === apt.id`) match multiple cards.
   useEffect(() => {
+    if (isAppointmentsApiAvailable()) return;
     setEvents((prev) => {
       const seen = new Set();
       let mutated = false;
@@ -931,23 +1045,48 @@ export default function CalendarScreenWeb() {
     let action = "moved";
     if (moveConfirm.kind === "park") {
       const apt = moveConfirm.aptSnapshot || moveConfirm.original;
+      const aptSnapshot = {
+        ...apt,
+        start: new Date(apt.start),
+        end: new Date(apt.end),
+      };
       const durationMinutes = Math.max(5, differenceInMinutes(apt.end, apt.start) || 60);
+      const parkedItem = {
+        id: apt.id,
+        title: apt.clientName,
+        service: apt.service,
+        color: "#25AFFF",
+        isParked: true,
+        fromMove: true,
+        durationMinutes,
+      };
       setEvents((prev) => prev.filter((ev) => ev.id !== apt.id));
-      setParkedFromDrag((prev) => [
-        ...prev,
-        {
-          id: apt.id,
-          title: apt.clientName,
-          service: apt.service,
-          color: "#25AFFF",
-          isParked: true,
-          fromMove: true,
-          durationMinutes,
-        },
-      ]);
+      let nextParked;
+      setParkedFromDrag((prev) => {
+        nextParked = [...prev, parkedItem];
+        return nextParked;
+      });
+      setToolbarEvents((tb) => {
+        queueMicrotask(() => {
+          if (nextParked) void pushToolbarToServer(nextParked, tb);
+        });
+        return tb;
+      });
       // Reset the running/completed timer for this appointment when parked —
       // keys are per appointment id (see Calendar + Screen2 timerKey).
       if (apt.id) clearTimer(String(apt.id));
+      if (isAppointmentsApiAvailable() && apt.id) {
+        void deleteAppointmentRemote(apt.id).catch((err) => {
+          console.warn("[Calendar] park: API delete failed", err);
+          setParkedFromDrag((prev) => prev.filter((p) => p.id !== apt.id));
+          setEvents((prev) =>
+            [...prev, aptSnapshot].sort((a, b) => a.start.getTime() - b.start.getTime()),
+          );
+          setOverlapAlert({
+            message: `Could not park on server (${err instanceof Error ? err.message : "error"}). Appointment restored to the calendar.`,
+          });
+        });
+      }
       clientName = apt.clientName || "";
       action = "parked";
     } else if (moveConfirm.kind === "move" || moveConfirm.kind === "resize") {
@@ -967,7 +1106,7 @@ export default function CalendarScreenWeb() {
     if (clientName) {
       setNotifyConfirm({ clientName, action });
     }
-  }, [moveConfirm]);
+  }, [moveConfirm, clearTimer, pushToolbarToServer]);
 
   const handleMoveConfirmNo = useCallback(() => {
     // No state mutation happened during drag for any of move/resize/park,
@@ -1156,54 +1295,111 @@ export default function CalendarScreenWeb() {
   const handleBookConfirmYes = useCallback(() => {
     if (!bookConfirm) return;
     const { kind, item, start, end } = bookConfirm;
+    const dropId = item?.id != null ? String(item.id) : null;
+
     if (kind === "waitlist") {
-      setEvents((prev) => [
-        ...prev,
-        {
-          id: makeEventId(),
-          clientName: item.title,
-          service: item.service || "",
-          color: "green",
-          price: 0,
-          notes: "",
-          fromWaitlist: true,
-          start,
-          end,
-        },
-      ]);
-      setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
-      // Source list now committed — close it
-      setWaitlistModalOpen(false);
+      if (isAppointmentsApiAvailable()) {
+        void (async () => {
+          try {
+            const { appointment } = await createAppointmentRemote({
+              clientName: item.title,
+              service: item.service || "",
+              start: start.toISOString(),
+              end: end.toISOString(),
+              color: "#9DE684",
+              price: 0,
+              notes: "",
+            });
+            setEvents((prev) => [...prev, appointmentDtoToEvent(appointment)]);
+            setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
+            setWaitlistModalOpen(false);
+          } catch (err) {
+            console.warn("[Calendar] waitlist book API failed", err);
+            setOverlapAlert({
+              message: `Could not book from waitlist (${err instanceof Error ? err.message : "error"}).`,
+            });
+          }
+        })();
+      } else {
+        setEvents((prev) => [
+          ...prev,
+          {
+            id: makeEventId(),
+            clientName: item.title,
+            service: item.service || "",
+            color: "green",
+            price: 0,
+            notes: "",
+            fromWaitlist: true,
+            start,
+            end,
+          },
+        ]);
+        setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
+        setWaitlistModalOpen(false);
+      }
     } else {
-      // parked → un-park
-      setEvents((prev) => [
-        ...prev,
-        {
-          id: makeEventId(),
-          clientName: item.title,
-          service: item.service || "",
-          color: item.fromMove ? "pink" : "gray",
-          price: 0,
-          notes: "",
-          start,
-          end,
-        },
-      ]);
-      setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
-      setParkedFromDrag((prev) => prev.filter((p) => p.id !== item.id));
+      // parked → un-park: remove from park list first, sync toolbar, then book on calendar
+      let nextParked;
+      let nextToolbar;
+      setParkedFromDrag((prev) => {
+        nextParked = dropId ? prev.filter((p) => String(p.id) !== dropId) : prev;
+        return nextParked;
+      });
+      setToolbarEvents((prev) => {
+        nextToolbar = dropId ? prev.filter((t) => String(t.id) !== dropId) : prev;
+        return nextToolbar;
+      });
       setParkedModalOpen(false);
+      queueMicrotask(() => {
+        if (nextParked && nextToolbar) {
+          void pushToolbarToServer(nextParked, nextToolbar);
+        }
+      });
+
+      const localEvent = {
+        id: makeEventId(),
+        clientName: item.title,
+        service: item.service || "",
+        color: item.fromMove ? "#FA1BFE" : "#8e8e93",
+        price: 0,
+        notes: "",
+        start,
+        end,
+      };
+
+      if (isAppointmentsApiAvailable()) {
+        void (async () => {
+          try {
+            const { appointment } = await createAppointmentRemote({
+              clientName: item.title,
+              service: item.service || "",
+              start: start.toISOString(),
+              end: end.toISOString(),
+              color: localEvent.color,
+              price: 0,
+              notes: "",
+            });
+            setEvents((prev) => [...prev, appointmentDtoToEvent(appointment)]);
+          } catch (err) {
+            console.warn("[Calendar] unpark API create failed", err);
+            setOverlapAlert({
+              message: `Could not save unparked appointment (${err instanceof Error ? err.message : "error"}).`,
+            });
+          }
+        })();
+      } else {
+        setEvents((prev) => [...prev, localEvent]);
+      }
     }
     setBookConfirm(null);
-    // Offer to notify the client about the new (or rescheduled) appointment.
-    // Mirrors the move/resize/park flow so every committing action has the
-    // same SMS/push opt-in surface.
     if (item && item.title) {
       setNotifyConfirm({
         clientName: item.title,
         action: kind === "waitlist" ? "booked" : "scheduled",
       });
     }
-  }, [bookConfirm]);
+  }, [bookConfirm, pushToolbarToServer]);
 
   const handleBookConfirmNo = useCallback(() => {
     // Just dismiss the confirm — the source list modal is still mounted
@@ -1545,18 +1741,380 @@ export default function CalendarScreenWeb() {
     return () => clearInterval(id);
   }, []);
 
-  // Persist on any state change (debounced)
+  // API mode: debounced PUT for toolbar + catalogs only (not on every appointment change).
   useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    const timer = setTimeout(() => {
+      if (shouldSkipServerPersist()) return;
+      persistCalendar(
+        { clients, serviceCatalog, parkedFromDrag, toolbarEvents },
+        { skipEvents: true },
+      );
+      if (calendarToolbarRemoteReady) {
+        void saveCalendarToolbarRemote({
+            parkedFromDrag,
+            toolbarEvents,
+            ...(toolbarUpdatedAtRef.current
+              ? { expectedUpdatedAt: toolbarUpdatedAtRef.current }
+              : {}),
+          })
+            .then((data) => {
+              if (data?.updatedAt) toolbarUpdatedAtRef.current = data.updatedAt;
+            })
+            .catch((err) => {
+              if (err?.code === "CONFLICT" && err.payload) {
+                pauseServerPersist();
+                const revived = reviveCalendarSlices({
+                  parkedFromDrag: err.payload.parkedFromDrag,
+                  toolbarEvents: err.payload.toolbarEvents,
+                });
+                setParkedFromDrag(
+                  Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : [],
+                );
+                setToolbarEvents(
+                  Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : [],
+                );
+                if (err.payload.updatedAt) {
+                  toolbarUpdatedAtRef.current = err.payload.updatedAt;
+                }
+                return;
+              }
+              console.warn("[Calendar] toolbar backend sync failed", err);
+            });
+      }
+      if (calendarCatalogRemoteReady) {
+        if (clients.length > 0) {
+          void saveClientsCatalogRemote({
+            clients,
+            ...(clientsCatalogUpdatedAtRef.current
+              ? { expectedUpdatedAt: clientsCatalogUpdatedAtRef.current }
+              : {}),
+          })
+            .then((data) => {
+              if (data?.updatedAt) clientsCatalogUpdatedAtRef.current = data.updatedAt;
+            })
+            .catch((err) => {
+              if (err?.code === "CONFLICT" && err.payload?.clients) {
+                pauseServerPersist();
+                setClients(
+                  Array.isArray(err.payload.clients) ? err.payload.clients : [],
+                );
+                if (err.payload.updatedAt) {
+                  clientsCatalogUpdatedAtRef.current = err.payload.updatedAt;
+                }
+                return;
+              }
+              console.warn("[Calendar] clients catalog sync failed", err);
+            });
+        }
+        if (serviceCatalog.length > 0) {
+          void saveServiceCatalogRemote({
+            serviceCatalog,
+            ...(serviceCatalogUpdatedAtRef.current
+              ? { expectedUpdatedAt: serviceCatalogUpdatedAtRef.current }
+              : {}),
+          })
+            .then((data) => {
+              if (data?.updatedAt) serviceCatalogUpdatedAtRef.current = data.updatedAt;
+            })
+            .catch((err) => {
+              if (err?.code === "CONFLICT" && err.payload?.serviceCatalog) {
+                pauseServerPersist();
+                setServiceCatalog(
+                  Array.isArray(err.payload.serviceCatalog)
+                    ? err.payload.serviceCatalog
+                    : [],
+                );
+                if (err.payload.updatedAt) {
+                  serviceCatalogUpdatedAtRef.current = err.payload.updatedAt;
+                }
+                return;
+              }
+              console.warn("[Calendar] service catalog sync failed", err);
+            });
+        }
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [
+    clients,
+    serviceCatalog,
+    parkedFromDrag,
+    toolbarEvents,
+    calendarToolbarRemoteReady,
+    calendarCatalogRemoteReady,
+    pauseServerPersist,
+    shouldSkipServerPersist,
+  ]);
+
+  // Offline / no API: persist full calendar slice including appointments.
+  useEffect(() => {
+    if (isAppointmentsApiAvailable()) return;
     const timer = setTimeout(() => {
       persistCalendar({ events, clients, serviceCatalog, parkedFromDrag, toolbarEvents });
     }, 150);
     return () => clearTimeout(timer);
   }, [events, clients, serviceCatalog, parkedFromDrag, toolbarEvents]);
 
+  // Load parked + waitlist from backend when a row exists (`stored: true`).
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await fetchCalendarToolbar();
+        if (cancelled) return;
+        if (data?.stored) {
+          pauseServerPersist();
+          const revived = reviveCalendarSlices({
+            parkedFromDrag: data.parkedFromDrag,
+            toolbarEvents: data.toolbarEvents,
+          });
+          setParkedFromDrag(Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : []);
+          setToolbarEvents(Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : []);
+        }
+        if (data?.updatedAt) toolbarUpdatedAtRef.current = data.updatedAt;
+      } catch (err) {
+        console.warn("[Calendar] toolbar load from API failed", err);
+      } finally {
+        if (!cancelled) setCalendarToolbarRemoteReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pauseServerPersist]);
+
+  // Load clients + service catalog from backend.
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [clientsData, servicesData] = await Promise.all([
+          fetchClientsCatalog(),
+          fetchServiceCatalog(),
+        ]);
+        if (cancelled) return;
+        if (clientsData?.stored && Array.isArray(clientsData.clients)) {
+          pauseServerPersist();
+          setClients(clientsData.clients);
+          if (clientsData.updatedAt) {
+            clientsCatalogUpdatedAtRef.current = clientsData.updatedAt;
+          }
+        }
+        if (servicesData?.stored && Array.isArray(servicesData.serviceCatalog)) {
+          pauseServerPersist();
+          setServiceCatalog(servicesData.serviceCatalog);
+          if (servicesData.updatedAt) {
+            serviceCatalogUpdatedAtRef.current = servicesData.updatedAt;
+          }
+        }
+      } catch (err) {
+        console.warn("[Calendar] catalog load from API failed", err);
+      } finally {
+        if (!cancelled) setCalendarCatalogRemoteReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pauseServerPersist]);
+
+  const mergeServerAppointmentRows = useCallback((serverRows, prev) => {
+    const server = serverRows.map(appointmentDtoToEvent);
+    const serverIds = new Set(server.map((e) => e.id));
+    const extras = prev.filter((e) => !serverIds.has(e.id));
+    return [...server, ...extras].sort((a, b) => a.start.getTime() - b.start.getTime());
+  }, []);
+
+  const refetchAppointmentsFromServer = useCallback(async () => {
+    if (!isAppointmentsApiAvailable()) return;
+    appointmentsFetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    appointmentsFetchAbortRef.current = ac;
+    const myToken = ++appointmentsListFetchTokenRef.current;
+    try {
+      const from = addDays(new Date(), -120);
+      const to = addDays(new Date(), 240);
+      const rows = await fetchAppointmentsRange(from, to, { signal: ac.signal });
+      if (ac.signal.aborted) return;
+      if (myToken !== appointmentsListFetchTokenRef.current) return;
+      setEvents((prev) => {
+        const next = mergeServerAppointmentRows(rows, prev);
+        queueMicrotask(() => {
+          appointmentsInitialFetchDoneRef.current = true;
+          writeApiAppointmentsSessionCache(next);
+        });
+        return next;
+      });
+    } catch (err) {
+      if (err?.name === "AbortError" || err?.code === 20) return;
+      console.warn("[Calendar] appointments API load failed", err);
+    } finally {
+      appointmentsInitialFetchDoneRef.current = true;
+    }
+  }, [mergeServerAppointmentRows]);
+
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    void refetchAppointmentsFromServer();
+    return () => {
+      appointmentsFetchAbortRef.current?.abort();
+    };
+  }, [refetchAppointmentsFromServer]);
+
+  const applyRemoteToolbarPayload = useCallback(
+    (payload) => {
+      if (!payload?.stored) return;
+      pauseServerPersist();
+      const revived = reviveCalendarSlices({
+        parkedFromDrag: payload.parkedFromDrag,
+        toolbarEvents: payload.toolbarEvents,
+      });
+      setParkedFromDrag(Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : []);
+      setToolbarEvents(Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : []);
+      if (payload.updatedAt) toolbarUpdatedAtRef.current = payload.updatedAt;
+    },
+    [pauseServerPersist],
+  );
+
+  const upsertRemoteAppointment = useCallback((dto) => {
+    if (!dto?.id) {
+      void refetchAppointmentsFromServer();
+      return;
+    }
+    setEvents((prev) => {
+      const ev = appointmentDtoToEvent(dto);
+      const next = [...prev.filter((e) => e.id !== ev.id), ev].sort(
+        (a, b) => a.start.getTime() - b.start.getTime(),
+      );
+      queueMicrotask(() => writeApiAppointmentsSessionCache(next));
+      notifyCalendarUpdated();
+      return next;
+    });
+  }, [refetchAppointmentsFromServer]);
+
+  const reloadCalendarRemoteSnapshot = useCallback(async () => {
+    pauseServerPersist();
+    await refetchAppointmentsFromServer();
+    try {
+      const data = await fetchCalendarToolbar();
+      if (data?.stored) applyRemoteToolbarPayload(data);
+    } catch {
+      /* */
+    }
+    try {
+      const [clientsData, servicesData] = await Promise.all([
+        fetchClientsCatalog(),
+        fetchServiceCatalog(),
+      ]);
+      if (clientsData?.stored && Array.isArray(clientsData.clients)) {
+        pauseServerPersist();
+        setClients(clientsData.clients);
+        if (clientsData.updatedAt) {
+          clientsCatalogUpdatedAtRef.current = clientsData.updatedAt;
+        }
+      }
+      if (servicesData?.stored && Array.isArray(servicesData.serviceCatalog)) {
+        pauseServerPersist();
+        setServiceCatalog(servicesData.serviceCatalog);
+        if (servicesData.updatedAt) {
+          serviceCatalogUpdatedAtRef.current = servicesData.updatedAt;
+        }
+      }
+    } catch {
+      /* */
+    }
+  }, [refetchAppointmentsFromServer, applyRemoteToolbarPayload, pauseServerPersist]);
+
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    return startCalendarRealtimeSync({
+      onAppointmentCreated: ({ appointment }) => upsertRemoteAppointment(appointment),
+      onAppointmentUpdated: ({ appointment }) => upsertRemoteAppointment(appointment),
+      onAppointmentDeleted: ({ id }) => {
+        if (!id) {
+          void refetchAppointmentsFromServer();
+          return;
+        }
+        setEvents((prev) => {
+          const next = prev.filter((e) => e.id !== id);
+          queueMicrotask(() => writeApiAppointmentsSessionCache(next));
+          notifyCalendarUpdated();
+          return next;
+        });
+      },
+      onToolbarUpdated: applyRemoteToolbarPayload,
+      onClientsCatalogUpdated: (payload) => {
+        if (payload?.stored && Array.isArray(payload.clients)) {
+          pauseServerPersist();
+          setClients(payload.clients);
+          if (payload.updatedAt) {
+            clientsCatalogUpdatedAtRef.current = payload.updatedAt;
+          }
+        }
+      },
+      onServiceCatalogUpdated: (payload) => {
+        if (payload?.stored && Array.isArray(payload.serviceCatalog)) {
+          pauseServerPersist();
+          setServiceCatalog(payload.serviceCatalog);
+          if (payload.updatedAt) {
+            serviceCatalogUpdatedAtRef.current = payload.updatedAt;
+          }
+        }
+      },
+      onPoll: () => {
+        void reloadCalendarRemoteSnapshot();
+      },
+    });
+  }, [
+    applyRemoteToolbarPayload,
+    upsertRemoteAppointment,
+    refetchAppointmentsFromServer,
+    reloadCalendarRemoteSnapshot,
+    pauseServerPersist,
+  ]);
+
   const parked = useMemo(
     () => [...toolbarEvents.filter((e) => e.isParked === true), ...parkedFromDrag],
     [toolbarEvents, parkedFromDrag],
   );
+
+  /** Appointment ids in the park toolbar — hidden from the day/week/month grid. */
+  const parkedAppointmentIds = useMemo(() => {
+    const ids = new Set();
+    for (const p of parkedFromDrag) {
+      if (p?.id) ids.add(String(p.id));
+    }
+    return ids;
+  }, [parkedFromDrag]);
+
+  const calendarEvents = useMemo(
+    () => events.filter((e) => !parkedAppointmentIds.has(e.id)),
+    [events, parkedAppointmentIds],
+  );
+
+  // Persist API-backed events for the current local day so Stylist / ClientList still
+  // see today's list while Calendar is unmounted (session cache + loadCalendarEvents fallback).
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    if (!appointmentsInitialFetchDoneRef.current && calendarEvents.length === 0) return;
+    const t = setTimeout(() => {
+      writeApiAppointmentsSessionCache(calendarEvents);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [calendarEvents]);
+
+  useEffect(() => {
+    if (isAppointmentsApiAvailable()) {
+      setApiModeCalendarEventsMirror(calendarEvents);
+      notifyCalendarUpdated();
+    } else {
+      setApiModeCalendarEventsMirror(null);
+    }
+  }, [calendarEvents]);
+
   const waitlist = useMemo(
     () =>
       toolbarEvents
@@ -1576,8 +2134,8 @@ export default function CalendarScreenWeb() {
   );
 
   const dayAppointments = useMemo(
-    () => events.filter((a) => isSameDay(a.start, currentDate)),
-    [events, currentDate]
+    () => calendarEvents.filter((a) => isSameDay(a.start, currentDate)),
+    [calendarEvents, currentDate]
   );
 
   const positioned = useMemo(() => layoutDayAppointments(dayAppointments), [dayAppointments]);
@@ -1625,10 +2183,10 @@ export default function CalendarScreenWeb() {
 
   const monthSheetAppointments = useMemo(() => {
     if (!monthSheetDate) return [];
-    const list = events.filter((a) => isSameDay(a.start, monthSheetDate));
+    const list = calendarEvents.filter((a) => isSameDay(a.start, monthSheetDate));
     list.sort((a, b) => a.start - b.start);
     return list;
-  }, [events, monthSheetDate]);
+  }, [calendarEvents, monthSheetDate]);
 
   useEffect(() => {
     if (viewMode !== "month") setMonthSheetDate(null);
@@ -1896,14 +2454,24 @@ export default function CalendarScreenWeb() {
       const ref = swipeRef.current;
       if (!ref.active || swipeAnim) return;
       if (ref.pointerId != null && e.pointerId !== ref.pointerId) return;
+      // Only attach pointer capture for fine pointers (mouse). On touch/pen,
+      // capture routes all subsequent events to `.cal-day` instead of nested
+      // `.cal-day__scroll`, which makes vertical scrolling feel "stuck" on iOS
+      // Safari when a slight diagonal wobble clears the naive dx>dy test.
+      // Touch day-swipe still works via bubbling pointer events + the passive
+      // touchstart/touchend fallback on this same element.
+      if (ref.pointerType !== "mouse") return;
+
       const dx = e.clientX - ref.x;
       const dy = e.clientY - ref.y;
-      const captureThreshold =
-        ref.pointerType === "touch" || ref.pointerType === "pen" ? 8 : 12;
-      // If user moved meaningfully horizontal & not strongly vertical, lock pointer
+      const captureThreshold = 12;
+      const dxDominance =
+        Math.abs(dy) < 0.5 ? Infinity : Math.abs(dx) / Math.abs(dy);
+      // Require clearer horizontal intent before stealing the stream from mice
+      // that jitter across scrollbar / grid borders.
       if (
         Math.abs(dx) > captureThreshold &&
-        Math.abs(dx) > Math.abs(dy) &&
+        dxDominance > 1.75 &&
         !ref.captured
       ) {
         const el = ref.captureEl;
@@ -2072,6 +2640,164 @@ export default function CalendarScreenWeb() {
         notes: (notes || "").trim().slice(0, 500),
       };
 
+      const buildOccurrences = () => {
+        const occurrences = [{ start, end }];
+        if (repeat && repeat.enabled && repeat.count > 1) {
+          const stepFn =
+            repeat.interval === "day"
+              ? (d, n) => addDays(d, n)
+              : repeat.interval === "month"
+                ? (d, n) => addMonths(d, n)
+                : (d, n) => addWeeks(d, n);
+          for (let i = 1; i < repeat.count; i += 1) {
+            const occStart = stepFn(start, i);
+            const occEnd = stepFn(end, i);
+            occurrences.push({ start: occStart, end: occEnd });
+          }
+        }
+        return occurrences;
+      };
+
+      if (isAppointmentsApiAvailable()) {
+        appointmentsFetchAbortRef.current?.abort();
+
+        const finish = () => {
+          setNewApptInit(null);
+          setEditingApt(null);
+        };
+
+        const reportSaveError = (err) => {
+          const detail = err instanceof Error ? err.message : "Save failed";
+          setOverlapAlert({
+            message: `Appointment was not saved (${detail}). Is demo-api reachable and did you run prisma migrate deploy on the database?`,
+          });
+        };
+
+        const commitEvents = (updater) => {
+          setEvents((prev) => {
+            const next = typeof updater === "function" ? updater(prev) : updater;
+            queueMicrotask(() => {
+              appointmentsInitialFetchDoneRef.current = true;
+              writeApiAppointmentsSessionCache(next);
+            });
+            return next;
+          });
+        };
+
+        void (async () => {
+          try {
+            const occurrences = buildOccurrences();
+            const seriesIdForMulti =
+              occurrences.length > 1
+                ? editingApt
+                  ? editingApt.seriesId || `series-${Date.now().toString(36)}`
+                  : `series-${Date.now().toString(36)}`
+                : undefined;
+
+            if (editingApt) {
+              if (repeat && repeat.enabled && repeat.count > 1) {
+                await deleteAppointmentRemote(editingApt.id);
+                finish();
+                const created = [];
+                for (const o of occurrences) {
+                  const { appointment } = await createAppointmentRemote({
+                    clientName: baseExtras.clientName,
+                    service: baseExtras.service,
+                    start: o.start.toISOString(),
+                    end: o.end.toISOString(),
+                    color: baseExtras.color,
+                    price: baseExtras.price,
+                    notes: baseExtras.notes,
+                    ...(seriesIdForMulti ? { seriesId: seriesIdForMulti } : {}),
+                  });
+                  created.push(appointmentDtoToEvent(appointment));
+                }
+                commitEvents((prev) => [
+                  ...prev.filter((ev) => ev.id !== editingApt.id),
+                  ...created,
+                ]);
+              } else {
+                const patch = {
+                  clientName: baseExtras.clientName,
+                  service: baseExtras.service,
+                  start: start.toISOString(),
+                  end: end.toISOString(),
+                  color: baseExtras.color,
+                  price: baseExtras.price,
+                  notes: baseExtras.notes,
+                };
+                if (editingApt.seriesId) patch.seriesId = editingApt.seriesId;
+                const prevSnap = {
+                  ...editingApt,
+                  start: new Date(editingApt.start),
+                  end: new Date(editingApt.end),
+                };
+                setEvents((prev) =>
+                  prev.map((ev) =>
+                    ev.id === editingApt.id ? { ...ev, ...baseExtras, start, end } : ev,
+                  ),
+                );
+                finish();
+                try {
+                  const { appointment } = await updateAppointmentRemote(editingApt.id, patch);
+                  setEvents((prev) =>
+                    prev.map((ev) =>
+                      ev.id === editingApt.id ? appointmentDtoToEvent(appointment) : ev,
+                    ),
+                  );
+                } catch (e) {
+                  console.warn("[Calendar] appointments API save failed", e);
+                  reportSaveError(e);
+                  setEvents((prev) =>
+                    prev.map((ev) => (ev.id === prevSnap.id ? prevSnap : ev)),
+                  );
+                }
+              }
+            } else {
+              const optimistic = occurrences.map((o) => ({
+                id: makeEventId(),
+                ...baseExtras,
+                start: o.start,
+                end: o.end,
+                ...(seriesIdForMulti ? { seriesId: seriesIdForMulti } : {}),
+              }));
+              const optimisticIds = optimistic.map((e) => e.id);
+              setEvents((prev) => [...prev, ...optimistic]);
+              finish();
+              try {
+                const created = [];
+                for (const o of occurrences) {
+                  const { appointment } = await createAppointmentRemote({
+                    clientName: baseExtras.clientName,
+                    service: baseExtras.service,
+                    start: o.start.toISOString(),
+                    end: o.end.toISOString(),
+                    color: baseExtras.color,
+                    price: baseExtras.price,
+                    notes: baseExtras.notes,
+                    ...(seriesIdForMulti ? { seriesId: seriesIdForMulti } : {}),
+                  });
+                  created.push(appointmentDtoToEvent(appointment));
+                }
+                commitEvents((prev) => [
+                  ...prev.filter((e) => !optimisticIds.includes(e.id)),
+                  ...created,
+                ]);
+              } catch (err) {
+                console.warn("[Calendar] appointments API save failed", err);
+                reportSaveError(err);
+                setEvents((prev) => prev.filter((e) => !optimisticIds.includes(e.id)));
+              }
+            }
+          } catch (err) {
+            console.warn("[Calendar] appointments API save failed", err);
+            reportSaveError(err);
+            finish();
+          }
+        })();
+        return;
+      }
+
       if (editingApt) {
         if (repeat && repeat.enabled && repeat.count > 1) {
           const occurrences = [{ start, end }];
@@ -2136,14 +2862,33 @@ export default function CalendarScreenWeb() {
       setNewApptInit(null);
       setEditingApt(null);
     },
-    [editingApt]
+    [editingApt],
   );
 
   // Cancel handler — confirm then remove
   const performCancelAppointment = useCallback((apt) => {
+    const closeModals = () => {
+      setConfirmCancelApt(null);
+      setAptOptionsApt(null);
+    };
+    if (isAppointmentsApiAvailable()) {
+      appointmentsFetchAbortRef.current?.abort();
+      const snapshot = { ...apt, start: new Date(apt.start), end: new Date(apt.end) };
+      setEvents((prev) => prev.filter((ev) => ev.id !== apt.id));
+      closeModals();
+      void deleteAppointmentRemote(apt.id).catch((err) => {
+        console.warn("[Calendar] appointments API delete failed", err);
+        setOverlapAlert({
+          message: `Could not delete appointment (${err instanceof Error ? err.message : "error"}).`,
+        });
+        setEvents((prev) =>
+          [...prev, snapshot].sort((a, b) => a.start.getTime() - b.start.getTime()),
+        );
+      });
+      return;
+    }
     setEvents((prev) => prev.filter((ev) => ev.id !== apt.id));
-    setConfirmCancelApt(null);
-    setAptOptionsApt(null);
+    closeModals();
   }, []);
 
   const openModifyForApt = useCallback((apt) => {
@@ -2326,7 +3071,7 @@ export default function CalendarScreenWeb() {
                       <div key={wi} className="cal-month__week">
                         {week.map((d) => {
                           const inMonth = isSameMonth(d, monthDate);
-                          const dayDots = events
+                          const dayDots = calendarEvents
                             .filter((a) => isSameDay(a.start, d))
                             .sort((a, b) => a.start.getTime() - b.start.getTime())
                             .slice(0, 3);
@@ -2420,7 +3165,7 @@ export default function CalendarScreenWeb() {
               : [baseDate];
 
           const renderColumnContent = (baseDate, day, includeColumnHead) => {
-            const dayEvents = events.filter((a) => isSameDay(a.start, day));
+            const dayEvents = calendarEvents.filter((a) => isSameDay(a.start, day));
             const dayPositioned = layoutDayAppointments(dayEvents);
             const showLiveLine = isToday(day) && liveTimeLineMin !== null;
             return (

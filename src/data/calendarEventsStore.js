@@ -2,11 +2,24 @@
 // Calendar.jsx is the single writer (localStorage key "@salonx/calendar/v1").
 // Other screens (Stylist/ClientList, etc.) read via `useCalendarEvents()` and
 // react to in-tab updates through the `salonx:calendar-updated` CustomEvent.
+//
+// When v2-admin appointments API is active (`getV2AdminBase()`), Calendar mirrors
+// live `events` here so hooks still work without persisting events to localStorage.
 
 import { useEffect, useState } from 'react';
+import { readApiAppointmentsSessionCache } from './apiAppointmentsSessionCache.js';
+import { getV2AdminBase } from '../sync/v2AdminBootstrap.js';
 
 const CALENDAR_STORAGE_KEY = '@salonx/calendar/v1';
 const UPDATE_EVENT_NAME = 'salonx:calendar-updated';
+
+/** @type {unknown[] | null} */
+let apiModeEventsMirror = null;
+
+/** @param {unknown[] | null} events */
+export function setApiModeCalendarEventsMirror(events) {
+  apiModeEventsMirror = events;
+}
 
 function reviveDate(value) {
   if (value && typeof value === 'object' && value.__type === 'Date') {
@@ -39,6 +52,38 @@ function readCalendarRoot() {
 }
 
 export function loadCalendarEvents() {
+  if (getV2AdminBase()) {
+    const mirrored = Array.isArray(apiModeEventsMirror) ? apiModeEventsMirror : null
+    if (mirrored && mirrored.length > 0) {
+      return mirrored
+        .map((ev) => ({
+          ...ev,
+          start: ensureDate(ev.start),
+          end: ensureDate(ev.end),
+        }))
+        .filter((ev) => ev.start instanceof Date && ev.end instanceof Date)
+    }
+    const cached = readApiAppointmentsSessionCache()
+    if (cached && cached.length > 0) {
+      return cached
+        .map((ev) => ({
+          ...ev,
+          start: ensureDate(ev.start),
+          end: ensureDate(ev.end),
+        }))
+        .filter((ev) => ev.start instanceof Date && ev.end instanceof Date)
+    }
+    if (mirrored) {
+      return mirrored
+        .map((ev) => ({
+          ...ev,
+          start: ensureDate(ev.start),
+          end: ensureDate(ev.end),
+        }))
+        .filter((ev) => ev.start instanceof Date && ev.end instanceof Date)
+    }
+    return []
+  }
   const data = readCalendarRoot();
   const events = Array.isArray(data?.events) ? data.events : [];
   return events

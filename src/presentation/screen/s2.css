@@ -149,6 +149,8 @@
 .s2-root {
   position: relative;
   isolation: isolate;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
   height: 100%;
   display: flex;
@@ -2498,21 +2500,24 @@ button.s2-filmPill {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 72px;
-  max-height: min(180px, 42vh);
+  /* Fixed cap — avoid vh (iOS + keyboard + resizes-visual jumps the viewport). */
+  max-height: 180px;
   padding: 10px 12px;
   background: rgba(1, 2, 9, 0.45);
   border: none;
   border-radius: 10px;
   color: var(--s2-text-primary);
   font-family: inherit;
-  font-size: 13px;
-  line-height: 1.5;
+  /* iOS Safari: font-size < 16px on focused inputs triggers page zoom and breaks the scaled shell. */
+  font-size: 16px;
+  line-height: 1.45;
   resize: none;
   outline: none;
   box-sizing: border-box;
   box-shadow: var(--s2-glass-inner-shadow);
   backdrop-filter: var(--s2-climax-glass-blur);
   -webkit-backdrop-filter: var(--s2-climax-glass-blur);
+  touch-action: manipulation;
 }
 .s2-noteInput::placeholder { color: var(--s2-text-muted); }
 .s2-noteInput:focus {

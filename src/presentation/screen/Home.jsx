@@ -4,9 +4,10 @@ function Home() {
   return (
     <div
       style={{
+        flex: '1 1 auto',
+        minHeight: 0,
         height: '100%',
         width: '100%',
-        minHeight: 0,
         backgroundColor: 'black',
         display: 'flex',
         flexDirection: 'column',

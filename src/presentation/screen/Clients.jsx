@@ -2,7 +2,27 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, X, MagnifyingGlass } from 'phosphor-react';
 import { MOCK_CLIENTS } from '../../data/mockClients';
+import {
+  CLIENT_AVATAR_DB_UPDATED,
+  getClientAvatar,
+} from '../../data/clientAvatarDb';
+import {
+  CLIENTS_CATALOG_UPDATED,
+  refreshClientsCatalogCache,
+} from '../../data/clientProfileAvatar';
+import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
 import { writePersistedScreen2Apt } from '../../data/appointmentStateStore';
+import {
+  CONSULT_STORAGE_KEY,
+  CONSULTATION_REMOTE_UPDATED,
+  consultTileImageUrl,
+  hydrateConsultStoreFromApi,
+  loadConsultStore,
+  mergeConsultRecordIntoStore,
+} from '../../data/screen2RemoteStore';
+import { normalizeClientKey } from '../../data/screen2RemoteApi';
+import { startCalendarRealtimeSync } from '../../sync/calendarRealtimeSync';
+import BottomToolbar from '../../component/BottomToolbar';
 import '../style/clients.css';
 
 // "Select client" picker. Wired to the bottom-toolbar Profile (User) icon so the
@@ -17,18 +37,7 @@ import '../style/clients.css';
 // here instead of the default Stylist screen.
 
 const NEW_CLIENTS_STORAGE_KEY = '@salonx/clientsExtra/v1';
-const CONSULT_STORAGE_KEY = '@salonx/consultations/v1';
 const BRAND_LABEL = 'DANGER JONES';
-
-function loadConsultStore() {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = window.localStorage.getItem(CONSULT_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
 
 function loadExtraClients() {
   if (typeof window === 'undefined') return [];
@@ -51,7 +60,7 @@ function saveExtraClients(list) {
 }
 
 function clientKey(name) {
-  return (name || '').trim().toLowerCase();
+  return normalizeClientKey(name);
 }
 
 function initialsFor(name) {
@@ -74,9 +83,57 @@ export default function Clients() {
 
   const [extraClients, setExtraClients] = useState(() => loadExtraClients());
   const [consultStore, setConsultStore] = useState(() => loadConsultStore());
+  const [idbAvatarByKey, setIdbAvatarByKey] = useState({});
+  const [catalogClients, setCatalogClients] = useState([]);
   const [query, setQuery] = useState('');
 
-  // Refresh consult avatars if Screen2 saves a new photo while we're mounted.
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    let cancelled = false;
+    void refreshClientsCatalogCache().then((list) => {
+      if (!cancelled && list) setCatalogClients(list);
+    });
+    const onCatalog = () => {
+      void refreshClientsCatalogCache().then((list) => {
+        if (list) setCatalogClients(list);
+      });
+    };
+    window.addEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
+    };
+  }, []);
+
+  const allClients = useMemo(() => {
+    // Dedupe by lowercased name — extras win (most recent definition).
+    const map = new Map();
+    const base =
+      isAppointmentsApiAvailable() && catalogClients.length > 0
+        ? catalogClients
+        : MOCK_CLIENTS;
+    base.forEach((c) => map.set(clientKey(c.name), c));
+    extraClients.forEach((c) => map.set(clientKey(c.name), c));
+    return Array.from(map.values());
+  }, [extraClients, catalogClients]);
+
+  const clientNames = useMemo(
+    () => allClients.map((c) => c.name).filter(Boolean),
+    [allClients],
+  );
+
+  // Hydrate consultation cache from Postgres when API is available.
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable() || !clientNames.length) return undefined;
+    let cancelled = false;
+    void hydrateConsultStoreFromApi(clientNames).then((store) => {
+      if (!cancelled) setConsultStore(store);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientNames]);
+
   useEffect(() => {
     const onStorage = (e) => {
       if (!e || e.key === null || e.key === CONSULT_STORAGE_KEY) {
@@ -86,17 +143,80 @@ export default function Clients() {
         setExtraClients(loadExtraClients());
       }
     };
+    const onAvatarDb = () => {
+      setConsultStore(loadConsultStore());
+    };
+    const onCatalog = () => {
+      setConsultStore(loadConsultStore());
+      void refreshClientsCatalogCache().then((list) => {
+        if (list) setCatalogClients(list);
+      });
+    };
+    const onConsultRemote = () => {
+      setConsultStore(loadConsultStore());
+    };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener(CLIENT_AVATAR_DB_UPDATED, onAvatarDb);
+    window.addEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
+    window.addEventListener(CONSULTATION_REMOTE_UPDATED, onConsultRemote);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(CLIENT_AVATAR_DB_UPDATED, onAvatarDb);
+      window.removeEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
+      window.removeEventListener(CONSULTATION_REMOTE_UPDATED, onConsultRemote);
+    };
   }, []);
 
-  const allClients = useMemo(() => {
-    // Dedupe by lowercased name — extras win (most recent definition).
-    const map = new Map();
-    MOCK_CLIENTS.forEach((c) => map.set(clientKey(c.name), c));
-    extraClients.forEach((c) => map.set(clientKey(c.name), c));
-    return Array.from(map.values());
-  }, [extraClients]);
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return undefined;
+    return startCalendarRealtimeSync({
+      onClientsCatalogUpdated: () => {
+        void refreshClientsCatalogCache().then((list) => {
+          if (list) setCatalogClients(list);
+        });
+      },
+      onConsultationUpdated: (p) => {
+        const key = typeof p?.clientKey === 'string' ? p.clientKey : '';
+        if (!key || !p?.record || typeof p.record !== 'object') return;
+        setConsultStore(mergeConsultRecordIntoStore(key, p.record));
+      },
+      onPoll: () => {
+        if (!clientNames.length) return;
+        void hydrateConsultStoreFromApi(clientNames).then(setConsultStore);
+        void refreshClientsCatalogCache().then((list) => {
+          if (list) setCatalogClients(list);
+        });
+      },
+    });
+  }, [clientNames]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next = {};
+      for (const client of allClients) {
+        const k = clientKey(client.name);
+        const rec = consultStore[k] || {};
+        const hosted = consultTileImageUrl(client, rec);
+        if (hosted && (hosted.startsWith('http://') || hosted.startsWith('https://'))) {
+          next[k] = hosted;
+          continue;
+        }
+        if (hosted && hosted.startsWith('data:')) {
+          next[k] = hosted;
+          continue;
+        }
+        const idbKey =
+          (typeof rec.avatarDataKey === 'string' && rec.avatarDataKey.trim()) || k;
+        const fromDb = await getClientAvatar(idbKey);
+        if (fromDb) next[k] = fromDb;
+      }
+      if (!cancelled) setIdbAvatarByKey(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allClients, consultStore]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -199,8 +319,12 @@ export default function Clients() {
         </button>
 
         {filtered.map((client) => {
-          const rec = consultStore[clientKey(client.name)] || {};
-          const avatar = typeof rec.avatar === 'string' && rec.avatar ? rec.avatar : null;
+          const k = clientKey(client.name);
+          const rec = consultStore[k] || {};
+          const avatar =
+            consultTileImageUrl(client, rec) ||
+            idbAvatarByKey[k] ||
+            null;
           return (
             <button
               key={client.id || client.name}
@@ -233,6 +357,7 @@ export default function Clients() {
           </div>
         ) : null}
       </div>
+      <BottomToolbar activeIndex={1} originPath="/clients" />
     </div>
   );
 }

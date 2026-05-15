@@ -45,8 +45,10 @@ function CheckOut() {
     const navigate = useNavigate();
     return (
         <div style={{
+            flex: "1 1 auto",
+            minHeight: 0,
             height: "100%",
-            width: "393px",
+            width: "100%",
             backgroundImage: "url('./gradientbg.png')",
             backgroundSize: "cover",
             backgroundPosition: "center",

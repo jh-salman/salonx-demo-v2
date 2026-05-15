@@ -12,8 +12,10 @@
 
 .screen1-container {
   position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
   height: 100%;
-  width: 393px;
+  width: 100%;
 }
 
 .layout-wrapper {
@@ -45,6 +47,8 @@
   --s1-mask-w: calc(var(--s1-bg-w) + 5px); /* = 398px, screen + 5px curve-overhang */
   /* Left edge of cutout in mask coords = mask canvas W − curve strip W = (--s1-bg-w + |overhang|) − curve-w (+ nudge if SVG edited) */
   --s1-mask-cut-x: calc(var(--s1-bg-w) - var(--s1-curve-w) + 5px); /* +5 matches curve right: -5 overhang → pairs with curve-mask translate */
+  /* Dock row inside the 852px frame — list/timer reserve space above this */
+  --s1-toolbar-h: 64px;
 }
 
 /* When profile / muse slider is slid off left — tap to bring it back */
@@ -90,7 +94,8 @@
   right: var(--s1-curve-right);
   width: var(--s1-curve-w);
   height: 100%;
-  z-index: 55;
+  /* Below `.screen1-toolbar` (z-index 200) — WebKit can promote masked layers above 60. */
+  z-index: 45;
   pointer-events: none;
   display: flex;
   justify-content: flex-end;
@@ -261,8 +266,8 @@
   --s1-panel-left: 5px;
   --s1-panel-top: 286px;
   width: 395px;
-  /* Scroll appointments + Waiting List / Needs attention in one column; toolbar sits above at 790px */
-  height: 504px;
+  /* Scroll appointments + Waiting List; ends above `.screen1-toolbar` (bottom‑pinned inside 852px frame) */
+  height: calc(var(--s1-bg-h, 852px) - var(--s1-panel-top) - var(--s1-toolbar-h, 64px));
   top: var(--s1-panel-top);
   position: absolute;
   left: var(--s1-panel-left);
@@ -324,17 +329,18 @@
 
 .screen1-toolbar {
   position: absolute;
-  top: 790px;
+  bottom: 0;
   left: 0;
   width: 393px;
-  height: 64px;
+  height: var(--s1-toolbar-h, 64px);
   display: flex;
   align-items: center;
   justify-content: space-around;
   padding: 0 14px calc(env(safe-area-inset-bottom, 0px));
   background: #0e0e10;
   border-top: 1px solid #2b2b2b;
-  z-index: 60;
+  /* Above curved strip + translateZ() slot layers (iOS / Add to Home). */
+  z-index: 200;
   box-sizing: border-box;
 }
 .screen1-toolbar__btn {
@@ -365,18 +371,32 @@
 }
 
 .screen1-blackBelow {
-  position: relative;
+  /*
+   * Was height: 852px — stacked a second “screen” in the document and hid the real
+   * bottom toolbar on phones / PWA. Keep a thin strip above the dock for stage links only.
+   */
+  position: absolute;
+  left: 0;
   width: 100%;
-  height: 852px;
-  background: black;
-  overflow: hidden;
-  z-index: 1;
+  max-width: 393px;
+  bottom: calc(var(--s1-toolbar-h, 64px) + env(safe-area-inset-bottom, 0px));
+  height: auto;
+  min-height: 0;
+  max-height: 52px;
+  background: transparent;
+  overflow: visible;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.screen1-blackBelow:empty {
+  display: none;
 }
 
 /* Placeholder “hyperlinks” — look like links, do not navigate (per product spec). */
 .screen1-stageLinks {
-  position: absolute;
-  top: 16px;
+  position: relative;
+  top: auto;
   left: 0;
   right: 0;
   display: flex;
@@ -696,8 +716,8 @@
     var(--s1demo-gray-stack-margin-top) + var(--s1demo-gray-top-h) +
       var(--s1demo-section-gap) + var(--s1demo-gray-hero-h) + var(--s1demo-section-gap)
   );
-  /* Toolbar at 790px — keep list bottom pinned when promo/list shift down */
-  --s1demo-client-list-bottom: 790px;
+  /* Toolbar flush at bottom of 852px frame — list bottom aligns to top of toolbar */
+  --s1demo-client-list-bottom: calc(var(--s1-bg-h, 852px) - var(--s1-toolbar-h, 64px));
 }
 
 /* Demo profile slot: allow curved mask + widened hero bleed */
@@ -829,6 +849,7 @@
 /* Demo only: uploads sit on the right rail under the neon stroke (`CurvedLine hideBodyFill`). */
 .screen1-container--demoImage .curvedline-container.curvedline-container--demoSlot {
   pointer-events: auto;
+  z-index: 40;
 }
 
 .screen1-container--demoImage .s1demo-curveStripLayer {

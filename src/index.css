@@ -4,6 +4,23 @@
   --salonx-primary-rgb: 59, 130, 246;
   --salonx-primary-soft-rgb: 96, 165, 250;
   --salonx-primary-dark-rgb: 29, 78, 216;
+  /* Safe areas — PWA / Add to Home + viewport-fit=cover */
+  --salonx-safe-area-top: env(safe-area-inset-top, 0px);
+  --salonx-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  /*
+   * Optional layout hint (no longer driven by main.jsx).
+   */
+  --salonx-shell-height: calc(
+    100vh - var(--salonx-safe-area-top) - var(--salonx-safe-area-bottom)
+  );
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --salonx-shell-height: calc(
+      100dvh - var(--salonx-safe-area-top) - var(--salonx-safe-area-bottom)
+    );
+  }
 }
 
 * {
@@ -13,11 +30,44 @@
   font-family: sans-serif;
 }
 
-html,
+/* Fills the 393×852 frame; each route root should use width/height 100% inside this. */
+.salonx-route-mount {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Bridges ResponsivePhoneShell → RouterProvider so each route root can flex-fill the 393×852 frame. */
+.salonx-router-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* iOS Add-to-Home / standalone: fill the real screen before JS shell measures */
+html {
+  height: 100%;
+  min-height: 100%;
+  min-height: -webkit-fill-available;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 body,
 #root {
   height: 100%;
   width: 100%;
+  min-height: 100%;
+  min-height: -webkit-fill-available;
+  min-height: 100vh;
   min-height: 100dvh;
   overflow: hidden;
   /* Letterboxing outside 550px shell + safe overscroll */
@@ -27,9 +77,4 @@ body,
   -webkit-overflow-scrolling: touch;
   /* Stop browser pinch-zoom from breaking the responsive transform scale */
   touch-action: pan-x pan-y;
-}
-
-body {
-  /* Fall back chain: dvh (modern), svh, then percentage */
-  min-height: 100dvh;
 }

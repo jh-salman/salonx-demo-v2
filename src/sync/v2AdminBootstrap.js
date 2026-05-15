@@ -118,32 +118,71 @@ function hasClimaxSessionPayload() {
   }
 }
 
+function isDevDemoApi() {
+  return (
+    import.meta.env.DEV &&
+    String(import.meta.env.VITE_DEV_USE_DEMO_API || '').toLowerCase() === 'true'
+  )
+}
+
 /**
- * Base URL for v2-admin (no trailing slash).
- * Prod without env: same-origin `/salonx-admin` proxy (see `vercel.json`).
+ * Base URL for v2-admin / demo-api APIs (no trailing slash).
+ * Production: `VITE_V2_ADMIN_URL` if set, else same-origin `/salonx-admin` (see `vercel.json`).
+ * Development:
+ * - `VITE_DEV_USE_DEMO_API=true` → `/salonx-demo-api` (Vite proxy → demo-api, default :4000).
+ * - Else `/salonx-admin` (Vite proxy → local Next); `VITE_V2_ADMIN_URL` ignored unless
+ *   `VITE_DEV_USE_REMOTE_V2_ADMIN=true`.
+ * Runtime override: `window.__SALONX_V2_ADMIN_URL__`.
  */
 export function getV2AdminBase() {
-  const fromEnv =
-    typeof import.meta.env.VITE_V2_ADMIN_URL === 'string'
-      ? import.meta.env.VITE_V2_ADMIN_URL.trim().replace(/\/$/, '')
-      : ''
-  if (fromEnv) return fromEnv
   if (typeof window !== 'undefined' && window.__SALONX_V2_ADMIN_URL__) {
     const w = String(window.__SALONX_V2_ADMIN_URL__).trim().replace(/\/$/, '')
     if (w) return w
   }
-  if (import.meta.env.PROD) return '/salonx-admin'
-  return ''
+  if (isDevDemoApi()) {
+    return '/salonx-demo-api'
+  }
+  const fromEnv =
+    typeof import.meta.env.VITE_V2_ADMIN_URL === 'string'
+      ? import.meta.env.VITE_V2_ADMIN_URL.trim().replace(/\/$/, '')
+      : ''
+  const useRemoteInDev =
+    import.meta.env.DEV &&
+    String(import.meta.env.VITE_DEV_USE_REMOTE_V2_ADMIN || '').toLowerCase() === 'true'
+  if (fromEnv && (!import.meta.env.DEV || useRemoteInDev)) {
+    return fromEnv
+  }
+  return '/salonx-admin'
 }
 
 let warnedMissingV2AdminUrl = false
 function warnIfNoV2AdminBase() {
   if (warnedMissingV2AdminUrl) return
-  if (getV2AdminBase()) return
   warnedMissingV2AdminUrl = true
-  console.warn(
-    '[salonx-web-v2] Set VITE_V2_ADMIN_URL (build) or window.__SALONX_V2_ADMIN_URL__ / vercel.json proxy.',
-  )
+  if (typeof window !== 'undefined' && window.__SALONX_V2_ADMIN_URL__) return
+  if (isDevDemoApi()) {
+    console.info(
+      '[salonx-web-v2] Dev: API uses /salonx-demo-api → demo-api (see vite.config.js). Override VITE_DEMO_API_PROXY_TARGET if not http://localhost:4000.',
+    )
+    return
+  }
+  const fromEnv =
+    typeof import.meta.env.VITE_V2_ADMIN_URL === 'string' &&
+    import.meta.env.VITE_V2_ADMIN_URL.trim() !== ''
+  const useRemoteInDev =
+    import.meta.env.DEV &&
+    String(import.meta.env.VITE_DEV_USE_REMOTE_V2_ADMIN || '').toLowerCase() === 'true'
+  if (import.meta.env.DEV && fromEnv && !useRemoteInDev) {
+    console.info(
+      '[salonx-web-v2] Dev: API uses /salonx-admin (local v2-admin). VITE_V2_ADMIN_URL is ignored so appointments match local DATABASE_URL. Set VITE_DEV_USE_REMOTE_V2_ADMIN=true to use the remote URL.',
+    )
+    return
+  }
+  if (import.meta.env.DEV && !fromEnv) {
+    console.info(
+      '[salonx-web-v2] Using /salonx-admin (proxy to local v2-admin). Override with window.__SALONX_V2_ADMIN_URL__.',
+    )
+  }
 }
 
 function s1HasAnyImageUrl(images) {
@@ -481,8 +520,13 @@ export function startV2AdminRealtimeSync() {
     void syncFromV2Admin()
   }, pollMs)
 
+  /** Same-origin SSE: full-URL admin, or dev proxy to demo-api (`/salonx-demo-api`). Skip for `/salonx-admin` → Next (proxy buffering). */
+  const useEventSource =
+    typeof EventSource !== 'undefined' &&
+    (!proxied || base.startsWith('/salonx-demo-api'))
+
   let es
-  if (!proxied && typeof EventSource !== 'undefined') {
+  if (useEventSource) {
     try {
       es = new EventSource(`${base}/api/config/stream?forWeb=1`)
       es.onmessage = (ev) => {
