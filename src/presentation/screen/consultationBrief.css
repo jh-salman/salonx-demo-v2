@@ -36,8 +36,7 @@
   --nc-font-display: 'Bebas Neue', system-ui, sans-serif;
 }
 
-/* Absolute: Screen2 mounts this inside `.s2-root` inside a CSS-scaled phone shell;
- * `fixed` there breaks hit-testing on mobile. */
+/* Absolute: Screen2 mounts this inside `.s2c-root`; `fixed` would break hit-testing on mobile. */
 .nc-popup {
   position: absolute;
   inset: 0;
@@ -55,6 +54,32 @@
   font-family: var(--nc-font-body);
   color: var(--nc-text);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Popup header — same chrome as Screen2 `.s2-topbar` + `.s2-identity` (no stepper) */
+.nc-popup__header {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+  z-index: 4;
+}
+
+.nc-popup .s2-topRightCurve {
+  z-index: 2;
+}
+
+.nc-popup .s2-rightStamp {
+  z-index: 3;
+}
+
+.nc-popup .s2-topbar,
+.nc-popup .s2-identity {
+  position: relative;
+  z-index: 4;
+}
+
+.nc-popup .s2-identity--popup {
+  padding-bottom: 0;
 }
 
 .nc-pu-top {
@@ -673,3 +698,667 @@ button.nc-note:focus-visible {
   cursor: pointer;
   border-style: dashed;
 }
+
+/* v2 consultation popup — mirrors Screen2 body (CONSULTATION + CREATE + FINISH). */
+.nc-popup--s2 {
+  background: #030405;
+  padding: 0;
+}
+
+.nc-popup__close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  left: 14px;
+  z-index: 12;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nc-popup__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 52px 12px 28px;
+  scrollbar-width: none;
+}
+
+.nc-popup__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.nc-popup__title {
+  margin: 0 0 16px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.nc-popup__section {
+  margin-bottom: 18px;
+}
+
+.nc-popup__section .s2-pill--section {
+  position: relative;
+  z-index: 2;
+  margin-bottom: -11px;
+  margin-left: auto;
+  margin-right: auto;
+  width: fit-content;
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 780;
+  font-size: 10px;
+}
+
+.nc-preconsult--embedded {
+  margin: 0 0 10px;
+}
+
+.nc-popup__consultCard {
+  width: 100%;
+  pointer-events: auto;
+  cursor: default;
+}
+
+.nc-popup__consultCard .s2-consultScroll {
+  max-height: min(220px, 38vh);
+}
+
+.nc-popup__paneBtn {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+}
+
+.nc-popup__paneBtn .s2-paneLabel {
+  display: none;
+}
+
+.nc-popup__paneBtn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 2px;
+}
+
+.nc-popup__paneTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 2px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nc-popup__paneToolGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nc-popup__paneToolLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.nc-popup__paneToolBtn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nc-popup--s2 .s2-svcCard,
+.nc-popup--s2 .s2-hcCard {
+  width: 100%;
+}
+
+/* =========================================================
+ * V3 consultation popup — matches reference (Sara Bloom view)
+ * ========================================================= */
+.nc-popup.ncv2 {
+  background: #0a0a0e;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #fff;
+}
+
+/* ---------- Header ---------- */
+.ncv2-header {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px 56px minmax(0, 1fr) auto 56px;
+  align-items: center;
+  gap: 10px;
+  padding: max(14px, env(safe-area-inset-top, 0px)) 14px 10px;
+  flex-shrink: 0;
+}
+
+.ncv2-back {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ncv2-photo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  border: 1.5px solid var(--salonx-primary);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.55);
+}
+.ncv2-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ncv2-identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 6px;
+}
+.ncv2-name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ncv2-visit {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--salonx-primary);
+  text-transform: uppercase;
+}
+
+.ncv2-timerPill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1.5px solid var(--salonx-primary);
+  border-radius: 14px;
+  color: var(--salonx-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ncv2-timerPill__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  font-weight: 700;
+}
+.ncv2-timerPill__value {
+  font-variant-numeric: tabular-nums;
+}
+.ncv2-timerPill__label {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  opacity: 0.9;
+}
+
+.ncv2-headerCurve {
+  position: absolute;
+  top: -40px;
+  right: -25px;
+  width: 99px;
+  height: 216px;
+  pointer-events: none;
+  line-height: 0;
+  z-index: 0;
+  filter: drop-shadow(0 0 3px rgba(var(--salonx-primary-rgb), 0.45));
+}
+.ncv2-headerCurve svg {
+  width: 99px;
+  height: 216px;
+  display: block;
+}
+
+/* Date stamp sits inside the curved tab, above the filled shape. */
+.ncv2-dateStamp {
+  position: relative;
+  z-index: 1;
+}
+
+.ncv2-dateStamp {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: 0;
+  line-height: 1.05;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.ncv2-dateStamp__dow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+.ncv2-dateStamp__day {
+  font-size: 22px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+.ncv2-dateStamp__mo {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  margin-top: 2px;
+}
+.ncv2-dateStamp__lab {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 4px;
+}
+
+/* ---------- Alert pill ---------- */
+.ncv2-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 14px 12px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font: inherit;
+  text-align: left;
+}
+.ncv2-alert__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff2e88;
+  flex-shrink: 0;
+}
+.ncv2-alert.is-alert .ncv2-alert__dot {
+  box-shadow: 0 0 8px rgba(255, 46, 136, 0.45);
+}
+.ncv2-alert.is-new .ncv2-alert__dot { background: var(--salonx-primary); }
+.ncv2-alert.is-returning .ncv2-alert__dot { background: #14e3c2; }
+
+.ncv2-alert__tag {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #fff;
+  flex-shrink: 0;
+}
+.ncv2-alert.is-alert .ncv2-alert__tag { color: #ff5e9d; }
+.ncv2-alert__sep { color: rgba(255, 255, 255, 0.4); flex-shrink: 0; }
+.ncv2-alert__sub {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #ff5e9d;
+  flex-shrink: 0;
+}
+.ncv2-alert__text {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.ncv2-alert__chat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
+}
+.ncv2-alert__chev { color: rgba(255, 255, 255, 0.55); flex-shrink: 0; }
+
+/* ---------- Scroll body ---------- */
+/*
+ * Body height is split into FOUR percentage rows so every device shows
+ * the same visual proportion (CHAIR 22% / FORMULAS 22% / LIFE 22% / LOOK 34%).
+ * Adjust the `--ncv2-*-pct` variables to retune.
+ */
+.ncv2-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 14px 8px;
+  display: grid;
+  grid-template-rows:
+    var(--ncv2-chair-pct, 22%)
+    var(--ncv2-formulas-pct, 22%)
+    var(--ncv2-life-pct, 22%)
+    var(--ncv2-look-pct, 34%);
+  gap: 0;
+  scrollbar-width: none;
+}
+.ncv2-scroll::-webkit-scrollbar { display: none; }
+
+/* ---------- Sections (CHAIR / FORMULAS / LIFE / LOOK) ---------- */
+.ncv2-section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 0 4px;
+  overflow: hidden;
+}
+
+/* Vertical thread under each section's dot — connects head to its rows. */
+.ncv2-section::before {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 26px;
+  bottom: 6px;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  pointer-events: none;
+}
+.ncv2-section__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+.ncv2-section__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.ncv2-section__label {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+.ncv2-section.is-chair .ncv2-section__dot { background: var(--salonx-primary); }
+.ncv2-section.is-chair .ncv2-section__label { color: var(--salonx-primary); }
+.ncv2-section.is-path .ncv2-section__dot { background: #14e3c2; }
+.ncv2-section.is-path .ncv2-section__label { color: #14e3c2; }
+.ncv2-section.is-life .ncv2-section__dot { background: #ff2e88; }
+.ncv2-section.is-life .ncv2-section__label { color: #ff2e88; }
+.ncv2-section.is-look .ncv2-section__dot { background: #a855f7; }
+.ncv2-section.is-look .ncv2-section__label { color: #a855f7; }
+
+.ncv2-section__rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  padding-left: 18px;
+  scrollbar-width: none;
+}
+.ncv2-section__rows::-webkit-scrollbar { display: none; }
+
+.ncv2-row {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  background: transparent;
+  border: none;
+  border-top: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ncv2-row + .ncv2-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ncv2-row:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.ncv2-row__date {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.78);
+  letter-spacing: 0.04em;
+}
+.ncv2-row__body {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.ncv2-row__mic {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+}
+.ncv2-row--empty .ncv2-row__body {
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+}
+
+/* ---------- LOOK ---------- */
+.ncv2-section.is-look .ncv2-section__head {
+  position: relative;
+}
+.ncv2-look__cam {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ncv2-look__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-left: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.62);
+  margin: 4px 0 6px;
+  flex-shrink: 0;
+}
+.ncv2-look__count {
+  color: #fff;
+  font-weight: 700;
+}
+.ncv2-look__sep {
+  color: rgba(255, 255, 255, 0.42);
+  letter-spacing: 0;
+}
+
+/*
+ * Gallery scrolls horizontally; photo cards are a fixed size so they look
+ * identical across phones (just like the reference). Card width comes from
+ * `--ncv2-look-card-w` so you can retune it from a parent style block.
+ */
+.ncv2-look__gallery {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  padding: 0 0 4px 18px;
+  scrollbar-width: none;
+}
+.ncv2-look__gallery::-webkit-scrollbar { display: none; }
+
+.ncv2-look__card {
+  flex: 0 0 auto;
+  width: var(--ncv2-look-card-w, 128px);
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  scroll-snap-align: start;
+  -webkit-tap-highlight-color: transparent;
+}
+.ncv2-look__img {
+  width: var(--ncv2-look-card-w, 128px);
+  height: var(--ncv2-look-card-w, 128px);
+  border-radius: 14px;
+  background-color: rgba(255, 255, 255, 0.05);
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ncv2-look__date {
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.78);
+  text-align: center;
+}
+.ncv2-look__empty {
+  flex: 0 0 auto;
+  width: var(--ncv2-look-card-w, 128px);
+  height: var(--ncv2-look-card-w, 128px);
+  margin-left: 18px;
+  border-radius: 14px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- Bottom CTA row ---------- */
+.ncv2-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  flex-shrink: 0;
+  background: transparent;
+}
+.ncv2-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 46px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ncv2-action--voice {
+  border-color: var(--salonx-primary);
+  color: var(--salonx-primary);
+}
+.ncv2-action--add {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+

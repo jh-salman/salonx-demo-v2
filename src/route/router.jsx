@@ -13,9 +13,8 @@ import BottomToolbar from "../component/BottomToolbar";
 /**
  * Routes that should NOT show the global bottom toolbar:
  *  - `/`         → Welcome / pre-login screen
- *  - `/screen2`  → already renders its own `.s2-toolbar` integrated with screen design
  */
-const HIDE_TOOLBAR_PATHS = new Set(["/", "/screen2"]);
+const HIDE_TOOLBAR_PATHS = new Set(["/"]);
 
 function activeIndexForPath(pathname) {
   if (pathname.startsWith("/screen1") || pathname.startsWith("/s1-demo-image"))

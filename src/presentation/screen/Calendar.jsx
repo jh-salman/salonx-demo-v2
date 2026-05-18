@@ -288,7 +288,7 @@ const PARK_DROP_THRESHOLD = 14; // px above grid top counts as park drop
 
 // Tap interaction tuning
 const LONG_PRESS_MS = 1000; // 1s — long-press to enter drag/move mode (more responsive)
-const DOUBLE_TAP_MS = 300; // 2nd tap must arrive within 300ms to count as double
+const DOUBLE_TAP_MS = 360; // 2nd tap window — slightly loose for iOS PWA / touch
 
 // Drag usability: auto-scroll the time grid when the pointer is near edges.
 const AUTO_SCROLL_EDGE_PX = 56; // ~1 row
@@ -428,7 +428,7 @@ export default function CalendarScreenWeb() {
     navigate(-1);
   }, [navigate, location.state]);
 
-  // Tap dispatcher — distinguish single (→ options modal) from double (→ client card)
+  // Tap dispatcher — double tap opens appointment options (single tap is inert)
   const tapRef = useRef({ aptId: null, lastTapTs: 0, pendingTimer: null });
   // Mobile browsers can synthesize a click after pointerup/touchend. If we open
   // the modal on that same tick, the synthetic click can land on a modal button
@@ -690,6 +690,27 @@ export default function CalendarScreenWeb() {
     };
   }, [cancelDragPaintRaf]);
 
+  /** Options modal (Modify / Reschedule / …) — requires double tap; shared by day apt cards + month sheet. */
+  const scheduleAppointmentOptionsDoubleTap = useCallback((apt) => {
+    const now = Date.now();
+    const isDouble =
+      tapRef.current.aptId === apt.id && now - tapRef.current.lastTapTs < DOUBLE_TAP_MS;
+    if (isDouble) {
+      tapRef.current.aptId = null;
+      tapRef.current.lastTapTs = 0;
+      if (tapRef.current.pendingTimer) {
+        clearTimeout(tapRef.current.pendingTimer);
+        tapRef.current.pendingTimer = null;
+      }
+      suppressModalClickUntilRef.current = Date.now() + 450;
+      requestAnimationFrame(() => setAptOptionsApt(apt));
+      return true;
+    }
+    tapRef.current.aptId = apt.id;
+    tapRef.current.lastTapTs = now;
+    return false;
+  }, []);
+
   const revertToOriginal = useCallback((original) => {
     setEvents((prev) => prev.map((ev) => (ev.id === original.id ? original : ev)));
   }, []);
@@ -910,16 +931,10 @@ export default function CalendarScreenWeb() {
         return;
       }
       if (ref.mode === "pre") {
-        // Tap (no drag) — dispatch single vs double tap.
+        // Tap (no drag) — double tap opens options modal; single tap does nothing.
         finishDrag();
-        const now = Date.now();
-        const isDouble =
-          tapRef.current.aptId === apt.id &&
-          now - tapRef.current.lastTapTs < DOUBLE_TAP_MS;
-
-        if (isDouble) {
-          tapRef.current.aptId = null;
-          tapRef.current.lastTapTs = 0;
+        const opened = scheduleAppointmentOptionsDoubleTap(apt);
+        if (opened) {
           try {
             if (typeof e.currentTarget.releasePointerCapture === "function") {
               e.currentTarget.releasePointerCapture(e.pointerId);
@@ -927,16 +942,6 @@ export default function CalendarScreenWeb() {
           } catch {
             /* already released */
           }
-          // Double tap: open client card (Screen2)
-          navigate("/screen2", { state: { apt, from: "/calendar" } });
-        } else {
-          tapRef.current.aptId = apt.id;
-          tapRef.current.lastTapTs = now;
-          // Single tap: open options modal (Modify / Reschedule / Cancel / See Client Card)
-          suppressModalClickUntilRef.current = Date.now() + 450;
-          // Defer modal to the next frame so the pointerup's synthetic click can't
-          // immediately activate a modal button under the finger.
-          requestAnimationFrame(() => setAptOptionsApt(apt));
         }
         return;
       }
@@ -1034,7 +1039,7 @@ export default function CalendarScreenWeb() {
       });
       finishDrag();
     },
-    [cancelLongPress, events, finishDrag, navigate, cancelDragPaintRaf],
+    [cancelLongPress, events, finishDrag, cancelDragPaintRaf, scheduleAppointmentOptionsDoubleTap],
   );
 
   // Confirm-modal handlers
@@ -2611,11 +2616,6 @@ export default function CalendarScreenWeb() {
     };
   }, [viewMode, beginSwipeNav]);
 
-  const openAptOptionsFromMonthSheet = useCallback((apt) => {
-    suppressModalClickUntilRef.current = Date.now() + 450;
-    requestAnimationFrame(() => setAptOptionsApt(apt));
-  }, []);
-
   // Save handler from NewAppt overlay
   const handleSaveAppointment = useCallback(
     ({
@@ -3132,7 +3132,10 @@ export default function CalendarScreenWeb() {
                       <button
                         type="button"
                         className="cal-monthDayRow"
-                        onClick={() => openAptOptionsFromMonthSheet(apt)}
+                        onPointerUp={(e) => {
+                          if (e.pointerType === "mouse" && e.button !== 0) return;
+                          scheduleAppointmentOptionsDoubleTap(apt);
+                        }}
                       >
                         <span
                           className={`cal-monthDayRow__stripe ${colorToClass(apt.color)}`}
@@ -3413,7 +3416,7 @@ export default function CalendarScreenWeb() {
             </div>
             <button
               type="button"
-              className="cal-modal__btn cal-modal__btn--primary"
+              className="cal-modal__btn"
               onClick={() => {
                 if (Date.now() < suppressModalClickUntilRef.current) return;
                 setAptOptionsApt(null);
@@ -3443,7 +3446,7 @@ export default function CalendarScreenWeb() {
             </button>
             <button
               type="button"
-              className="cal-modal__btn cal-modal__btn--danger"
+              className="cal-modal__btn"
               onClick={() => {
                 if (Date.now() < suppressModalClickUntilRef.current) return;
                 setConfirmCancelApt(aptOptionsApt);

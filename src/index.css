@@ -13,8 +13,8 @@
   --salonx-shell-height: calc(
     100vh - var(--salonx-safe-area-top) - var(--salonx-safe-area-bottom)
   );
-  /* BottomToolbar inner row (~8px + 26px icon + 8px); used by screen roots for padding-bottom */
-  --salonx-bottom-toolbar-row-h: 42px;
+  /* BottomToolbar inner row (8 + 6 + 26 icon + 6 + 8 padding) */
+  --salonx-bottom-toolbar-row-h: 54px;
   /* Matches `.bottom-toolbar-safe` — avoids content sitting under toolbar when tweaked (iOS PWA). */
   --salonx-bottom-toolbar-safe-h: env(safe-area-inset-bottom, 0px);
 }
@@ -30,7 +30,7 @@
 /* Add to Home / PWA — match shorter `.bottom-toolbar-row` (see BottomToolbar.css) */
 @media (display-mode: standalone) {
   :root {
-    --salonx-bottom-toolbar-row-h: 32px;
+    --salonx-bottom-toolbar-row-h: 36px;
   }
 }
 

@@ -3,19 +3,14 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Butterfly,
-  CalendarBlank,
   Camera,
+  ChatCircleDots,
   Clock,
   Image as ImageIcon,
-  Lightning,
   Microphone,
-  Minus,
   PencilSimple,
   Plus,
-  Scissors,
-  User,
   X,
-  Gear,
 } from 'phosphor-react';
 import { MOCK_CLIENTS } from '../../data/mockClients';
 import { MOCK_PRODUCTS } from '../../data/mockProducts';
@@ -67,13 +62,12 @@ import {
   writeScreen2WorkflowForApt,
 } from '../../data/appointmentStateStore';
 import { useTimers } from '../../context/TimersContext';
-import AppointmentTimerBox from '../../component/AppointmentTimerBox';
 import TimerModal from '../../component/TimerModal';
+import { fmtCountdown, fmtElapsed } from '../../component/AppointmentTimerBox';
 import './s2.css';
 import './consultationBrief.css';
 
-const S2_ICON_TOOLBAR = 24;
-const S2_ICON_TOOLBAR_ACTIVE = 26;
+const S2_ICON_NOTE = 14;
 
 /** Screen2 header progress: CHECK → CONSULT → SERVICE → LIFT → REBOOK */
 const S2_WORKFLOW_STEPS = [
@@ -88,16 +82,12 @@ function emptyS2Workflow() {
   return { check: false, consult: false, services: false, lift: false, booking: false };
 }
 
-const TOOLBAR_ACTIVE = 1;
-const TOOLBAR_ITEMS = [
-  { Icon: Scissors, label: 'Stylist', to: '/screen1' },
-  // Profile icon → Clients picker. Marked active on Screen2 since this screen
-  // is the "client" half of the Profile flow.
-  { Icon: User, label: 'Clients', to: '/clients' },
-  { Icon: Lightning, label: 'Checkout', to: '/climax' },
-  { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
-  { Icon: Gear, label: 'Settings', to: '/settings' },
-];
+function formatS2HeaderTimer(state) {
+  if (!state) return '0:00';
+  if (state.kind === 'timerRunning') return fmtCountdown(state.remainingMs);
+  if (state.kind === 'stopwatchRunning') return fmtElapsed(state.elapsedMs);
+  return '0:00';
+}
 
 const CLIENT = {
   name: "Jon Klein",
@@ -109,14 +99,26 @@ const META = {
 };
 
 const CONSULT = {
-  lastVisitShort: '8.15.25',
-  duration: '45 min',
-  noteTag: 'YELLOW',
-  noteHint: '"next time"',
+  lastVisitShort: 'May 17, 2026',
+  duration: '60 min',
+  noteTag: 'Single Process Color',
+  noteHint: '60 min',
   panes: [
-    { key: 'LIFE', colorClass: 'is-life', text: 'Sister-in-law expecting twins · cabin rebuild · Jennifer→FSU' },
-    { key: 'CHAIR', colorClass: 'is-chair', text: 'Redken Shades EQ 7N · 7WB · use more 7N next time' },
-    { key: 'PATH', colorClass: 'is-path', text: 'Keep dimension · low maintenance · natural grow-out' },
+    {
+      key: 'LIFE',
+      colorClass: 'is-life',
+      text: 'Expecting twins in July • Cabin rebuild\nJennifer → FSU • Loves coffee & travel',
+    },
+    {
+      key: 'CHAIR',
+      colorClass: 'is-chair',
+      text: 'Root melt + balayage last visit\nKeeping it bright around the face\nWants softer grow-out • Low maintenance',
+    },
+    {
+      key: 'PATH',
+      colorClass: 'is-path',
+      text: 'Shades EQ 7N + 7WB\n20g 7N / 10g 7WB • 10vol\nProcessed 20 min • Bond builder added',
+    },
     { key: 'LOOK', colorClass: 'is-look', text: null },
   ],
   lookThumbs: [
@@ -126,6 +128,18 @@ const CONSULT = {
   ],
   lookExtraCount: 2,
 };
+
+/** CREATE pill order — derived from catalog, sorted by this priority. */
+const CREATE_PILL_CATEGORY_ORDER = [
+  'COLOR',
+  'CUT',
+  'GLOSS',
+  'TREATMENT',
+  'STYLE',
+  'GROOM',
+  'EVENT',
+  'SERVICE',
+];
 
 /** Adjustable dollar fields: $0–$310, $1 steps (hourly + consultation use same slider pattern) */
 const ADJ_RATE_MIN = 0;
@@ -184,6 +198,19 @@ function inferSvcDeckCategory(name) {
   if (lower.includes('beard') || lower.includes('buzz') || lower.includes('bang')) return 'GROOM';
   if (lower.includes('extension') || lower.includes('bridal') || lower.includes('trial')) return 'EVENT';
   return 'SERVICE';
+}
+
+/** CREATE section category pills — gloss split out; treatment uses full label. */
+function inferSvcCreatePillCategory(name) {
+  const lower = String(name || '').toLowerCase();
+  if (lower.includes('gloss')) return 'GLOSS';
+  const deck = inferSvcDeckCategory(name);
+  if (deck === 'TREAT') return 'TREATMENT';
+  return deck;
+}
+
+function isCatalogPickerService(s) {
+  return s && s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT';
 }
 
 /** Short primary label (accent in quad tiles) — matches reference “COLOR SERVICE” style */
@@ -1399,13 +1426,6 @@ export default function Screen2() {
 
   const displaySvcQueue = useMemo(() => sortSvcQueueForDisplay(svcQueue), [svcQueue]);
 
-  const svcQuadPair = useMemo(
-    () => [displaySvcQueue[0] ?? null, displaySvcQueue[1] ?? null],
-    [displaySvcQueue],
-  );
-
-  const prdQuadPair = useMemo(() => [productQueue[0] ?? null, productQueue[1] ?? null], [productQueue]);
-
   const hourlySvc = useMemo(
     () => ({ ...SVC_HOURLY_BASE, price: hourlyRate, kind: 'hourly' }),
     [hourlyRate],
@@ -1420,6 +1440,49 @@ export default function Screen2() {
     );
     return [hourlySvc, consultSvc, ...rest];
   }, [hourlySvc, consultSvc, serviceCatalogList]);
+
+  const catalogServices = useMemo(
+    () => serviceCatalogList.filter(isCatalogPickerService),
+    [serviceCatalogList],
+  );
+
+  const createCategoryPills = useMemo(() => {
+    const found = new Set();
+    catalogServices.forEach((s) => {
+      found.add(inferSvcCreatePillCategory(s.name));
+    });
+    return CREATE_PILL_CATEGORY_ORDER.filter((cat) => found.has(cat));
+  }, [catalogServices]);
+
+  const createSuggestedItems = useMemo(() => {
+    const queueIds = new Set(svcQueue.map((s) => s.id));
+    const notQueued = catalogServices.filter((s) => !queueIds.has(s.id));
+    const pool = notQueued.length ? notQueued : catalogServices;
+    return pool.slice(0, 4).map((s) => ({ id: s.id, name: s.name }));
+  }, [catalogServices, svcQueue]);
+
+  const finishRowProducts = useMemo(() => {
+    const out = (productQueue || []).slice(0, 4);
+    if (out.length >= 4) return out;
+    const seen = new Set(out.map((p) => p?.id));
+    const fillers = (productCatalog || []).filter((p) => p && !seen.has(p.id));
+    for (const filler of fillers) {
+      if (out.length >= 4) break;
+      out.push(filler);
+      seen.add(filler.id);
+    }
+    return out.slice(0, 4);
+  }, [productQueue, productCatalog]);
+
+  const finishSuggestedItems = useMemo(() => {
+    const rowIds = new Set(finishRowProducts.map((p) => p.id));
+    const queueIds = new Set(productQueue.map((p) => p.id));
+    const notShown = productCatalog.filter((p) => !rowIds.has(p.id) && !queueIds.has(p.id));
+    const pool = notShown.length
+      ? notShown
+      : productCatalog.filter((p) => !rowIds.has(p.id));
+    return pool.slice(0, 4).map((p) => ({ id: p.id, name: p.name }));
+  }, [productCatalog, productQueue, finishRowProducts]);
 
   useEffect(() => {
     setSvcQueue((prev) =>
@@ -1476,9 +1539,8 @@ export default function Screen2() {
           xmlns="http://www.w3.org/2000/svg"
         >
           <path
+            className="s2-topRightCurve__path"
             d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204V235.5L90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
-            fill="#1F1C1C"
-            stroke="var(--salonx-primary)"
             strokeWidth="2"
             vectorEffect="nonScalingStroke"
           />
@@ -1490,33 +1552,13 @@ export default function Screen2() {
           {new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
         </div>
         <div className="s2-rightStamp__num">{new Date().getDate()}</div>
+        <div className="s2-rightStamp__mo">
+          {new Date().toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+        </div>
       </div>
 
       {/* TOP BAR */}
       <div className="s2-topbar">
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
         <button
           type="button"
           className="s2-back"
@@ -1527,7 +1569,7 @@ export default function Screen2() {
         </button>
       </div>
 
-      {/* AVATAR + badges (left); name + phone optically centered on screen */}
+      {/* AVATAR + message badge (left); name + visit meta */}
       <div className="s2-identity">
         <div className="s2-identityMain">
           <div className="s2-identityLeft">
@@ -1548,7 +1590,7 @@ export default function Screen2() {
                 />
               ) : (
                 <span className="s2-avatar__empty" aria-hidden>
-                  <Camera size={32} weight="regular" />
+                  <Camera size={28} weight="regular" />
                 </span>
               )}
             </button>
@@ -1595,24 +1637,32 @@ export default function Screen2() {
             />
             <div className="s2-msgBadges" aria-label="Unread messages">
               <div className="s2-msgBadge" aria-hidden>
-                💬<span className="s2-msgBadge__count">{META.msgCount}</span>
-          </div>
-        </div>
+                <ChatCircleDots size={24} weight="fill" className="s2-msgBadge__icon" />
+                <span className="s2-msgBadge__count">{META.msgCount}</span>
+              </div>
+            </div>
           </div>
           <div className="s2-identityCenter">
             <div className="s2-identityText">
               <div className="s2-clientName">{activeClient.name}</div>
-              <div className="s2-clientPhone">
-                {activeClient.phone || (isNewClient ? 'New client' : '')}
-              </div>
+              <div className="s2-clientPhone">{visitMetaLine}</div>
             </div>
           </div>
           <div className="s2-identityRight">
-            <button type="button" className="s2-kebabText" aria-label="More">
-              ⋮
-          </button>
+            <button
+              type="button"
+              className="s2-headerTimer"
+              onClick={() => setTimerModalOpen(true)}
+              aria-label="Open timer"
+            >
+              <span className="s2-headerTimer__row">
+                <Clock size={14} weight="bold" aria-hidden />
+                <span className="s2-headerTimer__value">{formatS2HeaderTimer(liveTimer)}</span>
+              </span>
+              <span className="s2-headerTimer__label">TIMER</span>
+            </button>
+          </div>
         </div>
-      </div>
 
         <div className="s2-progress" aria-label="Progress">
           <div className="s2-progressDots" aria-hidden>
@@ -1626,7 +1676,12 @@ export default function Screen2() {
                 />
               );
               if (i === 0) return [dot];
-              return [<span key={`s2-wf-line-${i}`} className="s2-dotLine" />, dot];
+              const prevKey = S2_WORKFLOW_STEPS[i - 1][0];
+              const lineLit = !!s2Workflow[prevKey];
+              return [
+                <span key={`s2-wf-line-${i}`} className={`s2-dotLine${lineLit ? ' is-lit' : ''}`} />,
+                dot,
+              ];
             })}
           </div>
           <div className="s2-pdotLabels">
@@ -1648,485 +1703,311 @@ export default function Screen2() {
 
       {/* MAIN CONTENT — v1.3 stack */}
       <div className="s2-body">
-        <div className="s2-section">
-          <div
-            className={`s2-pill s2-pill--neutral s2-pill--consult${s2Workflow.consult ? ' s2-pill--workflowComplete' : ''}`}
-          >
-            Consultation
-          </div>
+        <div className="s2-content">
+        <div className="s2-sectionsStack">
+        <div className="s2-section s2-section--consult">
             <button
               type="button"
             className={`s2-card s2-card--v13 s2-consultCard${s2Workflow.consult ? ' s2-workflowSurface--visited' : ''}`}
             onClick={() => setConsultOpen(true)}
             aria-label="Open consultation"
           >
-            <div className="s2-royBand is-yellow" aria-hidden />
+            <div
+              className={`s2-consultTitle${s2Workflow.consult ? ' s2-consultTitle--complete' : ''}`}
+              aria-hidden
+            >
+              <span className="s2-consultTitle__rule" />
+              <span className="s2-consultTitle__text">Consultation</span>
+              <span className="s2-consultTitle__rule" />
+            </div>
             <div className="s2-consultHeader">
-              <div className="s2-consultHeader__cluster">
-                <div className="s2-consultHeader__label">
-                  {activeApptInfo ? 'Appointment' : 'Last visit'}
-                </div>
-                <div className="s2-consultHeader__value">
+              <div className="s2-consultHeader__value s2-consultHeader__value--left">
                   {activeApptInfo
                     ? `${activeApptInfo.dateShort}${
                         activeApptInfo.durationLabel ? ` \u2022 ${activeApptInfo.durationLabel}` : ''
                       }`
-                    : `${CONSULT.lastVisitShort} \u2022 ${CONSULT.duration.replace(/\bmin\b/i, 'MIN')}`}
-                </div>
+                    : `${CONSULT.lastVisitShort} \u2022 ${CONSULT.duration.replace(/\bmin\b/i, 'min')}`}
               </div>
-              <div className="s2-consultHeader__cluster s2-consultHeader__cluster--right">
-                <div className="s2-consultHeader__label">
+              <div className="s2-consultHeader__value s2-consultHeader__value--right">
                   {activeApptInfo?.service?.trim()
-                    ? activeApptInfo.service
+                    ? `${activeApptInfo.service}${
+                        activeApptInfo.durationLabel ? ` \u2022 ${activeApptInfo.durationLabel}` : ''
+                      }`
                     : `${CONSULT.noteTag} \u2022 ${CONSULT.noteHint}`}
-                </div>
-                <div className="s2-consultHeader__value s2-consultHeader__value--sub">
-                  {activeApptInfo
-                    ? (activeApptInfo.durationLabel || '').replace(/\bmin\b/i, 'MIN') || 'Today'
-                    : 'note'}
-                </div>
               </div>
         </div>
 
             <div className="s2-consultScroll">
-              {CONSULT.panes.map((p) => (
+              {CONSULT.panes.filter((p) => p.key !== 'LOOK').map((p) => (
                 <div key={p.key} className={`s2-pane ${p.colorClass}`}>
-                  <div className={`s2-paneLabel ${p.colorClass}`}>{p.key}</div>
-                  {p.key !== 'LOOK' ? (
-                    <div className="s2-paneContent">
+                  <span className="s2-paneDot" aria-hidden />
+                  <div className="s2-paneBody">
+                    <div className="s2-paneLine">
                       {(consultRecord[p.key] || '').trim() || p.text || ''}
                     </div>
-                  ) : (
-                    <div className="s2-paneContent s2-paneContent--lookRow">
-                      <div className="s2-lookStrip">
-                        {(() => {
-                          const photos = Array.isArray(consultRecord.photos)
-                            ? consultRecord.photos
-                            : [];
-                          const tones = ['now', 'want', 'last'];
-                          const items = [0, 1, 2].map((i) => ({
-                            tone: tones[i],
-                            label: tones[i].toUpperCase(),
-                            url: photos[i]?.url || null,
-                          }));
-                          const extra = Math.max(0, photos.length - 3);
-                          return (
-                            <>
-                              {items.map((t) => (
-                                <div key={t.label} className="s2-lookSlot">
-                                  <div
-                                    className={`s2-lookThumb is-${t.tone}`}
-                                    style={
-                                      t.url
-                                        ? {
-                                            backgroundImage: `url(${t.url})`,
-                                            backgroundSize: 'cover',
-                                            backgroundPosition: 'center',
-                                          }
-                                        : undefined
-                                    }
-                                  />
-                                </div>
-                              ))}
-                              {extra > 0 ? <div className="s2-lookMore">+{extra}</div> : null}
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <div className="s2-lookRowActions">
-                        <AppointmentTimerBox
-                          lookRowRing
-                          timerState={liveTimer}
-                          onPress={() => setTimerModalOpen(true)}
-                        />
-                        <button
-                          type="button"
-                          className="s2-actionBtn is-mic"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConsultOpen(true);
-                          }}
-                          aria-label="Voice"
-                        >
-                          <span className="s2-actionBtn__ring" aria-hidden>
-                            <Microphone size={12} weight="fill" />
-                </span>
-                          <span className="s2-actionBtn__label">Voice</span>
-                        </button>
-              <button
-                type="button"
-                          className="s2-actionBtn is-cam"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setConsultOpen(true);
-                          }}
-                          aria-label="Photo"
-                        >
-                          <span className="s2-actionBtn__ring" aria-hidden>
-                            <Camera size={12} weight="fill" />
-                          </span>
-                          <span className="s2-actionBtn__label">Photo</span>
-              </button>
-            </div>
-                    </div>
-                  )}
+                  </div>
+                  <span className="s2-paneArrow" aria-hidden>
+                    →
+                  </span>
                 </div>
               ))}
             </div>
           </button>
         </div>
 
-        <div className="s2-section">
-          <div className={`s2-pill s2-pill--neutral${s2Workflow.services ? ' s2-pill--workflowComplete' : ''}`}>Create</div>
-          <div className={`s2-card s2-card--v13 s2-svcCard${s2Workflow.services ? ' s2-workflowSurface--visited' : ''}`}>
-            <div className="s2-quadRow" aria-label="Services">
-              {[0, 1].map((ix) => {
-                const s = svcQuadPair[ix];
-                if (!s) {
-                  return (
-                    <button
-                      key={`svc-slot-${ix}`}
-                      type="button"
-                      className="s2-quadCell s2-refTile s2-refTile--empty"
-                      onClick={() => setAddServicesOpen(true)}
-                      aria-label="Add service to this slot"
-                    >
-                      <span className="s2-refTile__emptyLabel">Tap to add</span>
-                    </button>
-                  );
-                }
-                const deckGrad = svcGradientForPickerId(s.id, svcPickerList);
-                const svcHeroImg = serviceImageUrlResolved(s, svcPickerList);
-                const isHourly = s.id === 'SVC-HOURLY' || s.kind === 'hourly';
-                const isConsult = s.id === 'SVC-CONSULT' || s.kind === 'consult';
-                return (
-                  <div key={`${s.id}-quad-${ix}`} className="s2-quadCell s2-quadCell--filled">
+        <div className="s2-section s2-section--create">
+          <div
+            className={`s2-card s2-card--v13 s2-createCard${s2Workflow.services ? ' s2-workflowSurface--visited' : ''}`}
+          >
+            <div
+              className={`s2-createTitle${s2Workflow.services ? ' s2-createTitle--complete' : ''}`}
+              aria-hidden
+            >
+              <span className="s2-createTitle__rule" />
+              <span className="s2-createTitle__text">Create</span>
+              <span className="s2-createTitle__rule" />
+            </div>
+            <div className="s2-createBody">
+              <div className="s2-createRow" aria-label="Services">
+                {createCategoryPills.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    className="s2-createCatPill"
+                    onClick={() => setAddServicesOpen(true)}
+                    aria-label={`Add ${cat} service`}
+                  >
+                    <span className="s2-createCatPill__label">{cat}</span>
+                    <Plus size={12} weight="bold" aria-hidden className="s2-createCatPill__plus" />
+                  </button>
+                ))}
                 <button
                   type="button"
-                      className="s2-filmRemoveBtn"
-                      aria-label={`Remove ${s.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openRemoveConfirm('svc', s.id, s.name);
-                      }}
-                    >
-                      <Minus size={11} weight="bold" aria-hidden />
-                    </button>
-                    <div
-                      className={`s2-svcDeckCard s2-svcDeckCard--quad${ix === 0 ? ' s2-svcDeckCard--selected' : ''}`}
-                      title={s.name}
-                    >
-                      <button
-                        type="button"
-                        className="s2-svcDeckCard__edit"
-                        aria-label={
-                          isHourly
-                            ? 'Set hourly rate'
-                            : isConsult
-                              ? 'Set consultation fee'
-                              : `Edit services (${s.name})`
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isHourly) setRateEditOpen('hourly');
-                          else if (isConsult) setRateEditOpen('consult');
-                          else setAddServicesOpen(true);
-                        }}
-                      >
-                        <PencilSimple size={9} weight="bold" aria-hidden />
-                      </button>
-                      <div className="s2-svcDeckCard__hero" style={{ background: deckGrad }}>
-                        {svcHeroImg ? (
-                          <img
-                            className="s2-svcDeckCard__heroPhoto"
-                            src={svcHeroImg}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              e.currentTarget.remove();
-                            }}
-                          />
-                        ) : null}
-                      </div>
-                      <span className="s2-svcDeckCard__accentBar" aria-hidden />
-                      <div className="s2-svcDeckCard__body">
-                        <div className="s2-svcDeckCard__headline">{svcDeckPrimaryTitle(s)}</div>
-                        <div className="s2-svcDeckCard__subtitle">{svcDeckSecondaryLine(s)}</div>
-                        <div
-                          className={`s2-svcDeckCard__metaRow${isHourly ? ' s2-svcDeckCard__metaRow--priceOnly' : ''}`}
-                        >
-                          <span className="s2-svcDeckCard__price">{queuePriceLabel(s)}</span>
-                          {isHourly ? null : isConsult ? (
-                            <span className="s2-svcDeckCard__dur s2-svcDeckCard__dur--label">Session fee</span>
-                          ) : (
-                            <span className="s2-svcDeckCard__dur">
-                              <Clock size={9} weight="bold" aria-hidden />
-                              {formatSvcDurationShort(s.name)}
-                </span>
-                          )}
-              </div>
-                      </div>
-                      <span className="s2-svcDeckCard__bottomTick" aria-hidden />
-                    </div>
-                  </div>
-                );
-              })}
-                <button
-                  type="button"
-                className="s2-quadCell s2-refTile s2-refTile--suggested"
-                onClick={() => setAddServicesOpen(true)}
-                aria-label="Suggested services from catalog"
-              >
-                <span className="s2-refTile__badgeSuggested">SUGGESTED</span>
-                <div className="s2-refTile__silhouette" aria-hidden />
-                <span className="s2-refTile__plusCorner" aria-hidden>
-                  <Plus size={13} weight="bold" />
-                </span>
-                <div className="s2-refTile__suggestedWrap">
-                  <span className="s2-refTile__suggestedTitle">From catalog</span>
-                  <span className="s2-refTile__suggestedSub">Tap to browse</span>
-                  <div className="s2-refTile__suggestedFoot">
-                    <span className="s2-refTile__suggestedPrice">—</span>
-                    <span className="s2-refTile__suggestedDur">
-                      <Clock size={9} weight="bold" aria-hidden />
-                      Pick
-                    </span>
-                      </div>
-                      </div>
-              </button>
-              <button
-                type="button"
-                className="s2-quadCell s2-refTile s2-refTile--add"
-                onClick={() => setAddServicesOpen(true)}
-                aria-label="Add service"
-              >
-                <Plus size={22} weight="regular" className="s2-refTile__addGlyph" aria-hidden />
-                <span className="s2-refTile__addLabel">ADD SERVICE</span>
+                  className="s2-createCatPill s2-createCatPill--add"
+                  onClick={() => setAddServicesOpen(true)}
+                  aria-label="Add service"
+                >
+                  <Plus size={14} weight="bold" aria-hidden className="s2-createCatPill__addIcon" />
+                  <span className="s2-createCatPill__label s2-createCatPill__label--stack">
+                    ADD
+                    <br />
+                    SERVICE
+                  </span>
                 </button>
               </div>
-            </div>
-        </div>
-
-        <div className="s2-section">
-          <div className={`s2-pill s2-pill--neutral${s2Workflow.lift ? ' s2-pill--workflowComplete' : ''}`}>FINISH</div>
-          <div className={`s2-card s2-card--v13 s2-hcCard${s2Workflow.lift ? ' s2-workflowSurface--visited' : ''}`}>
-            <div className="s2-quadRow" aria-label="Back bar products">
-              {[0, 1].map((ix) => {
-                const p = prdQuadPair[ix];
-                if (!p) {
-                  return (
-                    <button
-                      key={`prd-slot-${ix}`}
-                      type="button"
-                      className="s2-quadCell s2-refTile s2-refTile--empty"
-                      onClick={() => setAddProductsOpen(true)}
-                      aria-label="Add product to this slot"
-                    >
-                      <span className="s2-refTile__emptyLabel">Tap to add</span>
-                    </button>
-                  );
-                }
-                const prdGrad = productVisualGradient(p.color || '#1a1612');
-                const prdImg = productImageUrl(p);
-                return (
-                  <div key={`${p.id}-pquad-${ix}`} className="s2-quadCell s2-quadCell--filled">
-                <button
-                  type="button"
-                      className="s2-filmRemoveBtn"
-                      aria-label={`Remove ${p.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openRemoveConfirm('product', p.id, `${p.brand} · ${p.name}`);
-                      }}
-                    >
-                      <Minus size={11} weight="bold" aria-hidden />
-                    </button>
-                    <div
-                      className={`s2-svcDeckCard s2-svcDeckCard--quad s2-svcDeckCard--product${ix === 0 ? ' s2-svcDeckCard--selected' : ''}`}
-                      title={p.name}
-                    >
+              {createSuggestedItems.length ? (
+              <div className="s2-createSuggested">
+                <span className="s2-createSuggested__lead">Sugg:</span>
+                <span className="s2-createSuggested__items">
+                  {createSuggestedItems.map((item, i) => (
+                    <React.Fragment key={item.id}>
+                      {i > 0 ? (
+                        <span className="s2-createSuggested__dot" aria-hidden>
+                          •
+                        </span>
+                      ) : null}
                       <button
                         type="button"
-                        className="s2-svcDeckCard__edit"
-                        aria-label={`Edit products (${p.name})`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setAddProductsOpen(true);
-                        }}
+                        className="s2-createSuggested__chip"
+                        onClick={() => setAddServicesOpen(true)}
                       >
-                        <PencilSimple size={9} weight="bold" aria-hidden />
+                        {item.name}
                       </button>
-                      <div className="s2-svcDeckCard__hero" style={{ background: prdGrad }}>
-                        {prdImg ? (
-                          <img
-                            className="s2-svcDeckCard__heroPhoto"
-                            src={prdImg}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              e.currentTarget.remove();
-                            }}
-                          />
-                        ) : null}
-      </div>
-                      <span className="s2-svcDeckCard__accentBar" aria-hidden />
-                      <div className="s2-svcDeckCard__body">
-                        <div className="s2-svcDeckCard__headline">{p.brand}</div>
-                        <div className="s2-svcDeckCard__subtitle">{p.name}</div>
-                        <div className="s2-svcDeckCard__metaRow s2-svcDeckCard__metaRow--priceOnly">
-                          <span className="s2-svcDeckCard__price">${p.price}</span>
-                      </div>
-                      </div>
-                      <span className="s2-svcDeckCard__bottomTick" aria-hidden />
+                    </React.Fragment>
+                  ))}
+                </span>
               </div>
-              </div>
-                );
-              })}
-                <button
-                  type="button"
-                  className="s2-quadCell s2-refTile s2-refTile--suggested"
-                  onClick={() => setAddProductsOpen(true)}
-                  aria-label="Suggested back bar"
-                >
-                  <span className="s2-refTile__badgeSuggested">SUGGESTED</span>
-                  <div className="s2-refTile__silhouette" aria-hidden />
-                  <span className="s2-refTile__plusCorner" aria-hidden>
-                    <Plus size={13} weight="bold" />
-                  </span>
-                  <div className="s2-refTile__suggestedWrap">
-                    <span className="s2-refTile__suggestedTitle">From catalog</span>
-                    <span className="s2-refTile__suggestedSub">Tap to browse</span>
-                    <div className="s2-refTile__suggestedFoot">
-                      <span className="s2-refTile__suggestedPrice">—</span>
-                      <span className="s2-refTile__suggestedDur">
-                        <Clock size={9} weight="bold" aria-hidden />
-                        Pick
-                      </span>
-                      </div>
-                      </div>
-        </button>
-              <button
-                type="button"
-                className="s2-quadCell s2-refTile s2-refTile--add"
-                onClick={() => setAddProductsOpen(true)}
-                aria-label="Add product"
-              >
-                <Plus size={22} weight="regular" className="s2-refTile__addGlyph" aria-hidden />
-                <span className="s2-refTile__addLabel">ADD PRODUCT</span>
-        </button>
-              </div>
-            </div>
-      </div>
-
-        <div className="s2-bottomDock s2-bottomDock--inline">
-          <div className="s2-bottomDock__content">
-            <div className="s2-ctaRow">
-              <button type="button" className="s2-cta is-rebook" onClick={markS2BookingVisited}>
-                <div className="s2-ctaIcon" aria-hidden>↻</div>
-                <div className="s2-ctaLabel">Rebook</div>
-        </button>
-              <button
-                type="button"
-                className="s2-cta is-checkout"
-                onClick={() => {
-                  markS2BookingVisited();
-                  navigate('/climax', { state: { apt: activeApt, from: '/screen2' } });
-                }}
-              >
-                <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
-                <div className="s2-ctaLabel">Check out</div>
-        </button>
-      </div>
-      <div className="s2-toolbar">
-              {TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
-                const isActive = i === TOOLBAR_ACTIVE;
-                return (
-          <button
-            key={label}
-            type="button"
-                    className={`s2-toolbar__btn${isActive ? ' s2-toolbar__btn--solid' : ''}`}
-            aria-label={label}
-                    aria-current={isActive ? 'page' : undefined}
-            onClick={() => {
-                      if (to === '/clients') {
-                        navigate(to, { state: { from: '/screen2' } });
-                        return;
-                      }
-                      navigate(
-                        to,
-                        activeApt
-                          ? {
-                              state: {
-                                apt: activeApt,
-                                ...(to === '/climax' ? { from: '/screen2' } : {}),
-                              },
-                            }
-                          : undefined,
-                      );
-            }}
-          >
-            <Icon
-                      size={isActive ? S2_ICON_TOOLBAR_ACTIVE : S2_ICON_TOOLBAR}
-                      weight={isActive ? 'fill' : 'regular'}
-              aria-hidden
-            />
-          </button>
-                );
-              })}
+              ) : null}
             </div>
           </div>
         </div>
+
+        <div className="s2-section s2-section--finish">
+          <div
+            className={`s2-card s2-card--v13 s2-finishCard${s2Workflow.lift ? ' s2-workflowSurface--visited' : ''}`}
+          >
+            <div
+              className={`s2-finishTitle${s2Workflow.lift ? ' s2-finishTitle--complete' : ''}`}
+              aria-hidden
+            >
+              <span className="s2-finishTitle__rule" />
+              <span className="s2-finishTitle__text">Finish</span>
+              <span className="s2-finishTitle__rule" />
+            </div>
+            <div className="s2-finishBody">
+              <div className="s2-finishRow" aria-label="Back bar products">
+                {finishRowProducts.map((p, i) => (
+                  <React.Fragment key={p.id}>
+                    {i > 0 ? <span className="s2-finishRow__divider" aria-hidden /> : null}
+                    <button
+                      type="button"
+                      className="s2-finishProduct"
+                      onClick={() => setAddProductsOpen(true)}
+                      aria-label={`${p.brand} ${p.name}`}
+                    >
+                      <div className="s2-finishProduct__photo">
+                        <S2ProductPhoto
+                          imageUrl={productImageUrl(p)}
+                          fallbackBackground={productVisualGradient(p.color || '#1a1612')}
+                          wrapClassName="s2-finishProduct__photoWrap"
+                          imgClassName="s2-finishProduct__photoImg"
+                          decorative
+                        />
+                      </div>
+                      <div className="s2-finishProduct__brand">{p.brand}</div>
+                      <div className="s2-finishProduct__name">{p.shortName || p.name}</div>
+                    </button>
+                  </React.Fragment>
+                ))}
+                {finishRowProducts.length > 0 ? (
+                  <span className="s2-finishRow__divider" aria-hidden />
+                ) : null}
+                <button
+                  type="button"
+                  className="s2-finishProduct s2-finishProduct--add"
+                  onClick={() => setAddProductsOpen(true)}
+                  aria-label="Add product"
+                >
+                  <Plus size={16} weight="bold" aria-hidden className="s2-finishProduct__addIcon" />
+                  <span className="s2-finishProduct__addLabel">
+                    ADD
+                    <br />
+                    PRODUCT
+                  </span>
+                </button>
+              </div>
+              {finishSuggestedItems.length ? (
+                <div className="s2-finishSuggested">
+                  <span className="s2-finishSuggested__lead">Sugg:</span>
+                  <span className="s2-finishSuggested__items">
+                    {finishSuggestedItems.map((item, i) => (
+                      <React.Fragment key={item.id}>
+                        {i > 0 ? (
+                          <span className="s2-finishSuggested__dot" aria-hidden>
+                            •
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="s2-finishSuggested__chip"
+                          onClick={() => setAddProductsOpen(true)}
+                        >
+                          {item.name}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="s2-section s2-section--action">
+          <div className="s2-card s2-card--v13 s2-actionCard">
+            <div className="s2-actionBody">
+              <div className="s2-actionRow" aria-label="Actions">
+                <button type="button" className="s2-cta is-rebook" onClick={markS2BookingVisited}>
+                  <div className="s2-ctaIcon" aria-hidden>↻</div>
+                  <div className="s2-ctaLabel">Rebook</div>
+                </button>
+                <button
+                  type="button"
+                  className="s2-cta is-checkout"
+                  onClick={() => {
+                    markS2BookingVisited();
+                    navigate('/climax', { state: { apt: activeApt, from: '/screen2' } });
+                  }}
+                >
+                  <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
+                  <div className="s2-ctaLabel">Check out</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+        </div>
+
       </div>
 
       {consultOpen ? (
         <div className="nc-popup" role="dialog" aria-modal="true" aria-label="Consultation brief">
-          <div className="nc-topRightCurve" aria-hidden>
-            <svg
-              width="99"
-              height="216"
-              viewBox="0 0 99 216"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204V235.5L90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
-                fill="#1F1C1C"
-                stroke="var(--salonx-primary)"
-                strokeWidth="2"
-                vectorEffect="nonScalingStroke"
-              />
-            </svg>
-          </div>
-          <div className="nc-rightStamp" aria-hidden>
-            <div className="nc-rightStamp__dow">
-              {new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
-            </div>
-            <div className="nc-rightStamp__num">{new Date().getDate()}</div>
-          </div>
-          <div className="nc-pu-top">
-            <button type="button" className="nc-close-x" aria-label="Close" onClick={closeConsultBrief}>
-              ✕
-            </button>
-            <div className="nc-pu-id">
-              <div
-                className={`nc-pu-id-mini${profilePhotoDisplayUrl ? '' : ' nc-pu-id-mini--empty'}`}
+          <div className="nc-popup__header">
+            <div className="s2-topRightCurve" aria-hidden>
+              <svg
+                width="99"
+                height="216"
+                viewBox="0 0 99 216"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
               >
-                {profilePhotoDisplayUrl ? (
-                  <img src={profilePhotoDisplayUrl} alt="" draggable={false} />
-                ) : (
-                  <Camera size={14} weight="regular" aria-hidden />
-                )}
+                <path
+                  className="s2-topRightCurve__path"
+                  d="M25.2381 94.5C-5.77198 68 1.82035 1 1.82035 1H47.3204H97.8204V235.5L90.8169 190C80.6496 135 56.2482 121 25.2381 94.5Z"
+                  strokeWidth="2"
+                  vectorEffect="nonScalingStroke"
+                />
+              </svg>
+            </div>
+            <div className="s2-rightStamp" aria-hidden>
+              <div className="s2-rightStamp__dow">
+                {new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
               </div>
-              <div>
-                <div className="nc-pu-name">{activeClient.name}</div>
-                <div className="nc-pu-meta">{visitMetaLine}</div>
+              <div className="s2-rightStamp__num">{new Date().getDate()}</div>
+              <div className="s2-rightStamp__mo">
+                {new Date().toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
               </div>
             </div>
-            <div className="nc-pu-spacer" aria-hidden />
+            <div className="s2-topbar">
+              <button
+                type="button"
+                className="s2-back"
+                onClick={closeConsultBrief}
+                aria-label="Back"
+              >
+                <ArrowLeft size={22} weight="regular" aria-hidden />
+              </button>
+            </div>
+            <div className="s2-identity s2-identity--popup">
+              <div className="s2-identityMain">
+                <div className="s2-identityLeft">
+                  <button
+                    type="button"
+                    className="s2-avatar"
+                    onClick={openAvatarPhotoSheet}
+                    aria-label={
+                      profilePhotoDisplayUrl ? 'Change profile photo' : 'Add profile photo'
+                    }
+                  >
+                    {profilePhotoDisplayUrl ? (
+                      <img
+                        src={profilePhotoDisplayUrl}
+                        alt={`${activeClient.name} photo`}
+                        className="s2-avatar__img"
+                        draggable={false}
+                      />
+                    ) : (
+                      <span className="s2-avatar__empty" aria-hidden>
+                        <Camera size={28} weight="regular" />
+                      </span>
+                    )}
+                  </button>
+                  <div className="s2-msgBadges" aria-label="Unread messages">
+                    <div className="s2-msgBadge" aria-hidden>
+                      <ChatCircleDots size={24} weight="fill" className="s2-msgBadge__icon" />
+                      <span className="s2-msgBadge__count">{META.msgCount}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="s2-identityCenter">
+                  <div className="s2-identityText">
+                    <div className="s2-clientName">{activeClient.name}</div>
+                    <div className="s2-clientPhone">{visitMetaLine}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div
@@ -2985,8 +2866,8 @@ export default function Screen2() {
         onStartTimer={handleTimerStart}
         onStartStopwatch={handleStopwatchStart}
         onStopStopwatch={handleTimerStop}
-        onStopTimer={handleTimerStop}
         onResetTimer={handleTimerReset}
+        onStopTimer={handleTimerStop}
       />
     </div>
     </div>

@@ -219,6 +219,21 @@ function clampMarqueePan(n) {
  * @param {string | null} raw
  * @param {'cover' | 'contain'} defaultFit
  */
+function parseSlotAdjustField(a, defaultFit) {
+  const src = a && typeof a === 'object' ? a : {}
+  return {
+    scale: clampMarqueeScale(src.scale),
+    tx: clampMarqueePan(src.tx),
+    ty: clampMarqueePan(src.ty),
+    rotate: Math.min(
+      180,
+      Math.max(-180, typeof src.rotate === 'number' ? src.rotate : 0),
+    ),
+    fit:
+      src.fit === 'contain' || src.fit === 'cover' ? src.fit : defaultFit,
+  }
+}
+
 function parseSimpleScreenJson(raw, defaultFit) {
   if (!raw) return null
   try {
@@ -226,20 +241,14 @@ function parseSimpleScreenJson(raw, defaultFit) {
     if (!parsed || typeof parsed !== 'object') return null
     const image = typeof parsed.image === 'string' ? parsed.image : ''
     const mediaKind = parsed.mediaKind === 'video' ? 'video' : 'image'
-    const a =
-      parsed.adjust && typeof parsed.adjust === 'object' ? parsed.adjust : {}
-    const adjust = {
-      scale: clampMarqueeScale(a.scale),
-      tx: clampMarqueePan(a.tx),
-      ty: clampMarqueePan(a.ty),
-      rotate: Math.min(
-        180,
-        Math.max(-180, typeof a.rotate === 'number' ? a.rotate : 0),
-      ),
-      fit:
-        a.fit === 'contain' || a.fit === 'cover' ? a.fit : defaultFit,
-    }
-    return { image, adjust, mediaKind }
+    const adjust = parseSlotAdjustField(parsed.adjust, defaultFit)
+    const headerLogo =
+      typeof parsed.headerLogo === 'string' ? parsed.headerLogo : ''
+    const headerLogoAdjust = parseSlotAdjustField(
+      parsed.headerLogoAdjust,
+      'contain',
+    )
+    return { image, adjust, mediaKind, headerLogo, headerLogoAdjust }
   } catch {
     return null
   }
@@ -259,6 +268,52 @@ export function readClimaxBgPersisted() {
     sessionStorage.getItem(CLIMAX_BG_SESSION_KEY),
     'cover',
   )
+}
+
+/** @param {unknown} s4 */
+function buildClimaxSessionPayload(s4) {
+  const block =
+    s4 && typeof s4 === 'object' ? s4 : { image: '', adjust: {} }
+  const s4Adj =
+    block.adjust && typeof block.adjust === 'object' ? block.adjust : {}
+  const s4HeaderAdj =
+    block.headerLogoAdjust && typeof block.headerLogoAdjust === 'object'
+      ? block.headerLogoAdjust
+      : {}
+  return {
+    image: typeof block.image === 'string' ? block.image : '',
+    adjust: s4Adj,
+    headerLogo: typeof block.headerLogo === 'string' ? block.headerLogo : '',
+    headerLogoAdjust: s4HeaderAdj,
+  }
+}
+
+/** Compare published s4 to session so header-logo-only updates still apply. */
+function climaxBrandDiffersFromPersistedSession(s4) {
+  const expected = buildClimaxSessionPayload(s4)
+  const expectedNorm = {
+    image: expected.image.trim(),
+    headerLogo: expected.headerLogo.trim(),
+    adjust: parseSlotAdjustField(expected.adjust, 'cover'),
+    headerLogoAdjust: parseSlotAdjustField(
+      expected.headerLogoAdjust,
+      'contain',
+    ),
+  }
+  const persisted = readClimaxBgPersisted()
+  if (!persisted) {
+    return Boolean(expectedNorm.image || expectedNorm.headerLogo)
+  }
+  const actualNorm = {
+    image: (persisted.image || '').trim(),
+    headerLogo: (persisted.headerLogo || '').trim(),
+    adjust: parseSlotAdjustField(persisted.adjust, 'cover'),
+    headerLogoAdjust: parseSlotAdjustField(
+      persisted.headerLogoAdjust,
+      'contain',
+    ),
+  }
+  return JSON.stringify(expectedNorm) !== JSON.stringify(actualNorm)
 }
 
 /** @param {unknown} cfg */
@@ -315,7 +370,15 @@ export function applyV2AdminConfigJson(cfg) {
     typeof activeBrand.s4.image === 'string'
       ? activeBrand.s4.image.trim()
       : ''
+  const s4HeaderLogo =
+    activeBrand &&
+    activeBrand.s4 &&
+    typeof activeBrand.s4 === 'object' &&
+    typeof activeBrand.s4.headerLogo === 'string'
+      ? activeBrand.s4.headerLogo.trim()
+      : ''
   const hasS4Image = Boolean(s4Img)
+  const hasS4HeaderLogo = Boolean(s4HeaderLogo)
 
   let marqueeSessionMissing = false
   try {
@@ -351,17 +414,27 @@ export function applyV2AdminConfigJson(cfg) {
 
   const needsS1Hydration = hasS1Images && !hasS1SessionPayload()
   const needsMarqueeHydration = hasS2Image && !hasMarqueeSessionPayload()
-  const needsClimaxHydration = hasS4Image && !hasClimaxSessionPayload()
+  const needsClimaxHydration =
+    (hasS4Image || hasS4HeaderLogo) && !hasClimaxSessionPayload()
+
+  const s4FromActiveBrand =
+    activeBrand?.s4 && typeof activeBrand.s4 === 'object'
+      ? activeBrand.s4
+      : null
+  const climaxMediaOutOfSync = Boolean(
+    s4FromActiveBrand && climaxBrandDiffersFromPersistedSession(s4FromActiveBrand),
+  )
 
   const shouldApplyProjectedMedia =
     revisionAdvanced ||
     marqueeSessionMissing ||
     climaxSessionMissing ||
+    climaxMediaOutOfSync ||
     needsS1Hydration ||
     needsMarqueeHydration ||
     needsClimaxHydration ||
     (!hasServerRevision &&
-      (brandChanged || hasS1Images || hasS2Image || hasS4Image))
+      (brandChanged || hasS1Images || hasS2Image || hasS4Image || hasS4HeaderLogo))
 
   if (!shouldApplyProjectedMedia) return
 
@@ -405,18 +478,14 @@ export function applyV2AdminConfigJson(cfg) {
         }),
       )
 
-      const s4 =
+      const s4Payload = buildClimaxSessionPayload(
         activeBrand.s4 && typeof activeBrand.s4 === 'object'
           ? activeBrand.s4
-          : { image: '', adjust: {} }
-      const s4Adj =
-        s4.adjust && typeof s4.adjust === 'object' ? s4.adjust : {}
+          : { image: '', adjust: {} },
+      )
       sessionStorage.setItem(
         CLIMAX_BG_SESSION_KEY,
-        JSON.stringify({
-          image: typeof s4.image === 'string' ? s4.image : '',
-          adjust: s4Adj,
-        }),
+        JSON.stringify(s4Payload),
       )
     }
 

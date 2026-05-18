@@ -1,26 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, CaretRight } from "phosphor-react";
+import { ArrowLeft } from "phosphor-react";
 import "../style/climax.css";
 import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { MOCK_SERVICES } from "../../data/mockServices";
 import {
   apptStateKey,
-  buildAptNavPayload,
   getApptState,
   loadApptStateStore,
   readPersistedClimaxBack,
   readPersistedScreen2Apt,
   readPersistedScreen2From,
   saveApptStateStore,
+  writePersistedScreen2Apt,
   SVC_CONSULT_BASE,
   SVC_HOURLY_BASE,
   writePersistedClimaxBack,
 } from "../../data/appointmentStateStore";
-import {
-  isSameLocalDay,
-  useCalendarEvents,
-} from "../../data/calendarEventsStore";
+import { useCalendarEvents } from "../../data/calendarEventsStore";
 import { useTheme } from "../../context/ThemeContext";
 import { readClimaxBgPersisted } from "../../sync/v2AdminBootstrap.js";
 import { optimizeMediaDeliveryUrl } from "../../lib/mediaDeliveryUrl.js";
@@ -33,16 +30,9 @@ import { optimizeMediaDeliveryUrl } from "../../lib/mediaDeliveryUrl.js";
 //     (dollar value), surfaced as regular service rows so they're part of the
 //     ticket math just like any other service.
 //
-// Resolution order for the active appointment:
-//   1. router state (`location.state.apt`) — passed by Screen2 / Stylist
-//      bottom-toolbar / Calendar.
-//   2. session-saved last apt — survives full refresh.
-//   3. earliest of today's calendar events — sensible default.
-
-const FUTURE_APPOINTMENT = {
-  label: "5/15/2024 - Haircut",
-  price: 20,
-};
+// Checkout ticket: only bound to an appointment when opened from Screen2
+// (`state.apt` + `state.from === '/screen2'`). Bottom-nav Climax = walk-in defaults.
+// Future row: next calendar visit for that client, or a small "Future" button.
 
 // Rate slider bounds — same range Screen2 uses for hourly + consult so the two
 // screens stay in lockstep ($0–$310, $1 steps).
@@ -67,6 +57,66 @@ function formatDateLong(value) {
     "July", "August", "September", "October", "November", "December",
   ];
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+function formatFutureApptDate(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+}
+
+function isCheckoutFromScreen2(location) {
+  const from = location?.state?.from;
+  const apt = location?.state?.apt;
+  return from === "/screen2" && apt && typeof apt === "object";
+}
+
+const CLIMAX_CLIENT_NAME_PLACEHOLDER = "Client name";
+
+function resolveClimaxDisplayName(apt) {
+  if (!apt) return CLIMAX_CLIENT_NAME_PLACEHOLDER;
+  const raw = (apt?.clientName || "").trim();
+  if (raw && raw.toLowerCase() !== "walk-in") return raw;
+  return CLIMAX_CLIENT_NAME_PLACEHOLDER;
+}
+
+function calendarEventClientKey(ev) {
+  return String(ev?.clientName || ev?.title || "")
+    .trim()
+    .toLowerCase();
+}
+
+function calendarEventServiceLabel(ev) {
+  const s = String(ev?.service || "").trim();
+  if (s) return s;
+  return String(ev?.title || "Appointment").trim() || "Appointment";
+}
+
+/** Next booked visit after the Screen2 ticket (same client only). */
+function findNextFutureAppointment(calendarEvents, checkoutApt) {
+  if (!checkoutApt) return null;
+  const client = (checkoutApt.clientName || "").trim().toLowerCase();
+  if (!client || client === "walk-in") return null;
+
+  const anchorEnd = checkoutApt.end ? new Date(checkoutApt.end) : new Date();
+  const anchorStartMs = checkoutApt.start
+    ? new Date(checkoutApt.start).getTime()
+    : null;
+  const currentId = checkoutApt.id ? String(checkoutApt.id) : "";
+
+  const candidates = (calendarEvents || [])
+    .filter((ev) => ev?.start instanceof Date && !Number.isNaN(ev.start.getTime()))
+    .filter((ev) => ev.start.getTime() > anchorEnd.getTime())
+    .filter((ev) => {
+      if (currentId && ev.id != null && String(ev.id) === currentId) return false;
+      if (anchorStartMs != null && ev.start.getTime() === anchorStartMs) {
+        return false;
+      }
+      return calendarEventClientKey(ev) === client;
+    })
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+  return candidates[0] || null;
 }
 
 function newSvcId() {
@@ -124,21 +174,18 @@ export default function Climax() {
   const calendarEvents = useCalendarEvents();
   const { primaryHex } = useTheme();
 
-  // ------- Resolve active appointment -------
-  const activeApt = useMemo(() => {
-    const navApt = location?.state?.apt || null;
-    if (navApt) return navApt;
-    const session = readPersistedScreen2Apt();
-    if (session) return session;
-    const today = new Date();
-    const todays = calendarEvents
-      .filter((ev) => isSameLocalDay(ev.start, today))
-      .sort((a, b) => a.start.getTime() - b.start.getTime());
-    return todays.length ? buildAptNavPayload(todays[0]) : null;
-    // calendarEvents is the only varying dep we care about here; nav state is
-    // captured via location key so we re-resolve when it changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.key, calendarEvents]);
+  // ------- Checkout appointment (Screen2 only) -------
+  const checkoutFromScreen2 = isCheckoutFromScreen2(location);
+
+  const activeApt = useMemo(
+    () => (checkoutFromScreen2 ? location.state.apt : null),
+    [checkoutFromScreen2, location.state?.apt],
+  );
+
+  useEffect(() => {
+    if (!checkoutFromScreen2 || !location?.state?.apt) return;
+    writePersistedScreen2Apt(location.state.apt, "/screen2");
+  }, [checkoutFromScreen2, location.key, location?.state?.apt]);
 
   const apptKey = apptStateKey(activeApt);
 
@@ -228,10 +275,19 @@ export default function Climax() {
 
   // Header strings from the appointment itself.
   const clientHeader = useMemo(() => {
-    const name = (activeApt?.clientName || "").trim() || "Walk-in";
+    const name = resolveClimaxDisplayName(activeApt);
     const date = activeApt?.start ? formatDateLong(activeApt.start) : formatDateLong(new Date());
     return { name, date };
   }, [activeApt]);
+
+  const nextFutureApt = useMemo(
+    () => findNextFutureAppointment(calendarEvents, activeApt),
+    [calendarEvents, activeApt],
+  );
+
+  const openFutureBooking = useCallback(() => {
+    navigate("/calendar", { state: { from: "/climax" } });
+  }, [navigate]);
 
   // Ticket rows = real services from the queue (with hourly / consult rate
   // injected). Recomputed on every render because rates may change live.
@@ -631,6 +687,28 @@ export default function Climax() {
     if (!raw.startsWith("http")) return raw;
     return optimizeMediaDeliveryUrl(raw, "image");
   }, [climaxBg?.image]);
+
+  const climaxHeaderLogoSrc = useMemo(() => {
+    const raw = climaxBg?.headerLogo?.trim()
+      ? climaxBg.headerLogo.trim()
+      : "/l3vel3.png";
+    if (!raw.startsWith("http")) return raw;
+    return optimizeMediaDeliveryUrl(raw, "image");
+  }, [climaxBg?.headerLogo]);
+  const hasCustomClimaxHeaderLogo = Boolean(climaxBg?.headerLogo?.trim());
+  const climaxHeaderLogoAdjust = climaxBg?.headerLogoAdjust ?? {
+    scale: 1,
+    rotate: 0,
+    tx: 0,
+    ty: 0,
+    fit: "contain",
+  };
+  const climaxHeaderLogoTransform = `translate(${climaxHeaderLogoAdjust.tx}%, ${climaxHeaderLogoAdjust.ty}%) rotate(${climaxHeaderLogoAdjust.rotate}deg) scale(${
+    typeof climaxHeaderLogoAdjust.scale === "number" &&
+    !Number.isNaN(climaxHeaderLogoAdjust.scale)
+      ? climaxHeaderLogoAdjust.scale
+      : 1
+  })`;
   const climaxInlayAdjust = climaxBg?.adjust ?? {
     scale: 1,
     rotate: 0,
@@ -671,7 +749,23 @@ export default function Climax() {
           <ArrowLeft size={22} weight="bold" aria-hidden />
         </button>
         <div className="climax-brandbar__logoWrap">
-          <img className="climax-brandbar__logo" src="/l3vel3.png" alt="L3VEL3" />
+          <img
+            className="climax-brandbar__logo"
+            src={climaxHeaderLogoSrc}
+            alt=""
+            style={
+              hasCustomClimaxHeaderLogo
+                ? {
+                    objectFit:
+                      climaxHeaderLogoAdjust.fit === "contain"
+                        ? "contain"
+                        : "cover",
+                    transform: climaxHeaderLogoTransform,
+                    transformOrigin: "center center",
+                  }
+                : undefined
+            }
+          />
         </div>
         <div className="climax-brandbar__edgeSpacer" aria-hidden />
       </div>
@@ -700,13 +794,13 @@ export default function Climax() {
               <div className="climax-client__date">{clientHeader.date}</div>
             </div>
 
-            <section className="climax-section climax-section--services" aria-label="Services">
+            <section className="climax-section climax-section--services" aria-label="Service">
               <button
                 type="button"
                 className="climax-section__title climax-section__titleBtn"
                 onClick={() => openModify("service", null)}
               >
-                SERVICES
+                Service
               </button>
               <div className="climax-list">
                 {services.length === 0 ? (
@@ -748,14 +842,15 @@ export default function Climax() {
 
             <section
               className="climax-section climax-section--products"
-              aria-label="Finish care"
+              aria-label="Finish and care"
             >
               <button
                 type="button"
-                className="climax-section__title climax-section__titleBtn"
+                className="climax-section__title climax-section__titleBtn climax-section__title--stacked"
                 onClick={() => openModify("product", null)}
               >
-                FINISH CARE
+                <span className="climax-section__titleLine">Finish</span>
+                <span className="climax-section__titleLine">Care</span>
               </button>
               <div className="climax-list">
                 {products.length === 0 ? (
@@ -818,18 +913,25 @@ export default function Climax() {
               </div>
             </section>
 
-            <div className="climax-divider" />
-
-            <section className="climax-section climax-section--future" aria-label="Future appointment">
-              <div className="climax-section__title">FUTURE APPOINTMENT</div>
-              <div className="climax-list">
-                <div className="climax-row climax-row--static">
-                  <div className="climax-row__touch" aria-hidden="true">
-                    <span className="climax-row__label">{FUTURE_APPOINTMENT.label}</span>
+            {nextFutureApt ? (
+              <>
+                <div className="climax-divider" />
+                <section
+                  className="climax-section climax-section--future"
+                  aria-label="Future appointment"
+                >
+                  <div className="climax-section__title">Future</div>
+                  <div className="climax-futureDetail">
+                    <span className="climax-futureDetail__date">
+                      {formatFutureApptDate(nextFutureApt.start)}
+                    </span>
+                    <span className="climax-futureDetail__service">
+                      {calendarEventServiceLabel(nextFutureApt)}
+                    </span>
                   </div>
-                </div>
-              </div>
-            </section>
+                </section>
+              </>
+            ) : null}
 
             <div className="climax-divider" />
 
@@ -844,25 +946,21 @@ export default function Climax() {
               <span>{formatMoney(totals.total)}</span>
             </div>
 
-            {hasNoTicketLines && !apptKey ? (
-              <div className="climax-noAptRow">
-                <span className="climax-noAptRow__text">
-                  No appointment selected. Open one from Stylist or Calendar.
-                </span>
+          </div>
+
+          <div className="climax-checkoutDock" aria-label="Checkout actions">
+            {!nextFutureApt ? (
+              <div className="climax-futureSlot">
                 <button
                   type="button"
-                  className="climax-openStylistBtn"
-                  onClick={() => navigate("/screen1")}
-                  aria-label="Open Stylist to select an appointment"
+                  className="climax-futureScheduleBtn"
+                  onClick={openFutureBooking}
+                  aria-label="Schedule a future appointment"
                 >
-                  <span>Open</span>
-                  <CaretRight size={18} weight="bold" aria-hidden />
+                  Future
                 </button>
               </div>
             ) : null}
-          </div>
-
-          <div className="climax-footer">
             <div className="climax-actions" aria-label="Payment actions">
               <button type="button" className="climax-actionBtn">CASH</button>
               <button type="button" className="climax-actionBtn">CREDIT</button>

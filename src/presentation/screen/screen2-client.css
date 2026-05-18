@@ -1,0 +1,574 @@
+/* Screen2 — client details (rebuilt). Prefix: s2c- */
+
+.s2c-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #000;
+}
+
+.s2c-root {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.s2c-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(var(--salonx-primary-rgb), 0.12), transparent 55%),
+    #000;
+}
+
+.s2c-topRightCurve {
+  position: absolute;
+  top: -40px;
+  right: -20px;
+  z-index: 2;
+  width: 99px;
+  height: 216px;
+  pointer-events: none;
+  line-height: 0;
+  filter: drop-shadow(0 0 4px rgba(var(--salonx-primary-rgb), 0.45));
+}
+
+.s2c-rightStamp {
+  position: absolute;
+  top: 8px;
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.s2c-rightStamp__dow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #fff;
+}
+
+.s2c-rightStamp__num {
+  font-size: 22px;
+  font-weight: 900;
+  color: #fff;
+  line-height: 1;
+}
+
+.s2c-rightStamp__mo {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.s2c-scroll {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 16px;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  /* Reserve room for absolutely-positioned dock so panels don’t hide under it. */
+  padding-bottom: var(--s2c-dock-h, 80px);
+}
+
+.s2c-topbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.s2c-back {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Identity + stepper */
+.s2c-identityBlock {
+  margin-bottom: 16px;
+}
+
+.s2c-identityRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.s2c-identityLeft {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.s2c-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.s2c-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.s2c-avatar__placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.s2c-chatBadge {
+  position: absolute;
+  bottom: -4px;
+  left: -4px;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(30, 30, 32, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.s2c-chatBadge__n {
+  background: #e53935;
+  color: #fff;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.s2c-identityText {
+  flex: 1;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.s2c-clientName {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fff;
+  line-height: 1.15;
+}
+
+.s2c-clientMeta {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.s2c-clientMeta__dot {
+  margin: 0 8px;
+  opacity: 0.65;
+}
+
+/* Stepper */
+.s2c-stepper__track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  margin-bottom: 8px;
+}
+
+.s2c-stepDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.s2c-stepDot--on {
+  background: var(--salonx-primary);
+  border-color: rgba(var(--salonx-primary-rgb), 0.6);
+  box-shadow: 0 0 12px rgba(var(--salonx-primary-rgb), 0.45);
+}
+
+.s2c-stepLine {
+  flex: 1 1 auto;
+  height: 2px;
+  margin: 0 4px;
+  min-width: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--salonx-primary-rgb), 0.75) 0%,
+    rgba(var(--salonx-primary-rgb), 0.2) 100%
+  );
+  border-radius: 1px;
+  transform: translateY(4px);
+}
+
+.s2c-stepper__labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.s2c-stepLabel {
+  flex: 1;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.s2c-stepLabel--on {
+  color: var(--salonx-primary);
+}
+
+/* Panels */
+.s2c-panel {
+  margin-bottom: 16px;
+}
+
+.s2c-panel--last {
+  margin-bottom: 4px;
+}
+
+.s2c-panel__title {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.s2c-panel__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.s2c-panel__meta span {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.s2c-panel__meta span:last-child {
+  text-align: right;
+}
+
+.s2c-consultList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.s2c-consultRow {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.92);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.s2c-consultRow__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.s2c-consultRow--life .s2c-consultRow__dot {
+  background: #e94b7f;
+}
+.s2c-consultRow--chair .s2c-consultRow__dot {
+  background: #f08537;
+}
+.s2c-consultRow--path .s2c-consultRow__dot {
+  background: #4dd4c4;
+}
+
+.s2c-consultRow__text {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.s2c-consultRow__chev {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.35);
+  margin-top: 4px;
+}
+
+/* CREATE */
+.s2c-pillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.s2c-svcPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.s2c-svcPill--dashed {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.35);
+  flex: 1 1 100%;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.s2c-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.s2c-hint__lead {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.s2c-hint__sep {
+  color: rgba(255, 255, 255, 0.28);
+}
+
+.s2c-hint__chip {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.62);
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* FINISH strip */
+.s2c-productStrip {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+
+.s2c-prodCard {
+  flex: 0 0 112px;
+  scroll-snap-align: start;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: #fff;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.s2c-prodCard__img {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.s2c-prodCard__img img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.s2c-prodCard__brand {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.s2c-prodCard__name {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  white-space: pre-line;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.s2c-prodCard--add {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* Dock — REBOOK / CHECK OUT only. Sits ABOVE the global BottomToolbar so the
+ * app-wide navbar (Stylist · Clients · Checkout · Calendar · Settings)
+ * remains visible at the very bottom. */
+.s2c-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(
+    var(--salonx-bottom-toolbar-row-h, 42px) +
+      var(--salonx-bottom-toolbar-safe-h, env(safe-area-inset-bottom, 0px))
+  );
+  z-index: 30;
+  padding: 8px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.65) 0%, #000 28%);
+}
+
+.s2c-ctaRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.s2c-cta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.s2c-cta--rebook {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.s2c-cta--checkout {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--salonx-primary-rgb), 0.35),
+    rgba(var(--salonx-primary-rgb), 0.15)
+  );
+  border-color: rgba(var(--salonx-primary-rgb), 0.45);
+  color: #fff;
+}
+
+.s2c-nav {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 4px 0 6px;
+}
+
+.s2c-nav__btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 2px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.42);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.s2c-nav__btn--active {
+  color: var(--salonx-primary);
+}
+
+.s2c-nav__lbl {
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}

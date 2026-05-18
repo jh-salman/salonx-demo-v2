@@ -1,7 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Scissors, User, Lightning, CalendarBlank, Gear } from 'phosphor-react';
-
 import './BottomToolbar.css';
 
 const BOTTOM_TOOLBAR_ITEMS = [
@@ -46,6 +45,7 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
                 if (to === '/climax') {
                   const from =
                     originPath && originPath.startsWith('/') ? originPath : '/screen1';
+                  /* No apt — Climax uses walk-in defaults unless opened from Screen2 checkout. */
                   navigate(to, { state: { from } });
                   return;
                 }

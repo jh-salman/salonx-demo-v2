@@ -20,7 +20,7 @@ const containerStyle = {
   width: '100%',
   boxSizing: 'border-box',
   marginTop: 0,
-  paddingBottom: '14px',
+  paddingBottom: 0,
   gap: S1_CARD_STACK_GAP_PX,
 };
 

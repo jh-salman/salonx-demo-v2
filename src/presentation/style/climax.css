@@ -21,6 +21,8 @@
   background: #000;
   /* Header strip height — matches .climax-brandbar; centers absolute back btn in that band. */
   --climax-brandbar-h: 92px;
+  /* Breathing room between payment row and fixed BottomToolbar (Life Coach ~15px lift). */
+  --climax-checkout-toolbar-gap: 15px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -121,8 +123,8 @@
   overflow: hidden;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.9;
-  filter: grayscale(1) contrast(1.05);
+  opacity: 0.95;
+  filter: grayscale(1) contrast(1.02) brightness(1.12);
 }
 
 /* Edge-to-edge inlay; object-fit + transform match v2-admin Climax preview (`slotImageTransform`). */
@@ -165,42 +167,48 @@
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  top: 114px;
-  max-height: calc(100% - 130px); /* Limit height but let it wrap content */
-  width: 350px;
-  padding: 18px 18px 16px;
-  border-radius: 26px;
+  /* Flush under co-brand bar; lifted above fixed toolbar. */
+  top: 0;
+  bottom: var(--climax-checkout-toolbar-gap, 15px);
+  height: auto;
+  max-height: none;
+  width: min(350px, calc(100% - 24px));
+  padding: 18px 18px 12px;
+  border-radius: 0 0 26px 26px;
   background: rgba(1, 2, 9, 0.6);
   box-shadow: 0 24px 90px rgba(0, 0, 0, 0.75);
   display: flex;
   flex-direction: column;
   z-index: 2;
+  box-sizing: border-box;
 }
 
 .climax-scroll {
-  flex: 0 1 auto;
-  overflow: auto;
-  padding-right: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
-}
-.climax-scroll::-webkit-scrollbar {
-  width: 3px;
-}
-.climax-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.climax-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
-  border-radius: 2px;
-}
-.climax-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.climax-footer {
+.climax-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Future + payment row — pinned to bottom of glass overlay. */
+.climax-checkoutDock {
   flex: 0 0 auto;
-  margin-top: 20px;
+  margin-top: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding-top: 10px;
+  padding-bottom: 2px;
+  box-sizing: border-box;
 }
 
 
@@ -232,26 +240,45 @@
 .climax-section__title {
   font-size: 16px;
   line-height: 1.2;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   font-weight: 800;
-  text-transform: uppercase;
-  opacity: 0.85;
-}
-
-/* Section title accents (reference: blue / teal / purple) */
-.climax-section--services .climax-section__title {
-  color: rgb(var(--salonx-primary-soft-rgb));
+  text-transform: none;
+  /* Match bottom-toolbar baton (`--salonx-primary` / client theme). */
+  color: var(--climax-accent, var(--salonx-primary));
   opacity: 1;
 }
 
-.climax-section--products .climax-section__title {
-  color: #00ced1;
-  opacity: 1;
+.climax-section__title--stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  letter-spacing: 0.06em;
 }
 
-.climax-section--future .climax-section__title {
-  color: #a020f0;
-  opacity: 1;
+.climax-section__titleLine {
+  display: block;
+  line-height: 1.15;
+}
+
+.climax-futureDetail {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 2px;
+}
+
+.climax-futureDetail__date,
+.climax-futureDetail__service {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.climax-futureDetail__service {
+  font-weight: 600;
+  opacity: 0.88;
 }
 
 .climax-section__titleBtn {
@@ -301,53 +328,44 @@
   cursor: default;
 }
 
-/* Empty checkout: hint + real button (not a product toggle). */
-.climax-noAptRow {
+/* Future CTA above payment row — left-aligned, crisp (no blur/glow). */
+.climax-futureSlot {
   display: flex;
-  flex-direction: row;
+  justify-content: flex-start;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   width: 100%;
-  margin-top: 12px;
-  padding: 12px;
+  margin: 0;
+  padding: 0;
   box-sizing: border-box;
 }
 
-.climax-noAptRow__text {
-  flex: 1;
-  min-width: 0;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.35;
-  opacity: 0.72;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.45);
-}
-
-.climax-openStylistBtn {
-  flex: 0 0 auto;
+.climax-futureScheduleBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 8px 12px 8px 14px;
+  min-height: 34px;
+  padding: 7px 20px;
   border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--climax-accent) 70%, white 25%);
-  background: color-mix(in oklab, var(--climax-accent) 32%, rgba(0, 0, 0, 0.35));
+  border: 1.5px solid var(--climax-accent, var(--salonx-primary));
+  background: rgba(0, 0, 0, 0.55);
   color: rgba(255, 255, 255, 0.96);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  filter: none;
 }
 
-.climax-openStylistBtn:hover {
-  background: color-mix(in oklab, var(--climax-accent) 42%, rgba(0, 0, 0, 0.25));
+.climax-futureScheduleBtn:hover {
+  background: rgba(0, 0, 0, 0.72);
 }
 
-.climax-openStylistBtn:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--climax-accent) 75%, white 15%);
+.climax-futureScheduleBtn:focus-visible {
+  outline: 2px solid var(--climax-accent, var(--salonx-primary));
   outline-offset: 2px;
 }
 
@@ -445,11 +463,12 @@
   justify-content: space-between;
   font-weight: 800;
   font-size: 24px;
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
 .climax-actions {
-  margin-top: 18px;
+  width: 100%;
+  margin-top: 0;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;

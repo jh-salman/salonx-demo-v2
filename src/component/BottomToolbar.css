@@ -22,6 +22,8 @@
   align-items: center;
   justify-content: space-around;
   flex-shrink: 0;
+  min-height: var(--salonx-bottom-toolbar-row-h, 54px);
+  box-sizing: border-box;
   padding: 8px 14px;
 }
 

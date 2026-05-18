@@ -16,7 +16,9 @@
 .screen1-frame {
   position: relative;
   width: 100%;
-  height: 100vh;
+  /* Fill `app-layout` above fixed BottomToolbar; avoid standalone `100vh` iOS PWA sizing gaps. */
+  flex: 1 1 auto;
+  min-height: 0;
   background-color: #000;
   display: flex;
   flex-direction: column;
@@ -41,6 +43,20 @@
    */
   min-height: var(--salonx-shell-height);
   height: var(--salonx-shell-height);
+  /*
+   * Clear only what global BottomToolbar + safe slice need, minus intentional dip overlap.
+   * Never floor with a px minimum — on iOS PWA (shrunk `--salonx-bottom-toolbar-safe-h`) that
+   * floor left a fake black strip between the list viewport and toolbar.
+   */
+  --s1-list-bottom-dip-under-toolbar: 32px;
+  --s1-client-list-bottom-reserve: max(
+    0px,
+    calc(
+      var(--salonx-bottom-toolbar-row-h, 42px) +
+        var(--salonx-bottom-toolbar-safe-h, env(safe-area-inset-bottom, 0px)) -
+        var(--s1-list-bottom-dip-under-toolbar)
+    )
+  );
 }
 
 .layout-wrapper {
@@ -297,8 +313,11 @@
   --s1-panel-left: 0px;
   --s1-panel-top: 286px;
   width: 100%;
-  /* Scroll appointments + Waiting List; ends above bottom-pinned `.screen1-toolbar` */
-  height: calc(var(--s1-bg-h, 100%) - var(--s1-panel-top) - var(--s1-toolbar-h, 64px));
+  /*
+   * Appointments + waiting list: viewport extends toward global BottomToolbar
+   * (subtract less than toolbar stack — avoids a dead gap / “tail” when scrolled flush).
+   */
+  height: calc(var(--s1-bg-h, 100%) - var(--s1-panel-top) - var(--s1-client-list-bottom-reserve));
   top: var(--s1-panel-top);
   position: absolute;
   left: var(--s1-panel-left);
@@ -723,8 +742,8 @@
     var(--s1demo-gray-stack-margin-top) + var(--s1demo-gray-top-h) +
       var(--s1demo-section-gap) + var(--s1demo-gray-hero-h) + var(--s1demo-section-gap)
   );
-  /* List bottom aligns to top of toolbar */
-  --s1demo-client-list-bottom: calc(var(--s1-bg-h, 100%) - var(--s1-toolbar-h, 64px));
+  /* List floor uses same bottom reserve as `.client-list-wrapper` (.toolbar dip, no idle tail). */
+  --s1demo-client-list-bottom: calc(var(--s1-bg-h, 100%) - var(--s1-client-list-bottom-reserve));
 }
 
 /* Demo profile slot: allow curved mask + widened hero bleed */

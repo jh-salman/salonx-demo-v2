@@ -1,6 +1,9 @@
 /** Demo login phone (10 digits) — stored for ramp / marketing follow-up flows. */
 export const DEMO_LOGIN_PHONE_KEY = 'salonx.demoLoginPhone';
 
+/** Fixed demo number when login uses fake Face ID (no real phone entry). */
+export const DEMO_FACE_ID_PHONE = '5550000000';
+
 export function readDemoLoginPhone() {
   if (typeof localStorage === 'undefined') return '';
   try {
