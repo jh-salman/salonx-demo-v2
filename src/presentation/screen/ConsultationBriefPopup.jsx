@@ -161,6 +161,14 @@ export default function ConsultationBriefPopup({
               <div className="ncv2-section__head">
                 <span className="ncv2-section__dot" aria-hidden />
                 <span className="ncv2-section__label">{sec.label}</span>
+                <button
+                  type="button"
+                  className="ncv2-section__mic"
+                  onClick={() => onOpenNewNoteWithVoice(sec.key)}
+                  aria-label={`Voice ${sec.label} note`}
+                >
+                  <Microphone size={14} weight="regular" aria-hidden />
+                </button>
               </div>
 
               <div className="ncv2-section__rows">
@@ -172,13 +180,6 @@ export default function ConsultationBriefPopup({
                   >
                     <span className="ncv2-row__date">—</span>
                     <span className="ncv2-row__body">Tap to add</span>
-                    <span
-                      className="ncv2-row__mic"
-                      role="img"
-                      aria-hidden
-                    >
-                      <Microphone size={14} weight="fill" />
-                    </span>
                   </button>
                 ) : (
                   rows.map((entry, idx) => (
@@ -192,18 +193,6 @@ export default function ConsultationBriefPopup({
                         {entry.ts ? formatNoteDateShort(entry.ts) : '—'}
                       </span>
                       <span className="ncv2-row__body">{entry.text}</span>
-                      <span
-                        className="ncv2-row__mic"
-                        role="button"
-                        tabIndex={-1}
-                        aria-label={`Voice ${sec.key} note`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenNewNoteWithVoice(sec.key);
-                        }}
-                      >
-                        <Microphone size={14} weight="fill" />
-                      </span>
                     </button>
                   ))
                 )}
@@ -222,7 +211,7 @@ export default function ConsultationBriefPopup({
               onClick={() => onOpenPhotoPicker(null)}
               aria-label="Add LOOK photo"
             >
-              <Camera size={16} weight="fill" aria-hidden />
+              <Camera size={16} weight="regular" aria-hidden />
             </button>
           </div>
 
@@ -233,32 +222,42 @@ export default function ConsultationBriefPopup({
           </div>
 
           {photos.length === 0 ? (
-            <button
-              type="button"
-              className="ncv2-look__empty"
-              onClick={() => onOpenPhotoPicker(null)}
-            >
-              + Add photo
-            </button>
+            <div className="ncv2-look__body">
+              <div className="ncv2-look__gallery">
+                <div className="ncv2-look__col">
+                  <button
+                    type="button"
+                    className="ncv2-look__card ncv2-look__empty"
+                    onClick={() => onOpenPhotoPicker(null)}
+                  >
+                    <div className="ncv2-look__img ncv2-look__empty__img">+ Add photo</div>
+                  </button>
+                  <div className="ncv2-look__date">—</div>
+                </div>
+              </div>
+            </div>
           ) : (
-            <div className="ncv2-look__gallery">
-              {photos.map((ph, idx) => (
-                <button
-                  key={`${ph.ts ?? idx}-${idx}`}
-                  type="button"
-                  className="ncv2-look__card"
-                  onClick={() => onEditPhotoEntry(ph)}
-                  aria-label={`LOOK photo ${idx + 1}`}
-                >
-                  <div
-                    className="ncv2-look__img"
-                    style={{ backgroundImage: ph.url ? `url(${ph.url})` : undefined }}
-                  />
-                  <div className="ncv2-look__date">
-                    {ph.ts ? formatNoteDateShort(ph.ts) : '—'}
+            <div className="ncv2-look__body">
+              <div className="ncv2-look__gallery">
+                {photos.map((ph, idx) => (
+                  <div className="ncv2-look__col" key={`${ph.ts ?? idx}-${idx}`}>
+                    <button
+                      type="button"
+                      className="ncv2-look__card"
+                      onClick={() => onEditPhotoEntry(ph)}
+                      aria-label={`LOOK photo ${idx + 1}`}
+                    >
+                      <div
+                        className="ncv2-look__img"
+                        style={{ backgroundImage: ph.url ? `url(${ph.url})` : undefined }}
+                      />
+                    </button>
+                    <div className="ncv2-look__date">
+                      {formatNoteDateShort(ph.ts || consultRecord?.updatedAt || Date.now())}
+                    </div>
                   </div>
-                </button>
-              ))}
+                ))}
+              </div>
             </div>
           )}
         </section>

@@ -695,20 +695,6 @@ export default function Climax() {
     if (!raw.startsWith("http")) return raw;
     return optimizeMediaDeliveryUrl(raw, "image");
   }, [climaxBg?.headerLogo]);
-  const hasCustomClimaxHeaderLogo = Boolean(climaxBg?.headerLogo?.trim());
-  const climaxHeaderLogoAdjust = climaxBg?.headerLogoAdjust ?? {
-    scale: 1,
-    rotate: 0,
-    tx: 0,
-    ty: 0,
-    fit: "contain",
-  };
-  const climaxHeaderLogoTransform = `translate(${climaxHeaderLogoAdjust.tx}%, ${climaxHeaderLogoAdjust.ty}%) rotate(${climaxHeaderLogoAdjust.rotate}deg) scale(${
-    typeof climaxHeaderLogoAdjust.scale === "number" &&
-    !Number.isNaN(climaxHeaderLogoAdjust.scale)
-      ? climaxHeaderLogoAdjust.scale
-      : 1
-  })`;
   const climaxInlayAdjust = climaxBg?.adjust ?? {
     scale: 1,
     rotate: 0,
@@ -753,21 +739,8 @@ export default function Climax() {
             className="climax-brandbar__logo"
             src={climaxHeaderLogoSrc}
             alt=""
-            style={
-              hasCustomClimaxHeaderLogo
-                ? {
-                    objectFit:
-                      climaxHeaderLogoAdjust.fit === "contain"
-                        ? "contain"
-                        : "cover",
-                    transform: climaxHeaderLogoTransform,
-                    transformOrigin: "center center",
-                  }
-                : undefined
-            }
           />
         </div>
-        <div className="climax-brandbar__edgeSpacer" aria-hidden />
       </div>
 
       <div className="climax-stage" aria-label="ClimaX stage">

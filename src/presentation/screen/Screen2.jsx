@@ -2,19 +2,32 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
+  ArrowsOut,
   Butterfly,
   Camera,
   ChatCircleDots,
   Clock,
+  CaretRight,
+  ChatCircle,
   Image as ImageIcon,
   Microphone,
-  PencilSimple,
+  NotePencil,
   Plus,
+  WaveTriangle,
   X,
 } from 'phosphor-react';
 import { MOCK_CLIENTS } from '../../data/mockClients';
-import { MOCK_PRODUCTS } from '../../data/mockProducts';
-import { MOCK_SERVICES } from '../../data/mockServices';
+import {
+  appendProductCatalogEntry,
+  appendServiceCatalogEntry,
+  CALENDAR_UPDATED_EVENT,
+  CALENDAR_V1_STORAGE_KEY,
+  fetchDynamicProductCatalog,
+  fetchDynamicServiceCatalog,
+  loadServiceCatalogFromCalendarStorage,
+  normalizeProductCatalogEntry,
+  normalizeServiceCatalogEntry,
+} from '../../data/s2Catalog';
 import {
   deleteClientAvatar,
   getClientAvatar,
@@ -29,7 +42,6 @@ import {
   uploadClientProfileImage,
 } from '../../data/clientProfileAvatar';
 import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
-import { fetchServiceCatalog } from '../../data/calendarCatalogApi';
 import {
   apptStateFromVisitPayload,
   loadConsultStore,
@@ -41,7 +53,6 @@ import {
   persistRemoteAppointmentVisit,
   persistRemoteConsultation,
   PRODUCTS_CATALOG_UPDATED,
-  refreshProductCatalogCache,
   resumeRemoteConsultPersist,
   resumeRemoteVisitPersist,
   saveConsultStore,
@@ -129,18 +140,6 @@ const CONSULT = {
   lookExtraCount: 2,
 };
 
-/** CREATE pill order — derived from catalog, sorted by this priority. */
-const CREATE_PILL_CATEGORY_ORDER = [
-  'COLOR',
-  'CUT',
-  'GLOSS',
-  'TREATMENT',
-  'STYLE',
-  'GROOM',
-  'EVENT',
-  'SERVICE',
-];
-
 /** Adjustable dollar fields: $0–$310, $1 steps (hourly + consultation use same slider pattern) */
 const ADJ_RATE_MIN = 0;
 const ADJ_RATE_MAX = 310;
@@ -211,6 +210,17 @@ function inferSvcCreatePillCategory(name) {
 
 function isCatalogPickerService(s) {
   return s && s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT';
+}
+
+function normalizeCreateServiceName(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+/** Booked appointment service — orange in CREATE; everything else is a white add-on pill. */
+function isScheduledCreateService(service, scheduledName) {
+  const scheduled = normalizeCreateServiceName(scheduledName);
+  if (!scheduled) return false;
+  return normalizeCreateServiceName(service?.name) === scheduled;
 }
 
 /** Short primary label (accent in quad tiles) — matches reference “COLOR SERVICE” style */
@@ -313,7 +323,7 @@ function serviceImageUrlResolved(s, pickerList) {
   return serviceImageUrl(row);
 }
 
-/** Product packshot over `MOCK_PRODUCTS` `imageUrl`; gradient stays as fallback / underlay. */
+/** Product packshot — catalog `imageUrl` with gradient fallback. */
 function S2ProductPhoto({ imageUrl, fallbackBackground, wrapClassName, imgClassName, decorative }) {
   return (
     <div
@@ -441,50 +451,18 @@ function chronologicalForFeed(entries, fallbackText) {
   return [];
 }
 
-// Same key / event as Calendar.jsx — service list in picker stays in sync when
-// catalog changes (new service from Calendar, etc.).
-const CALENDAR_V1_STORAGE_KEY = '@salonx/calendar/v1';
-const CALENDAR_UPDATED_EVENT = 'salonx:calendar-updated';
-
-function normalizeServiceCatalogEntry(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const id = raw.id != null ? String(raw.id) : '';
-  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
-  if (!id || !name) return null;
-  const price = typeof raw.price === 'number' && !Number.isNaN(raw.price) ? raw.price : 0;
-  const out = { id, name, price };
-  const img = typeof raw.image === 'string' ? raw.image.trim() : '';
-  if (img) out.image = img;
-  if (raw.kind) out.kind = raw.kind;
-  return out;
+/** Consultation popup rows — newest first (matches reference timeline). */
+function paneRowsForPopup(entries, legacyText, defaultText) {
+  if (Array.isArray(entries) && entries.length) return entries;
+  const fallback = (legacyText || '').trim() || defaultText;
+  return fallback ? [{ ts: null, text: fallback, _synthetic: true }] : [];
 }
 
-function enrichServiceCatalogImages(catalog) {
-  const byId = Object.fromEntries(MOCK_SERVICES.map((s) => [s.id, s]));
-  return catalog.map((row) => {
-    const m = byId[row.id];
-    if (m && typeof m.image === 'string' && m.image.trim() && !serviceImageUrl(row)) {
-      return { ...row, image: m.image.trim() };
-    }
-    return row;
-  });
-}
-
-function loadServiceCatalogFromCalendarStorage() {
-  if (typeof window === 'undefined') return MOCK_SERVICES;
-  try {
-    const json = window.localStorage.getItem(CALENDAR_V1_STORAGE_KEY);
-    if (!json) return MOCK_SERVICES;
-    const data = JSON.parse(json);
-    const cat = data?.serviceCatalog;
-    if (!Array.isArray(cat) || !cat.length) return MOCK_SERVICES;
-    const normalized = cat.map(normalizeServiceCatalogEntry).filter(Boolean);
-    if (!normalized.length) return MOCK_SERVICES;
-    return enrichServiceCatalogImages(normalized);
-  } catch {
-    return MOCK_SERVICES;
-  }
-}
+const CONSULT_POPUP_SECTIONS = [
+  { key: 'CHAIR', label: 'CHAIR', tone: 'chair', legacy: 'CHAIR', defaultText: CONSULT_DEFAULT_TEXT?.CHAIR },
+  { key: 'PATH', label: 'FORMULAS', tone: 'path', legacy: 'PATH', defaultText: CONSULT_DEFAULT_TEXT?.PATH },
+  { key: 'LIFE', label: 'LIFE', tone: 'life', legacy: 'LIFE', defaultText: CONSULT_DEFAULT_TEXT?.LIFE },
+];
 
 // Per-appointment services/products live in `data/appointmentStateStore.js`.
 // Imported above so Climax + Stylist share the exact same source of truth.
@@ -526,7 +504,9 @@ export default function Screen2() {
   }, [activeApt]);
 
   const [catalogClients, setCatalogClients] = useState([]);
-  const [productCatalog, setProductCatalog] = useState(MOCK_PRODUCTS);
+  const [productCatalog, setProductCatalog] = useState([]);
+  const serviceCatalogUpdatedAtRef = useRef(null);
+  const productCatalogUpdatedAtRef = useRef(null);
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
     let cancelled = false;
@@ -546,19 +526,16 @@ export default function Screen2() {
   }, []);
 
   useEffect(() => {
-    if (!isAppointmentsApiAvailable()) {
-      setProductCatalog(MOCK_PRODUCTS);
-      return undefined;
-    }
     let cancelled = false;
-    void refreshProductCatalogCache().then((list) => {
-      if (!cancelled && list?.length) setProductCatalog(list);
-    });
-    const onProducts = () => {
-      void refreshProductCatalogCache().then((list) => {
-        if (list?.length) setProductCatalog(list);
+    const syncProducts = () => {
+      void fetchDynamicProductCatalog().then(({ list, updatedAt }) => {
+        if (cancelled) return;
+        setProductCatalog(list);
+        if (updatedAt) productCatalogUpdatedAtRef.current = updatedAt;
       });
     };
+    syncProducts();
+    const onProducts = () => syncProducts();
     window.addEventListener(PRODUCTS_CATALOG_UPDATED, onProducts);
     return () => {
       cancelled = true;
@@ -837,6 +814,23 @@ export default function Screen2() {
     requestAnimationFrame(() => startVoice(paneKey));
   }, [startVoice, stopVoice]);
 
+  const editPaneEntry = useCallback((paneKey, entry, idx, entries) => {
+    stopVoice();
+    setNoteDraft(entry.text || '');
+    const hasStored = Array.isArray(entries) && entries.length > 0;
+    const synthetic = !hasStored || entry._synthetic;
+    if (synthetic) {
+      setNoteEditOpen({ pane: paneKey, mode: 'edit', synthetic: true });
+    } else {
+      setNoteEditOpen({
+        pane: paneKey,
+        mode: 'edit',
+        entryIndex: idx,
+        entryTs: typeof entry.ts === 'number' ? entry.ts : undefined,
+      });
+    }
+  }, [stopVoice]);
+
   // Save: new entry prepends; edit replaces the row (or seeds first stored row from defaults).
   // Refs avoid a stale `noteDraft` / `noteEditOpen` if the user taps Update on the same tick as typing (mobile).
   const submitNoteDraft = useCallback(() => {
@@ -969,10 +963,14 @@ export default function Screen2() {
     return ` · ${mo}MO`;
   }, [consultRecord.LIFE_entries, isNewClient]);
 
-  const visitMetaLine = useMemo(
-    () =>
-      `${activeClient.phone || '—'} · ${visitOrdinalLabel(consultRecord.LIFE_entries?.length || 0, isNewClient)}`,
-    [activeClient.phone, consultRecord.LIFE_entries, isNewClient],
+  const clientPhoneLine = useMemo(
+    () => activeClient.phone || '—',
+    [activeClient.phone],
+  );
+
+  const clientVisitLine = useMemo(
+    () => visitOrdinalLabel(consultRecord.LIFE_entries?.length || 0, isNewClient),
+    [consultRecord.LIFE_entries, isNewClient],
   );
 
   const todayBriefLine = useMemo(() => {
@@ -987,12 +985,12 @@ export default function Screen2() {
   useLayoutEffect(() => {
     if (!consultOpen) return;
     requestAnimationFrame(() => {
-      [lifeFeedRef, chairFeedRef, pathFeedRef].forEach((r) => {
+      [chairFeedRef, pathFeedRef, lifeFeedRef].forEach((r) => {
         const el = r.current;
-        if (el) el.scrollTop = el.scrollHeight;
+        if (el) el.scrollTop = 0;
       });
       const g = lookGalleryRef.current;
-      if (g) g.scrollLeft = g.scrollWidth;
+      if (g) g.scrollLeft = Math.max(0, g.scrollWidth - g.clientWidth);
     });
   }, [consultOpen, consultRecord.LIFE_entries, consultRecord.CHAIR_entries, consultRecord.PATH_entries, consultRecord.photos, preBriefOpen]);
 
@@ -1009,15 +1007,82 @@ export default function Screen2() {
   const photoInputRef = useRef(null); // camera (capture="environment")
   const photoGalleryInputRef = useRef(null); // library (no capture)
   const photoSlotRef = useRef(null); // index of slot being filled, or null = next free
+  const lookPhotoTapRef = useRef({ idx: null, lastTs: 0, pendingTimer: null });
   const [lookPhotoSheetOpen, setLookPhotoSheetOpen] = useState(false);
+  const [lookSheetPhoto, setLookSheetPhoto] = useState(null);
+  const [lookLargePhoto, setLookLargePhoto] = useState(null);
 
-  const openPhotoPicker = useCallback((slotIndex) => {
+  const openPhotoPicker = useCallback((slotIndex, photo = null) => {
     photoSlotRef.current = typeof slotIndex === 'number' ? slotIndex : null;
+    setLookSheetPhoto(photo?.url ? { url: photo.url, ts: photo.ts } : null);
     setLookPhotoSheetOpen(true);
   }, []);
 
-  const triggerLookCamera = useCallback(() => {
+  const LOOK_DOUBLE_TAP_MS = 320;
+
+  const openLookLargePhoto = useCallback((ph) => {
+    if (!ph?.url) return;
+    setLookLargePhoto({
+      url: ph.url,
+      dateLabel: ph.ts
+        ? formatNoteDateShort(ph.ts || consultRecord.updatedAt || Date.now())
+        : null,
+    });
+  }, [consultRecord.updatedAt]);
+
+  const handleLookPhotoTap = useCallback((ph, idx) => {
+    const now = Date.now();
+    const ref = lookPhotoTapRef.current;
+    const isDouble = ref.idx === idx && now - ref.lastTs < LOOK_DOUBLE_TAP_MS;
+
+    if (ref.pendingTimer) {
+      clearTimeout(ref.pendingTimer);
+      ref.pendingTimer = null;
+    }
+
+    if (isDouble) {
+      ref.idx = null;
+      ref.lastTs = 0;
+      openLookLargePhoto(ph);
+      return;
+    }
+
+    ref.idx = idx;
+    ref.lastTs = now;
+    ref.pendingTimer = setTimeout(() => {
+      ref.pendingTimer = null;
+      ref.idx = null;
+      ref.lastTs = 0;
+      const origIx = (consultRecord.photos || []).findIndex(
+        (p) => p && p.url === ph.url && (p.ts || 0) === (ph.ts || 0),
+      );
+      openPhotoPicker(origIx >= 0 ? origIx : null, ph);
+    }, LOOK_DOUBLE_TAP_MS);
+  }, [openLookLargePhoto, openPhotoPicker, consultRecord.photos]);
+
+  const closeLookPhotoSheet = useCallback(() => {
     setLookPhotoSheetOpen(false);
+    setLookSheetPhoto(null);
+  }, []);
+
+  const triggerLookLargePicture = useCallback(() => {
+    if (!lookSheetPhoto?.url) return;
+    closeLookPhotoSheet();
+    openLookLargePhoto(lookSheetPhoto);
+  }, [closeLookPhotoSheet, lookSheetPhoto, openLookLargePhoto]);
+
+  useEffect(() => {
+    if (!consultOpen) {
+      setLookLargePhoto(null);
+      setLookSheetPhoto(null);
+      const ref = lookPhotoTapRef.current;
+      if (ref.pendingTimer) clearTimeout(ref.pendingTimer);
+      lookPhotoTapRef.current = { idx: null, lastTs: 0, pendingTimer: null };
+    }
+  }, [consultOpen]);
+
+  const triggerLookCamera = useCallback(() => {
+    closeLookPhotoSheet();
     requestAnimationFrame(() => {
       const input = photoInputRef.current;
       if (input) {
@@ -1025,10 +1090,10 @@ export default function Screen2() {
         input.click();
       }
     });
-  }, []);
+  }, [closeLookPhotoSheet]);
 
   const triggerLookGallery = useCallback(() => {
-    setLookPhotoSheetOpen(false);
+    closeLookPhotoSheet();
     requestAnimationFrame(() => {
       const input = photoGalleryInputRef.current;
       if (input) {
@@ -1036,7 +1101,7 @@ export default function Screen2() {
         input.click();
       }
     });
-  }, []);
+  }, [closeLookPhotoSheet]);
 
   const handlePhotoChosen = useCallback((e) => {
     const file = e.target?.files?.[0];
@@ -1088,13 +1153,60 @@ export default function Screen2() {
   // ---------- Profile photo (header) — modal + camera / library; session-only (no persist) ----------
   const avatarCameraInputRef = useRef(null);
   const avatarGalleryInputRef = useRef(null);
+  const avatarTapRef = useRef({ lastTs: 0, pendingTimer: null });
 
   const openAvatarPhotoSheet = useCallback(() => {
     setAvatarPhotoSheetOpen(true);
   }, []);
 
-  const triggerAvatarCamera = useCallback(() => {
+  const closeAvatarPhotoSheet = useCallback(() => {
     setAvatarPhotoSheetOpen(false);
+  }, []);
+
+  const handleAvatarTap = useCallback(() => {
+    if (!profilePhotoDisplayUrl) {
+      openAvatarPhotoSheet();
+      return;
+    }
+
+    const now = Date.now();
+    const ref = avatarTapRef.current;
+    const isDouble = now - ref.lastTs < LOOK_DOUBLE_TAP_MS;
+
+    if (ref.pendingTimer) {
+      clearTimeout(ref.pendingTimer);
+      ref.pendingTimer = null;
+    }
+
+    if (isDouble) {
+      ref.lastTs = 0;
+      openLookLargePhoto({ url: profilePhotoDisplayUrl });
+      return;
+    }
+
+    ref.lastTs = now;
+    ref.pendingTimer = setTimeout(() => {
+      ref.pendingTimer = null;
+      ref.lastTs = 0;
+      openAvatarPhotoSheet();
+    }, LOOK_DOUBLE_TAP_MS);
+  }, [profilePhotoDisplayUrl, openAvatarPhotoSheet, openLookLargePhoto]);
+
+  const triggerAvatarLargePicture = useCallback(() => {
+    if (!profilePhotoDisplayUrl) return;
+    closeAvatarPhotoSheet();
+    openLookLargePhoto({ url: profilePhotoDisplayUrl });
+  }, [closeAvatarPhotoSheet, profilePhotoDisplayUrl, openLookLargePhoto]);
+
+  useEffect(() => {
+    return () => {
+      const ref = avatarTapRef.current;
+      if (ref.pendingTimer) clearTimeout(ref.pendingTimer);
+    };
+  }, []);
+
+  const triggerAvatarCamera = useCallback(() => {
+    closeAvatarPhotoSheet();
     requestAnimationFrame(() => {
       const input = avatarCameraInputRef.current;
       if (input) {
@@ -1102,10 +1214,10 @@ export default function Screen2() {
         input.click();
       }
     });
-  }, []);
+  }, [closeAvatarPhotoSheet]);
 
   const triggerAvatarGallery = useCallback(() => {
-    setAvatarPhotoSheetOpen(false);
+    closeAvatarPhotoSheet();
     requestAnimationFrame(() => {
       const input = avatarGalleryInputRef.current;
       if (input) {
@@ -1113,7 +1225,7 @@ export default function Screen2() {
         input.click();
       }
     });
-  }, []);
+  }, [closeAvatarPhotoSheet]);
 
   const handleAvatarFileChosen = useCallback(
     (e) => {
@@ -1122,7 +1234,7 @@ export default function Screen2() {
       if (!file) return;
 
       const finish = () => {
-        setAvatarPhotoSheetOpen(false);
+        closeAvatarPhotoSheet();
         requestAnimationFrame(() => {
           try {
             if (input) input.blur();
@@ -1174,41 +1286,57 @@ export default function Screen2() {
   );
 
   const [addServicesOpen, setAddServicesOpen] = useState(false);
+  const [servicePickerCategory, setServicePickerCategory] = useState(null);
   const [addProductsOpen, setAddProductsOpen] = useState(false);
   const [rateEditOpen, setRateEditOpen] = useState(null);
 
   const [serviceCatalogList, setServiceCatalogList] = useState(loadServiceCatalogFromCalendarStorage);
   useEffect(() => {
-    if (isAppointmentsApiAvailable()) {
-      let cancelled = false;
-      void fetchServiceCatalog().then((data) => {
-        if (cancelled || !data?.stored || !Array.isArray(data.serviceCatalog)) return;
-        const normalized = data.serviceCatalog
-          .map(normalizeServiceCatalogEntry)
-          .filter(Boolean);
-        if (normalized.length) {
-          setServiceCatalogList(enrichServiceCatalogImages(normalized));
-        }
+    let cancelled = false;
+    const syncServices = () => {
+      void fetchDynamicServiceCatalog().then(({ list, updatedAt }) => {
+        if (cancelled) return;
+        setServiceCatalogList(list);
+        if (updatedAt) serviceCatalogUpdatedAtRef.current = updatedAt;
       });
-      return () => {
-        cancelled = true;
-      };
-    }
-    const sync = () => setServiceCatalogList(loadServiceCatalogFromCalendarStorage());
-    window.addEventListener(CALENDAR_UPDATED_EVENT, sync);
+    };
+    syncServices();
+    const onCalendar = () => {
+      if (isAppointmentsApiAvailable()) return;
+      setServiceCatalogList(loadServiceCatalogFromCalendarStorage());
+    };
+    window.addEventListener(CALENDAR_UPDATED_EVENT, onCalendar);
     const onStorage = (e) => {
-      if (e.key === CALENDAR_V1_STORAGE_KEY || e.key === null) sync();
+      if (e.key === CALENDAR_V1_STORAGE_KEY || e.key === null) onCalendar();
     };
     window.addEventListener('storage', onStorage);
     return () => {
-      window.removeEventListener(CALENDAR_UPDATED_EVENT, sync);
+      cancelled = true;
+      window.removeEventListener(CALENDAR_UPDATED_EVENT, onCalendar);
       window.removeEventListener('storage', onStorage);
     };
   }, []);
 
   useEffect(() => {
-    if (addServicesOpen) setServiceCatalogList(loadServiceCatalogFromCalendarStorage());
+    if (!addServicesOpen) return;
+    void fetchDynamicServiceCatalog().then(({ list, updatedAt }) => {
+      setServiceCatalogList(list);
+      if (updatedAt) serviceCatalogUpdatedAtRef.current = updatedAt;
+    });
   }, [addServicesOpen]);
+
+  useEffect(() => {
+    if (addServicesOpen) return;
+    setServicePickerCategory(null);
+  }, [addServicesOpen]);
+
+  useEffect(() => {
+    if (!addProductsOpen) return;
+    void fetchDynamicProductCatalog().then(({ list, updatedAt }) => {
+      setProductCatalog(list);
+      if (updatedAt) productCatalogUpdatedAtRef.current = updatedAt;
+    });
+  }, [addProductsOpen]);
 
   // Per-appointment state (services / products / rates). Initialized from the
   // appointment id passed via location.state — every appointment has its own
@@ -1424,7 +1552,54 @@ export default function Screen2() {
     clearTimer(timerKey);
   }, [clearTimer, timerKey]);
 
+  const handleAddCustomService = useCallback(() => {
+    const entry = normalizeServiceCatalogEntry({
+      id: `SVC-C-${Date.now()}`,
+      name: 'Custom service',
+      price: 0,
+    });
+    if (!entry) return;
+    setSvcQueue((prev) => [...prev, entry]);
+    markS2ServicesVisited();
+    void appendServiceCatalogEntry(entry, serviceCatalogUpdatedAtRef.current).then(({ list, updatedAt }) => {
+      setServiceCatalogList(list);
+      if (updatedAt) serviceCatalogUpdatedAtRef.current = updatedAt;
+    });
+  }, [markS2ServicesVisited]);
+
+  const handleAddCustomProduct = useCallback(() => {
+    const entry = normalizeProductCatalogEntry({
+      id: `PROD-C-${Date.now()}`,
+      brand: 'Custom',
+      name: 'Custom product',
+      price: 0,
+      color: '#1a1612',
+    });
+    if (!entry) return;
+    setProductQueue((prev) => [...prev, entry]);
+    markS2LiftVisited();
+    void appendProductCatalogEntry(entry, productCatalogUpdatedAtRef.current).then(({ list, updatedAt }) => {
+      setProductCatalog(list);
+      if (updatedAt) productCatalogUpdatedAtRef.current = updatedAt;
+    });
+  }, [markS2LiftVisited]);
+
   const displaySvcQueue = useMemo(() => sortSvcQueueForDisplay(svcQueue), [svcQueue]);
+
+  const createSectionServices = useMemo(
+    () => displaySvcQueue.filter((s) => s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT'),
+    [displaySvcQueue],
+  );
+
+  const scheduledCreateServiceName = useMemo(
+    () => activeApptInfo?.service?.trim() || activeApt?.service?.trim() || '',
+    [activeApptInfo?.service, activeApt?.service],
+  );
+
+  const openServicePicker = useCallback((category = null) => {
+    setServicePickerCategory(category);
+    setAddServicesOpen(true);
+  }, []);
 
   const hourlySvc = useMemo(
     () => ({ ...SVC_HOURLY_BASE, price: hourlyRate, kind: 'hourly' }),
@@ -1441,18 +1616,18 @@ export default function Screen2() {
     return [hourlySvc, consultSvc, ...rest];
   }, [hourlySvc, consultSvc, serviceCatalogList]);
 
+  const filteredSvcPickerList = useMemo(() => {
+    if (!servicePickerCategory) return svcPickerList;
+    return svcPickerList.filter((s) => {
+      if (s.id === 'SVC-HOURLY' || s.id === 'SVC-CONSULT') return false;
+      return inferSvcCreatePillCategory(s.name) === servicePickerCategory;
+    });
+  }, [svcPickerList, servicePickerCategory]);
+
   const catalogServices = useMemo(
     () => serviceCatalogList.filter(isCatalogPickerService),
     [serviceCatalogList],
   );
-
-  const createCategoryPills = useMemo(() => {
-    const found = new Set();
-    catalogServices.forEach((s) => {
-      found.add(inferSvcCreatePillCategory(s.name));
-    });
-    return CREATE_PILL_CATEGORY_ORDER.filter((cat) => found.has(cat));
-  }, [catalogServices]);
 
   const createSuggestedItems = useMemo(() => {
     const queueIds = new Set(svcQueue.map((s) => s.id));
@@ -1461,18 +1636,16 @@ export default function Screen2() {
     return pool.slice(0, 4).map((s) => ({ id: s.id, name: s.name }));
   }, [catalogServices, svcQueue]);
 
-  const finishRowProducts = useMemo(() => {
-    const out = (productQueue || []).slice(0, 4);
-    if (out.length >= 4) return out;
-    const seen = new Set(out.map((p) => p?.id));
-    const fillers = (productCatalog || []).filter((p) => p && !seen.has(p.id));
-    for (const filler of fillers) {
-      if (out.length >= 4) break;
-      out.push(filler);
-      seen.add(filler.id);
-    }
-    return out.slice(0, 4);
-  }, [productQueue, productCatalog]);
+  const panePreviewChron = useMemo(
+    () => ({
+      LIFE: lifeChron,
+      CHAIR: chairChron,
+      PATH: pathChron,
+    }),
+    [lifeChron, chairChron, pathChron],
+  );
+
+  const finishRowProducts = useMemo(() => (productQueue || []).slice(0, 4), [productQueue]);
 
   const finishSuggestedItems = useMemo(() => {
     const rowIds = new Set(finishRowProducts.map((p) => p.id));
@@ -1576,9 +1749,11 @@ export default function Screen2() {
             <button
               type="button"
               className="s2-avatar"
-              onClick={openAvatarPhotoSheet}
+              onClick={handleAvatarTap}
               aria-label={
-                profilePhotoDisplayUrl ? 'Change profile photo' : 'Add profile photo'
+                profilePhotoDisplayUrl
+                  ? 'Profile photo. Tap for options, double tap for large picture.'
+                  : 'Add profile photo'
               }
             >
               {profilePhotoDisplayUrl ? (
@@ -1645,7 +1820,8 @@ export default function Screen2() {
           <div className="s2-identityCenter">
             <div className="s2-identityText">
               <div className="s2-clientName">{activeClient.name}</div>
-              <div className="s2-clientPhone">{visitMetaLine}</div>
+              <div className="s2-clientPhone">{clientPhoneLine}</div>
+              <div className="s2-clientVisit">{clientVisitLine}</div>
             </div>
           </div>
           <div className="s2-identityRight">
@@ -1728,7 +1904,11 @@ export default function Screen2() {
                       }`
                     : `${CONSULT.lastVisitShort} \u2022 ${CONSULT.duration.replace(/\bmin\b/i, 'min')}`}
               </div>
-              <div className="s2-consultHeader__value s2-consultHeader__value--right">
+              <div
+                className={`s2-consultHeader__value s2-consultHeader__value--right${
+                  activeApptInfo?.service?.trim() ? ' s2-consultHeader__value--service' : ''
+                }`}
+              >
                   {activeApptInfo?.service?.trim()
                     ? `${activeApptInfo.service}${
                         activeApptInfo.durationLabel ? ` \u2022 ${activeApptInfo.durationLabel}` : ''
@@ -1738,19 +1918,28 @@ export default function Screen2() {
         </div>
 
             <div className="s2-consultScroll">
-              {CONSULT.panes.filter((p) => p.key !== 'LOOK').map((p) => (
+              {CONSULT.panes.filter((p) => p.key !== 'LOOK').map((p) => {
+                const chron = panePreviewChron[p.key] || [];
+                return (
                 <div key={p.key} className={`s2-pane ${p.colorClass}`}>
                   <span className="s2-paneDot" aria-hidden />
                   <div className="s2-paneBody">
-                    <div className="s2-paneLine">
-                      {(consultRecord[p.key] || '').trim() || p.text || ''}
-                    </div>
+                    {chron.length ? (
+                      chron.map((entry, idx) => (
+                        <div key={`${p.key}-${entry.ts ?? idx}`} className="s2-paneLine">
+                          {entry.text}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="s2-paneLine">{p.text || ''}</div>
+                    )}
                   </div>
                   <span className="s2-paneArrow" aria-hidden>
                     →
                   </span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </button>
         </div>
@@ -1769,22 +1958,30 @@ export default function Screen2() {
             </div>
             <div className="s2-createBody">
               <div className="s2-createRow" aria-label="Services">
-                {createCategoryPills.map((cat) => (
+                {createSectionServices.map((s, i) => {
+                  const isScheduled = isScheduledCreateService(s, scheduledCreateServiceName);
+                  return (
                   <button
-                    key={cat}
+                    key={`${s.id}-${i}`}
                     type="button"
-                    className="s2-createCatPill"
-                    onClick={() => setAddServicesOpen(true)}
-                    aria-label={`Add ${cat} service`}
+                    className={`s2-createCatPill s2-createCatPill--queued${
+                      isScheduled ? ' s2-createCatPill--scheduled' : ' s2-createCatPill--addon'
+                    }`}
+                    onClick={() => {
+                      setSvcQueue((prev) => prev.filter((q) => q.id !== s.id));
+                    }}
+                    aria-label={`Remove ${s.name}`}
                   >
-                    <span className="s2-createCatPill__label">{cat}</span>
-                    <Plus size={12} weight="bold" aria-hidden className="s2-createCatPill__plus" />
+                    <span className="s2-createCatPill__label s2-createCatPill__label--service">
+                      {s.name}
+                    </span>
                   </button>
-                ))}
+                  );
+                })}
                 <button
                   type="button"
                   className="s2-createCatPill s2-createCatPill--add"
-                  onClick={() => setAddServicesOpen(true)}
+                  onClick={() => openServicePicker(null)}
                   aria-label="Add service"
                 >
                   <Plus size={14} weight="bold" aria-hidden className="s2-createCatPill__addIcon" />
@@ -1809,7 +2006,7 @@ export default function Screen2() {
                       <button
                         type="button"
                         className="s2-createSuggested__chip"
-                        onClick={() => setAddServicesOpen(true)}
+                        onClick={() => openServicePicker(null)}
                       >
                         {item.name}
                       </button>
@@ -1975,9 +2172,11 @@ export default function Screen2() {
                   <button
                     type="button"
                     className="s2-avatar"
-                    onClick={openAvatarPhotoSheet}
+                    onClick={handleAvatarTap}
                     aria-label={
-                      profilePhotoDisplayUrl ? 'Change profile photo' : 'Add profile photo'
+                      profilePhotoDisplayUrl
+                        ? 'Profile photo. Tap for options, double tap for large picture.'
+                        : 'Add profile photo'
                     }
                   >
                     {profilePhotoDisplayUrl ? (
@@ -2003,8 +2202,25 @@ export default function Screen2() {
                 <div className="s2-identityCenter">
                   <div className="s2-identityText">
                     <div className="s2-clientName">{activeClient.name}</div>
-                    <div className="s2-clientPhone">{visitMetaLine}</div>
+                    <div className="s2-clientPhone">{clientPhoneLine}</div>
+                    <div className="s2-clientVisit">{clientVisitLine}</div>
                   </div>
+                </div>
+                <div className="s2-identityRight">
+                  <button
+                    type="button"
+                    className="s2-headerTimer"
+                    onClick={() => setTimerModalOpen(true)}
+                    aria-label="Open timer"
+                  >
+                    <span className="s2-headerTimer__row">
+                      <Clock size={14} weight="bold" aria-hidden />
+                      <span className="s2-headerTimer__value">
+                        {formatS2HeaderTimer(liveTimer)}
+                      </span>
+                    </span>
+                    <span className="s2-headerTimer__label">TIMER</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -2039,14 +2255,13 @@ export default function Screen2() {
                 <div className="nc-pc-summary">{preSummary}</div>
               </div>
               <div className="nc-pc-icons">
-                {photosChron.length > 0 ? (
-                  <span className="nc-ico" aria-hidden>
-                    📷 {photosChron.length}
+                {META.msgCount ? (
+                  <span className="nc-pc-chat" aria-label={`${META.msgCount} messages`}>
+                    <ChatCircle size={14} weight="regular" aria-hidden />
+                    <span>{META.msgCount}</span>
                   </span>
                 ) : null}
-                <span className="nc-pc-chev" aria-hidden>
-                  ▾
-                </span>
+                <CaretRight size={14} weight="bold" className="nc-pc-chev" aria-hidden />
               </div>
             </div>
             <div className="nc-pc-expand">
@@ -2117,229 +2332,145 @@ export default function Screen2() {
             </div>
       </div>
 
-          <div className="nc-fields">
-            <div className="nc-field">
-              <div className="nc-f-head">
-                <div className="nc-f-title">
-                  <span className="nc-f-label life">LIFE</span>
-                  <span className="nc-f-count">
-                    {lifeChron.length} · {monthsSinceOldestEntry(consultRecord.LIFE_entries) || '—'}MO
-                  </span>
-                </div>
-                <div className="nc-f-actions">
-                  <button type="button" className="nc-f-btn" aria-label="Add LIFE note" onClick={() => openNewNote('LIFE')}>
-                    <PencilSimple size={14} weight="bold" aria-hidden />
-                  </button>
-                  <button type="button" className="nc-f-btn" aria-label="Voice LIFE note" onClick={() => openNewNoteWithVoice('LIFE')}>
-                    <Microphone size={14} weight="fill" aria-hidden />
-            </button>
-          </div>
-            </div>
-              <div className="nc-f-feed" ref={lifeFeedRef}>
-                <div className="nc-f-spacer" aria-hidden />
-                {lifeChron.length === 0 ? (
-                  <div className="nc-note">
-                    <div className="nc-ts">—</div>
-                    <div className="nc-body">No notes yet — tap pencil or mic.</div>
+          <div className="ncv2-scroll">
+            {CONSULT_POPUP_SECTIONS.map((sec) => {
+              const entries = consultRecord?.[`${sec.key}_entries`] || [];
+              const rows = paneRowsForPopup(
+                entries,
+                consultRecord?.[sec.legacy],
+                sec.defaultText,
+              );
+              const feedRef =
+                sec.key === 'CHAIR'
+                  ? chairFeedRef
+                  : sec.key === 'PATH'
+                    ? pathFeedRef
+                    : lifeFeedRef;
+
+              return (
+                <section key={sec.key} className={`ncv2-section is-${sec.tone}`}>
+                  <div className="ncv2-section__head">
+                    <span className="ncv2-section__dot" aria-hidden />
+                    <span className="ncv2-section__label">{sec.label}</span>
+                    <button
+                      type="button"
+                      className="ncv2-section__mic"
+                      onClick={() => openNewNoteWithVoice(sec.key)}
+                      aria-label={`Voice ${sec.label} note`}
+                    >
+                      <Microphone size={14} weight="regular" aria-hidden />
+                    </button>
                   </div>
-                ) : (
-                  lifeChron.map((entry, idx) => {
-                    const entries = consultRecord.LIFE_entries;
-                    const hasStored = Array.isArray(entries) && entries.length > 0;
-                    const synthetic = !hasStored;
-                    const storageIdx = hasStored ? entries.length - 1 - idx : -1;
-                return (
+
+                  <div className="ncv2-section__rows" ref={feedRef}>
+                    {rows.length === 0 ? (
                       <button
                         type="button"
-                        key={`life-${entry.ts ?? 'n'}-${idx}`}
-                        className={`nc-note${idx === lifeChron.length - 1 ? ' latest' : ''}`}
-                        aria-label="Edit LIFE note"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          stopVoice();
-                          setNoteDraft(entry.text || '');
-                          if (synthetic) {
-                            setNoteEditOpen({ pane: 'LIFE', mode: 'edit', synthetic: true });
-                          } else {
-                            setNoteEditOpen({
-                              pane: 'LIFE',
-                              mode: 'edit',
-                              entryIndex: storageIdx,
-                              entryTs: typeof entry.ts === 'number' ? entry.ts : undefined,
-                            });
-                          }
-                        }}
+                        className="ncv2-row ncv2-row--empty"
+                        onClick={() => openNewNote(sec.key)}
                       >
-                        <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
-                        <div className="nc-body">{entry.text}</div>
+                        <span className="ncv2-row__date">—</span>
+                        <span className="ncv2-row__body">Tap to add</span>
                       </button>
-                    );
-                  })
-                )}
-              </div>
-        </div>
-
-            <div className="nc-field">
-              <div className="nc-f-head">
-                <div className="nc-f-title">
-                  <span className="nc-f-label chair">CHAIR</span>
-                  <span className="nc-f-count">FORMULA · {chairChron.length}</span>
-                </div>
-                <div className="nc-f-actions">
-                  <button type="button" className="nc-f-btn" aria-label="Add CHAIR note" onClick={() => openNewNote('CHAIR')}>
-                    <PencilSimple size={14} weight="bold" aria-hidden />
-                  </button>
-                  <button type="button" className="nc-f-btn" aria-label="Voice CHAIR note" onClick={() => openNewNoteWithVoice('CHAIR')}>
-                    <Microphone size={14} weight="fill" aria-hidden />
-                </button>
-              </div>
-              </div>
-              <div className="nc-f-feed" ref={chairFeedRef}>
-                <div className="nc-f-spacer" aria-hidden />
-                {chairChron.length === 0 ? (
-                  <div className="nc-note">
-                    <div className="nc-ts">—</div>
-                    <div className="nc-body">No notes yet — tap pencil or mic.</div>
+                    ) : (
+                      rows.map((entry, idx) => (
+                        <button
+                          key={`${sec.key}-${entry.ts ?? idx}-${idx}`}
+                          type="button"
+                          className="ncv2-row"
+                          onClick={() => editPaneEntry(sec.key, entry, idx, entries)}
+                        >
+                          <span className="ncv2-row__date">
+                            {entry.ts ? formatNoteDateShort(entry.ts) : '—'}
+                          </span>
+                          <span className="ncv2-row__body">{entry.text}</span>
+                        </button>
+                      ))
+                    )}
                   </div>
-                ) : (
-                  chairChron.map((entry, idx) => {
-                    const entries = consultRecord.CHAIR_entries;
-                    const hasStored = Array.isArray(entries) && entries.length > 0;
-                    const synthetic = !hasStored;
-                    const storageIdx = hasStored ? entries.length - 1 - idx : -1;
-                    return (
+                </section>
+              );
+            })}
+
+            <section className="ncv2-section is-look">
+              <div className="ncv2-section__head">
+                <span className="ncv2-section__dot" aria-hidden />
+                <span className="ncv2-section__label">LOOK</span>
                 <button
                   type="button"
-                        key={`chair-${entry.ts ?? 'n'}-${idx}`}
-                        className={`nc-note${idx === chairChron.length - 1 ? ' latest' : ''}`}
-                        aria-label="Edit CHAIR note"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          stopVoice();
-                          setNoteDraft(entry.text || '');
-                          if (synthetic) {
-                            setNoteEditOpen({ pane: 'CHAIR', mode: 'edit', synthetic: true });
-                          } else {
-                            setNoteEditOpen({
-                              pane: 'CHAIR',
-                              mode: 'edit',
-                              entryIndex: storageIdx,
-                              entryTs: typeof entry.ts === 'number' ? entry.ts : undefined,
-                            });
-                          }
-                        }}
-                      >
-                        <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
-                        <div className="nc-body">{entry.text}</div>
-                  </button>
-                );
-                  })
-                )}
-            </div>
-          </div>
-
-            <div className="nc-field">
-              <div className="nc-f-head">
-                <div className="nc-f-title">
-                  <span className="nc-f-label path">PATH</span>
-                  <span className="nc-f-count">DIRECTION</span>
-        </div>
-                <div className="nc-f-actions">
-                  <button type="button" className="nc-f-btn" aria-label="Add PATH note" onClick={() => openNewNote('PATH')}>
-                    <PencilSimple size={14} weight="bold" aria-hidden />
-        </button>
-                  <button type="button" className="nc-f-btn" aria-label="Voice PATH note" onClick={() => openNewNoteWithVoice('PATH')}>
-                    <Microphone size={14} weight="fill" aria-hidden />
-        </button>
-                </div>
+                  className="ncv2-look__cam"
+                  onClick={() => openPhotoPicker(null)}
+                  aria-label="Add LOOK photo"
+                >
+                  <Camera size={16} weight="regular" aria-hidden />
+                </button>
               </div>
-              <div className="nc-f-feed" ref={pathFeedRef}>
-                <div className="nc-f-spacer" aria-hidden />
-                {pathChron.length === 0 ? (
-                  <div className="nc-note">
-                    <div className="nc-ts">—</div>
-                    <div className="nc-body">No notes yet — tap pencil or mic.</div>
-                  </div>
-                ) : (
-                  pathChron.map((entry, idx) => {
-                    const entries = consultRecord.PATH_entries;
-                    const hasStored = Array.isArray(entries) && entries.length > 0;
-                    const synthetic = !hasStored;
-                    const storageIdx = hasStored ? entries.length - 1 - idx : -1;
-                    return (
+
+              <div className="ncv2-look__meta">
+                <span className="ncv2-look__count">{photosChron.length} PHOTOS</span>
+                <span className="ncv2-look__sep" aria-hidden>••</span>
+                <span className="ncv2-look__hint">SCROLL</span>
+              </div>
+
+              {photosChron.length === 0 ? (
+                <div className="ncv2-look__body">
+                  <div className="ncv2-look__gallery">
+                    <div className="ncv2-look__col">
                       <button
                         type="button"
-                        key={`path-${entry.ts ?? 'n'}-${idx}`}
-                        className={`nc-note${idx === pathChron.length - 1 ? ' latest' : ''}`}
-                        aria-label="Edit PATH note"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          stopVoice();
-                          setNoteDraft(entry.text || '');
-                          if (synthetic) {
-                            setNoteEditOpen({ pane: 'PATH', mode: 'edit', synthetic: true });
-                          } else {
-                            setNoteEditOpen({
-                              pane: 'PATH',
-                              mode: 'edit',
-                              entryIndex: storageIdx,
-                              entryTs: typeof entry.ts === 'number' ? entry.ts : undefined,
-                            });
-                          }
-                        }}
+                        className="ncv2-look__card ncv2-look__empty"
+                        onClick={() => openPhotoPicker(null)}
                       >
-                        <div className="nc-ts">{entry.ts ? formatNoteDateShort(entry.ts) : '—'}</div>
-                        <div className="nc-body">{entry.text}</div>
+                        <div className="ncv2-look__img ncv2-look__empty__img">+ Add photo</div>
                       </button>
-                    );
-                  })
-                )}
-              </div>
-      </div>
-
-            <div className="nc-field nc-field--look">
-              <div className="nc-f-head">
-                <div className="nc-f-title">
-                  <span className="nc-f-label look">LOOK</span>
-                  <span className="nc-f-count">
-                    {photosChron.length} PHOTOS · ↔ SCROLL
-                  </span>
-            </div>
-                <div className="nc-f-actions">
-                  <button type="button" className="nc-f-btn" aria-label="Add LOOK photo" onClick={() => openPhotoPicker(null)}>
-                    <Camera size={14} weight="fill" aria-hidden />
-            </button>
-              </div>
-            </div>
-              <div className="nc-look-gallery" ref={lookGalleryRef}>
-                {photosChron.length === 0 ? (
-                  <button type="button" className="nc-photo-card" onClick={() => openPhotoPicker(null)} aria-label="Add photo">
-                    <div className="nc-photo-img nc-photo-add">+</div>
-                    <div className="nc-photo-cap">add</div>
-                  </button>
-                ) : (
-                  photosChron.map((ph, idx) => (
-          <button
-                      key={`${ph.ts}-${idx}`}
-            type="button"
-                      className={`nc-photo-card${idx === photosChron.length - 1 ? ' latest' : ''}`}
-            onClick={() => {
-                        const origIx = (consultRecord.photos || []).findIndex(
-                          (p) => p && p.url === ph.url && (p.ts || 0) === (ph.ts || 0),
-                        );
-                        openPhotoPicker(origIx >= 0 ? origIx : null);
-                      }}
-                      aria-label={`Photo ${idx + 1}`}
-                    >
-                      <div className="nc-photo-img">
-                        <img src={ph.url} alt="" draggable={false} />
+                      <div className="ncv2-look__date">—</div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="ncv2-look__body">
+                  <div className="ncv2-look__gallery" ref={lookGalleryRef}>
+                    {photosChron.map((ph, idx) => (
+                      <div className="ncv2-look__col" key={`${ph.ts ?? idx}-${idx}`}>
+                        <button
+                          type="button"
+                          className="ncv2-look__card"
+                          onClick={() => handleLookPhotoTap(ph, idx)}
+                          aria-label={`LOOK photo ${idx + 1}. Tap for options, double tap for large picture.`}
+                        >
+                          <div
+                            className="ncv2-look__img"
+                            style={{ backgroundImage: ph.url ? `url(${ph.url})` : undefined }}
+                          />
+                        </button>
+                        <div className="ncv2-look__date">
+                          {formatNoteDateShort(ph.ts || consultRecord.updatedAt || Date.now())}
+                        </div>
                       </div>
-                      <div className="nc-photo-cap">{ph.ts ? formatNoteDateShort(ph.ts) : '—'}</div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+
+          <div className="ncv2-actions">
+            <button
+              type="button"
+              className="ncv2-action ncv2-action--voice"
+              onClick={() => openNewNoteWithVoice('LIFE')}
+            >
+              <WaveTriangle size={18} weight="bold" aria-hidden />
+              <span>VOICE NOTE</span>
+            </button>
+            <button
+              type="button"
+              className="ncv2-action ncv2-action--add"
+              onClick={() => openNewNote('LIFE')}
+            >
+              <NotePencil size={16} weight="regular" aria-hidden />
+              <span>ADD NOTE</span>
+            </button>
           </div>
 
           <input
@@ -2397,7 +2528,7 @@ export default function Screen2() {
             type="button"
             className="s2-addProdBackdrop"
             aria-label="Close"
-            onClick={() => setLookPhotoSheetOpen(false)}
+            onClick={closeLookPhotoSheet}
           />
           <div className="s2-avatarPhotoSheet">
             <h2 className="s2-avatarPhotoTitle">Add a photo</h2>
@@ -2418,15 +2549,57 @@ export default function Screen2() {
                 <ImageIcon size={22} weight="regular" aria-hidden />
                 <span>Choose from camera roll</span>
               </button>
+              {lookSheetPhoto?.url ? (
+                <button
+                  type="button"
+                  className="s2-avatarPhotoBtn"
+                  onClick={triggerLookLargePicture}
+                >
+                  <ArrowsOut size={22} weight="regular" aria-hidden />
+                  <span>Large picture</span>
+                </button>
+              ) : null}
             </div>
             <button
               type="button"
               className="s2-avatarPhotoCancel"
-              onClick={() => setLookPhotoSheetOpen(false)}
+              onClick={closeLookPhotoSheet}
             >
               Cancel
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {lookLargePhoto ? (
+        <div
+          className="s2-lookLargeOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Client photo large view"
+        >
+          <button
+            type="button"
+            className="s2-addProdBackdrop"
+            aria-label="Close"
+            onClick={() => setLookLargePhoto(null)}
+          />
+          <button
+            type="button"
+            className="s2-lookLargeFrame"
+            onClick={() => setLookLargePhoto(null)}
+            aria-label="Close large picture"
+          >
+            <span className="s2-lookLargeClose" aria-hidden="true">
+              <X size={16} weight="bold" />
+            </span>
+            <img
+              src={lookLargePhoto.url}
+              alt=""
+              className="s2-lookLargeImg"
+              draggable={false}
+            />
+          </button>
         </div>
       ) : null}
 
@@ -2539,7 +2712,13 @@ export default function Screen2() {
             </header>
             <div className="s2-addProdScroll">
               <div className="s2-addProdGrid">
-                {svcPickerList.map((s, i) => {
+                {catalogServices.length === 0 && !servicePickerCategory ? (
+                  <p className="s2-addProdEmpty">No services in catalog yet. Add a custom service below.</p>
+                ) : null}
+                {servicePickerCategory && filteredSvcPickerList.length === 0 ? (
+                  <p className="s2-addProdEmpty">No {servicePickerCategory} services in catalog yet.</p>
+                ) : null}
+                {filteredSvcPickerList.map((s, i) => {
                   const inQueue = svcQueue.some((q) => q.id === s.id);
                   const rowSvc =
                     s.id === 'SVC-HOURLY' ? hourlySvc : s.id === 'SVC-CONSULT' ? consultSvc : s;
@@ -2602,13 +2781,7 @@ export default function Screen2() {
                 <button
                   type="button"
                   className="s2-svcPickQueueAdd"
-                  onClick={() => {
-                    setSvcQueue((prev) => [
-                      ...prev,
-                      { id: `SVC-C-${Date.now()}`, name: 'Custom service', price: 0 },
-                    ]);
-                    markS2ServicesVisited();
-                  }}
+                  onClick={handleAddCustomService}
                 >
                   <span className="s2-svcPickQueueAdd__plus" aria-hidden>
                     +
@@ -2644,6 +2817,9 @@ export default function Screen2() {
             </header>
             <div className="s2-addProdScroll">
               <div className="s2-addProdGrid">
+                {productCatalog.length === 0 ? (
+                  <p className="s2-addProdEmpty">No products in catalog yet. Add a custom product below.</p>
+                ) : null}
                 {productCatalog.map((p) => {
                   const inQueue = productQueue.some((q) => q.id === p.id);
                 return (
@@ -2702,8 +2878,18 @@ export default function Screen2() {
                       <div className="s2-svcPickQueueCard__name">{p.name}</div>
                       <div className="s2-svcPickQueueCard__price">${p.price}</div>
         </div>
-            </div>
+                    </div>
                 ))}
+                <button
+                  type="button"
+                  className="s2-svcPickQueueAdd"
+                  onClick={handleAddCustomProduct}
+                >
+                  <span className="s2-svcPickQueueAdd__plus" aria-hidden>
+                    +
+                  </span>
+                  <span className="s2-svcPickQueueAdd__text">ADD CUSTOM PRODUCT</span>
+                </button>
               </div>
             </footer>
           </div>
@@ -2746,7 +2932,7 @@ export default function Screen2() {
             type="button"
             className="s2-addProdBackdrop"
             aria-label="Close"
-            onClick={() => setAvatarPhotoSheetOpen(false)}
+            onClick={closeAvatarPhotoSheet}
           />
           <div className="s2-avatarPhotoSheet">
             <h2 className="s2-avatarPhotoTitle">
@@ -2769,16 +2955,26 @@ export default function Screen2() {
                 <ImageIcon size={22} weight="regular" aria-hidden />
                 <span>
                   {profilePhotoDisplayUrl ? 'Choose a new photo' : 'Choose from library'}
-                        </span>
+                </span>
               </button>
-                    </div>
+              {profilePhotoDisplayUrl ? (
+                <button
+                  type="button"
+                  className="s2-avatarPhotoBtn"
+                  onClick={triggerAvatarLargePicture}
+                >
+                  <ArrowsOut size={22} weight="regular" aria-hidden />
+                  <span>Large picture</span>
+                </button>
+              ) : null}
+            </div>
             <button
               type="button"
               className="s2-avatarPhotoCancel"
-              onClick={() => setAvatarPhotoSheetOpen(false)}
+              onClick={closeAvatarPhotoSheet}
             >
               Cancel
-                  </button>
+            </button>
           </div>
         </div>
       ) : null}

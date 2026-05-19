@@ -1,14 +1,13 @@
 import {
   fetchAppointmentVisit,
   fetchClientConsultation,
-  fetchProductCatalog,
   normalizeClientKey,
   saveAppointmentVisitRemote,
   saveClientConsultationRemote,
 } from './screen2RemoteApi.js'
 import { uploadClientProfileImage } from './clientProfileAvatar.js'
 import { getApptState, makeEmptySvcQueue } from './appointmentStateStore.js'
-import { isAppointmentsApiAvailable } from './v2AppointmentsApi.js'
+import { fetchDynamicProductCatalog } from './s2Catalog.js'
 
 export { normalizeClientKey } from './screen2RemoteApi.js'
 
@@ -292,15 +291,8 @@ export function getCachedProductCatalog() {
 }
 
 export async function refreshProductCatalogCache() {
-  if (!isAppointmentsApiAvailable()) {
-    productsCache = null
-    return null
-  }
-  const data = await fetchProductCatalog()
-  if (data?.stored && Array.isArray(data.products) && data.products.length) {
-    productsCache = data.products
-    dispatch(PRODUCTS_CATALOG_UPDATED)
-    return productsCache
-  }
-  return null
+  const { list } = await fetchDynamicProductCatalog()
+  productsCache = list
+  dispatch(PRODUCTS_CATALOG_UPDATED)
+  return productsCache
 }

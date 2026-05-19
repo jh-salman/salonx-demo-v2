@@ -67,3 +67,23 @@ export async function saveServiceCatalogRemote(body) {
   }
   return res.json()
 }
+
+export async function saveProductCatalogRemote(body) {
+  const base = getV2AdminBase()
+  if (!base) throw new Error('V2 admin / demo-api base URL is not configured')
+  const res = await apiFetch('/api/product-catalog', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    if (res.status === 409) {
+      const err = new Error(data.error || 'Product catalog conflict')
+      err.code = 'CONFLICT'
+      err.payload = data
+      throw err
+    }
+    throw new Error(data.error || `HTTP ${res.status}`)
+  }
+  return res.json()
+}

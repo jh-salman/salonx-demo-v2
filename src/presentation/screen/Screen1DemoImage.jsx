@@ -29,8 +29,10 @@ import {
 } from '../../data/appointmentStateStore';
 import {
   isSameLocalDay,
+  ensureStylistAppointmentsCache,
   useCalendarEvents,
 } from '../../data/calendarEventsStore';
+import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
 import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js';
 import '../style/screen1.css';
 
@@ -929,6 +931,14 @@ function Screen1DemoImage() {
     location.pathname === S1_DEMO_IMAGE_ROUTE;
 
   const calendarEvents = useCalendarEvents();
+
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return undefined;
+    const ac = new AbortController();
+    void ensureStylistAppointmentsCache({ signal: ac.signal });
+    return () => ac.abort();
+  }, []);
+
   const {
     selectSlider,
     setSelectSlider,

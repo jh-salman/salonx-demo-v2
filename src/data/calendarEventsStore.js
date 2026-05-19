@@ -7,8 +7,13 @@
 // live `events` here so hooks still work without persisting events to localStorage.
 
 import { useEffect, useState } from 'react';
-import { readApiAppointmentsSessionCache } from './apiAppointmentsSessionCache.js';
+import { readApiAppointmentsSessionCache, writeApiAppointmentsSessionCache } from './apiAppointmentsSessionCache.js';
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js';
+import {
+  appointmentDtoToEvent,
+  fetchAppointmentsRange,
+  isAppointmentsApiAvailable,
+} from './v2AppointmentsApi.js';
 
 const CALENDAR_STORAGE_KEY = '@salonx/calendar/v1';
 const UPDATE_EVENT_NAME = 'salonx:calendar-updated';
@@ -179,6 +184,68 @@ function useCalendarSlice(load) {
 
 export function useCalendarEvents() {
   return useCalendarSlice(loadCalendarEvents);
+}
+
+/** @type {Promise<unknown[]> | null} */
+let stylistAppointmentsFetch = null;
+
+function localDayBounds(d = new Date()) {
+  const start = new Date(d);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(d);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+/**
+ * Stylist / ClientList read appointments from session cache or the in-memory
+ * mirror — both are filled when Calendar mounts. Bootstrap today's rows on
+ * Stylist first visit so the waiting list is populated without opening Calendar.
+ *
+ * @param {{ signal?: AbortSignal, force?: boolean }} [opts]
+ * @returns {Promise<unknown[]>}
+ */
+export async function ensureStylistAppointmentsCache(opts = {}) {
+  if (!isAppointmentsApiAvailable()) {
+    return loadCalendarEvents();
+  }
+
+  const existing = loadCalendarEvents();
+  if (existing.length > 0 && !opts.force) {
+    return existing;
+  }
+
+  if (stylistAppointmentsFetch) {
+    return stylistAppointmentsFetch;
+  }
+
+  stylistAppointmentsFetch = (async () => {
+    try {
+      const { start, end } = localDayBounds();
+      const rows = await fetchAppointmentsRange(start, end, { signal: opts.signal });
+      if (opts.signal?.aborted) return loadCalendarEvents();
+
+      const events = rows
+        .map(appointmentDtoToEvent)
+        .filter((ev) => ev.start instanceof Date && ev.end instanceof Date)
+        .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      setApiModeCalendarEventsMirror(events);
+      writeApiAppointmentsSessionCache(events);
+      notifyCalendarUpdated();
+      return events;
+    } catch (err) {
+      if (err?.name === 'AbortError' || err?.code === 20) {
+        return loadCalendarEvents();
+      }
+      console.warn('[calendarEventsStore] stylist appointments bootstrap failed', err);
+      return loadCalendarEvents();
+    } finally {
+      stylistAppointmentsFetch = null;
+    }
+  })();
+
+  return stylistAppointmentsFetch;
 }
 
 export function useCalendarParked() {
