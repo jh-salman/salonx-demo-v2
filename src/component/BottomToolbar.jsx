@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Scissors, User, Lightning, CalendarBlank, Gear } from 'phosphor-react';
+import { writePersistedCalendarBack } from '../data/appointmentStateStore';
 import './BottomToolbar.css';
 
 const BOTTOM_TOOLBAR_ITEMS = [
@@ -47,6 +48,19 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
                     originPath && originPath.startsWith('/') ? originPath : '/screen1';
                   /* No apt — Climax uses walk-in defaults unless opened from Screen2 checkout. */
                   navigate(to, { state: { from } });
+                  return;
+                }
+                if (to === '/calendar') {
+                  const from =
+                    originPath && originPath.startsWith('/') && originPath !== '/calendar'
+                      ? originPath
+                      : null;
+                  if (from) {
+                    writePersistedCalendarBack(from);
+                    navigate(to, { state: { from } });
+                    return;
+                  }
+                  navigate(to);
                   return;
                 }
                 navigate(to);

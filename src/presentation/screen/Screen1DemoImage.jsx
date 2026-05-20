@@ -22,6 +22,7 @@ import ClientList from '../../component/ClientList';
 import SetTimmer from '../../component/SetTimmer';
 import WaitingList from '../../component/WaitingList';
 import DynamicDate from '../../component/DynamicDate';
+import { useScreen1CalendarNav } from '../../hooks/useScreen1CalendarNav';
 import { StylistTopBarBrandSvg } from '../../component/StylistTopBarBrandSvg';
 import {
   buildAptNavPayload,
@@ -931,6 +932,7 @@ function Screen1DemoImage() {
     location.pathname === S1_DEMO_IMAGE_ROUTE;
 
   const calendarEvents = useCalendarEvents();
+  const openScreen1Calendar = useScreen1CalendarNav();
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return undefined;
@@ -1222,9 +1224,7 @@ function Screen1DemoImage() {
           onChange={onDemoFileChange}
         />
       ) : null}
-      <div className="date-screen1">
-        <DynamicDate />
-      </div>
+      <DynamicDate />
       <div id="screen1-modal-root" className="screen1-modal-root" />
 
       <div className="layout-wrapper">
@@ -1335,6 +1335,16 @@ function Screen1DemoImage() {
               />
             </div>
             <CurvedLine hideBodyFill={!!demoImages.curveStrip} />
+            <button
+              type="button"
+              className="screen1-curveCalendarTap"
+              onClick={openScreen1Calendar}
+              aria-label="Open calendar"
+              style={
+                editingSlot === 'curveStrip' ? { pointerEvents: 'none' } : undefined
+              }
+              tabIndex={editingSlot === 'curveStrip' ? -1 : undefined}
+            />
             <a
               href="https://dangerjonescreative.com/"
               className="screen1-cobraCreditLink"

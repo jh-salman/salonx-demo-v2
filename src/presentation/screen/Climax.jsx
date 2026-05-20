@@ -15,6 +15,7 @@ import {
   writePersistedScreen2Apt,
   SVC_CONSULT_BASE,
   SVC_HOURLY_BASE,
+  writePersistedCalendarBack,
   writePersistedClimaxBack,
 } from "../../data/appointmentStateStore";
 import { useCalendarEvents } from "../../data/calendarEventsStore";
@@ -217,7 +218,16 @@ export default function Climax() {
     navigate(climaxBackTarget);
   }, [activeApt, climaxBackTarget, navigate]);
 
+  const navigateToFutureCalendar = useCallback(() => {
+    const seedClient = activeApt?.clientName ? { clientName: activeApt.clientName } : null;
+    writePersistedCalendarBack("/climax", { bookFuture: true, seedClient });
+    navigate("/calendar", {
+      state: { from: "/climax", bookFuture: true, seedClient },
+    });
+  }, [navigate, activeApt?.clientName]);
+
   const navigateSwipeToCalendar = useCallback(() => {
+    writePersistedCalendarBack("/climax");
     navigate("/calendar", { state: { from: "/climax" } });
   }, [navigate]);
 
@@ -285,9 +295,7 @@ export default function Climax() {
     [calendarEvents, activeApt],
   );
 
-  const openFutureBooking = useCallback(() => {
-    navigate("/calendar", { state: { from: "/climax" } });
-  }, [navigate]);
+  const openFutureBooking = navigateToFutureCalendar;
 
   // Ticket rows = real services from the queue (with hourly / consult rate
   // injected). Recomputed on every render because rates may change live.

@@ -55,7 +55,7 @@
   /* Timer pill — inset from right so it clears the header curve */
   --s2-header-timer-curve-inset: 45px;
   /* Screen shell base — header curve fill matches this */
-  --s2-bg-base: #030405;
+  --s2-bg-base: #000000;
   /* Header chrome — SalonX theme tokens only (no hex in header rules) */
   --s2-header-curve-fill: var(--s2-bg-base);
   --s2-header-curve-stroke: var(--salonx-primary);
@@ -226,15 +226,12 @@
   background: transparent;
 }
 
-/* Dark graphite base — no photo, subtle depth only */
+/* Solid black stage — no photo, no gradient */
 .s2-bg {
   position: absolute;
   inset: 0;
   z-index: 0;
-  background-color: var(--s2-bg-base);
-  background-image:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.06), transparent 28%),
-    linear-gradient(180deg, #050607 0%, #0a0d10 45%, var(--s2-bg-base) 100%);
+  background: #000000;
 }
 
 /* Decorative curve — top-right (header / identity zone) */

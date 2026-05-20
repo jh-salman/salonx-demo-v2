@@ -27,6 +27,9 @@ export const SCREEN2_APT_SESSION_KEY = '@salonx/screen2LastApt/v1';
 // refresh when paired with navigation state from Screen2 / toolbar.
 export const CLIMAX_BACK_SESSION_KEY = '@salonx/climaxBack/v1';
 
+// Calendar exit route + optional future-booking seed (Climax → Calendar flow).
+export const CALENDAR_BACK_SESSION_KEY = '@salonx/calendarBack/v1';
+
 /** Per-appointment Screen2 step-through (CHECK→…→REBOOK); session-only. */
 export const SCREEN2_WORKFLOW_SESSION_KEY = '@salonx/screen2Workflow/v1';
 
@@ -171,6 +174,46 @@ export function readPersistedClimaxBack() {
   try {
     const v = sessionStorage.getItem(CLIMAX_BACK_SESSION_KEY);
     return v && v.startsWith('/') ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** @typedef {{ from: string, bookFuture?: boolean, seedClient?: { clientName?: string } | null }} CalendarBackPayload */
+
+/** @param {string} from @param {{ bookFuture?: boolean, seedClient?: { clientName?: string } | null }} [extras] */
+export function writePersistedCalendarBack(from, extras = {}) {
+  if (typeof window === 'undefined' || !from || typeof from !== 'string') return;
+  try {
+    sessionStorage.setItem(
+      CALENDAR_BACK_SESSION_KEY,
+      JSON.stringify({
+        from,
+        bookFuture: Boolean(extras.bookFuture),
+        seedClient: extras.seedClient || null,
+      }),
+    );
+  } catch {
+    /* noop */
+  }
+}
+
+/** @returns {CalendarBackPayload | null} */
+export function readPersistedCalendarBack() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(CALENDAR_BACK_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const from = typeof parsed.from === 'string' && parsed.from.startsWith('/') ? parsed.from : null;
+    if (!from) return null;
+    return {
+      from,
+      bookFuture: Boolean(parsed.bookFuture),
+      seedClient:
+        parsed.seedClient && typeof parsed.seedClient === 'object' ? parsed.seedClient : null,
+    };
   } catch {
     return null;
   }

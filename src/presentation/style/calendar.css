@@ -30,11 +30,26 @@
   z-index: 20;
   /* Content starts below the clipped top band + breathing room (no second safe-top — only padding here). */
   min-height: calc(84px + env(safe-area-inset-top, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 12px 6px;
+}
+
+.cal-header__row{
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: center;
   column-gap: 4px;
-  padding: calc(14px + env(safe-area-inset-top, 0px)) 12px 6px;
+}
+
+.cal-header__monthTitle{
+  text-align: center;
+  padding: 0 4px;
+  margin: 0;
+  min-height: 20px;
+  line-height: 1.2;
 }
 
 .cal-header__tabsCell{
@@ -515,11 +530,14 @@
   margin: 14px 0 18px;
 }
 .cal-monthBlock:first-child{ margin-top: 6px; }
-.cal-monthBlock__title{
+.cal-monthBlock__title,
+.cal-header__monthTitle{
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--cal-primary);
+}
+.cal-monthBlock__title{
   padding: 4px 4px 10px;
   margin: 0;
 }

@@ -1,25 +1,22 @@
-import { useNavigate } from "react-router-dom";
+import { useScreen1CalendarNav } from '../hooks/useScreen1CalendarNav';
 
 const DynamicDate = () => {
-  const navigate = useNavigate();
+  const openCalendar = useScreen1CalendarNav();
   const today = new Date();
-  const dayName = today.toLocaleDateString('en-US', { weekday: 'short' }); // e.g. "Thu"
-  const dayNumber = today.getDate(); // e.g. 9
+  const dayName = today.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+  const dayNumber = today.getDate();
 
   return (
-    <div onClick={() => navigate("/screen3")}>
-      {dayName}
-      <br />
-      <p style={dayNumberStyle}>{dayNumber}</p>
-    </div>
+    <button
+      type="button"
+      className="date-screen1"
+      onClick={openCalendar}
+      aria-label="Open calendar"
+    >
+      <span className="date-screen1__dow">{dayName}</span>
+      <span className="date-screen1__num">{dayNumber}</span>
+    </button>
   );
-};
-
-
-const dayNumberStyle = {
-  fontWeight: 'bold',
-  margin: 0,
-  cursor: 'pointer',
 };
 
 export default DynamicDate;

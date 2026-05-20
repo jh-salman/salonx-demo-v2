@@ -53,6 +53,10 @@ import {
   writeApiAppointmentsSessionCache,
 } from "../../data/apiAppointmentsSessionCache.js";
 import { startCalendarRealtimeSync } from "../../sync/calendarRealtimeSync.js";
+import {
+  readPersistedCalendarBack,
+  writePersistedCalendarBack,
+} from "../../data/appointmentStateStore.js";
 import "../style/calendar.css";
 
 // The day grid spans the full 24-hour clock (midnight → midnight) so the
@@ -74,6 +78,8 @@ const TIME_AXIS_WIDTH = 50;
 // 24 h × 60 min = 1440 min — full day; latest valid end time is midnight.
 const MINUTES_PER_DAY = (DAY_END_HOUR - DAY_START_HOUR) * 60;
 const SNAP_MINUTES = 5;
+const FUTURE_BOOK_DEFAULT_HOUR = 9;
+const FUTURE_BOOK_DEFAULT_MINUTE = 0;
 const COLOR_OPTIONS = [
   { id: "pink", label: "Pink", swatch: "#FA1BFE" },
   { id: "blue", label: "Blue", swatch: "#25AFFF" },
@@ -418,15 +424,63 @@ export default function CalendarScreenWeb() {
   const { clearTimer } = useTimers();
   const navigate = useNavigate();
   const location = useLocation();
-  const handleExitCalendar = useCallback(() => {
-    const raw = location.state?.from;
-    const from = typeof raw === "string" && raw.startsWith("/") ? raw : null;
-    if (from && from !== "/calendar") {
-      navigate(from);
+
+  const calendarBackTarget = useMemo(() => {
+    const fromState = location?.state?.from;
+    if (
+      typeof fromState === "string" &&
+      fromState.startsWith("/") &&
+      fromState !== "/calendar"
+    ) {
+      return fromState;
+    }
+    const persisted = readPersistedCalendarBack();
+    if (persisted?.from && persisted.from !== "/calendar") return persisted.from;
+    return "/screen1";
+  }, [location.key, location?.state?.from]);
+
+  const bookFutureCtx = useMemo(() => {
+    if (location?.state?.bookFuture) {
+      return {
+        active: true,
+        seedClientName:
+          typeof location?.state?.seedClient?.clientName === "string"
+            ? location.state.seedClient.clientName
+            : "",
+      };
+    }
+    const persisted = readPersistedCalendarBack();
+    if (persisted?.bookFuture) {
+      return {
+        active: true,
+        seedClientName:
+          typeof persisted?.seedClient?.clientName === "string"
+            ? persisted.seedClient.clientName
+            : "",
+      };
+    }
+    return { active: false, seedClientName: "" };
+  }, [location.key, location?.state?.bookFuture, location?.state?.seedClient]);
+
+  useEffect(() => {
+    const fromNav = location?.state?.from;
+    if (
+      typeof fromNav !== "string" ||
+      !fromNav.startsWith("/") ||
+      fromNav === "/calendar"
+    ) {
       return;
     }
-    navigate(-1);
-  }, [navigate, location.state]);
+    writePersistedCalendarBack(fromNav, {
+      bookFuture: Boolean(location?.state?.bookFuture),
+      seedClient: location?.state?.seedClient || null,
+    });
+  }, [
+    location.key,
+    location?.state?.from,
+    location?.state?.bookFuture,
+    location?.state?.seedClient,
+  ]);
 
   // Tap dispatcher — double tap opens appointment options (single tap is inert)
   const tapRef = useRef({ aptId: null, lastTapTs: 0, pendingTimer: null });
@@ -535,8 +589,27 @@ export default function CalendarScreenWeb() {
   const [monthSheetDate, setMonthSheetDate] = useState(null);
   const [emptySlotInfo, setEmptySlotInfo] = useState(null); // { date, hour, minute }
   const [newApptInit, setNewApptInit] = useState(null); // initial start Date for NewAppt overlay
+  const [newApptSeedClient, setNewApptSeedClient] = useState(null);
   const [editingApt, setEditingApt] = useState(null); // appointment being modified
   const [confirmCancelApt, setConfirmCancelApt] = useState(null);
+
+  const bookFutureEnteredRef = useRef(false);
+  useEffect(() => {
+    if (!bookFutureCtx.active || bookFutureEnteredRef.current) return;
+    bookFutureEnteredRef.current = true;
+    setViewMode("month");
+  }, [bookFutureCtx.active]);
+
+  const handleExitCalendar = useCallback(() => {
+    setNewApptInit(null);
+    setEditingApt(null);
+    setEmptySlotInfo(null);
+    setMonthSheetDate(null);
+    setNewApptSeedClient(null);
+    setAptOptionsApt(null);
+    writePersistedCalendarBack(calendarBackTarget);
+    navigate(calendarBackTarget);
+  }, [navigate, calendarBackTarget]);
 
   // One-time safety: legacy persisted data could have duplicate ids which
   // makes drag state (`dragApt === apt.id`) match multiple cards.
@@ -2275,6 +2348,19 @@ export default function CalendarScreenWeb() {
     setNewApptInit(start);
   }, []);
 
+  const goToDayForScheduling = useCallback(
+    (d) => {
+      setCurrentDate(d);
+      setMonthSheetDate(null);
+      setViewMode("day");
+      if (bookFutureCtx.active && bookFutureCtx.seedClientName) {
+        setNewApptSeedClient(bookFutureCtx.seedClientName);
+        openNewAppointmentAt(d, FUTURE_BOOK_DEFAULT_HOUR, FUTURE_BOOK_DEFAULT_MINUTE);
+      }
+    },
+    [bookFutureCtx.active, bookFutureCtx.seedClientName, openNewAppointmentAt],
+  );
+
   const handleHeaderPlus = useCallback(() => {
     // Default to current hour rounded down + 0 minutes, or 9:00 AM if not today
     const base = new Date(currentDate);
@@ -2860,6 +2946,7 @@ export default function CalendarScreenWeb() {
       }
       setNewApptInit(null);
       setEditingApt(null);
+      setNewApptSeedClient(null);
     },
     [editingApt],
   );
@@ -2900,37 +2987,42 @@ export default function CalendarScreenWeb() {
     <div className="cal-root">
       <CalendarDecorations />
       <div className="cal-header">
-        <button
-          type="button"
-          className="cal-nav cal-headerBack"
-          onClick={handleExitCalendar}
-          aria-label="Back"
-        >
-          <ArrowIcon dir="left" />
-        </button>
-        <div className="cal-header__tabsCell">
-          <div className="cal-tabs" role="tablist" aria-label="Calendar view">
-            <button className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`} onClick={() => setViewMode("day")}>
-              Day
-            </button>
-            <button className={`cal-tab ${viewMode === "week" ? "is-active" : ""}`} onClick={() => setViewMode("week")}>
-              5 Day
-            </button>
-            <button
-              className={`cal-tab ${viewMode === "month" ? "is-active" : ""}`}
-              onClick={() => {
-                setViewMode("month");
-                setMonthSheetDate(null);
-              }}
-            >
-              Month
-            </button>
-            <span className="cal-tabDivider is-1" aria-hidden="true" />
-            <span className="cal-tabDivider is-2" aria-hidden="true" />
-            <span className="cal-tabIndicator" data-mode={viewMode} />
+        {viewMode !== "month" ? (
+          <h1 className="cal-header__monthTitle">{format(currentDate, "MMMM yyyy")}</h1>
+        ) : null}
+        <div className="cal-header__row">
+          <button
+            type="button"
+            className="cal-nav cal-headerBack"
+            onClick={handleExitCalendar}
+            aria-label={calendarBackTarget === "/climax" ? "Back to checkout" : "Back"}
+          >
+            <ArrowIcon dir="left" />
+          </button>
+          <div className="cal-header__tabsCell">
+            <div className="cal-tabs" role="tablist" aria-label="Calendar view">
+              <button className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`} onClick={() => setViewMode("day")}>
+                Day
+              </button>
+              <button className={`cal-tab ${viewMode === "week" ? "is-active" : ""}`} onClick={() => setViewMode("week")}>
+                5 Day
+              </button>
+              <button
+                className={`cal-tab ${viewMode === "month" ? "is-active" : ""}`}
+                onClick={() => {
+                  setViewMode("month");
+                  setMonthSheetDate(null);
+                }}
+              >
+                Month
+              </button>
+              <span className="cal-tabDivider is-1" aria-hidden="true" />
+              <span className="cal-tabDivider is-2" aria-hidden="true" />
+              <span className="cal-tabIndicator" data-mode={viewMode} />
+            </div>
           </div>
+          <span className="cal-header__trailing" aria-hidden="true" />
         </div>
-        <span className="cal-header__trailing" aria-hidden="true" />
       </div>
 
       {viewMode !== "month" ? (
@@ -3083,10 +3175,7 @@ export default function CalendarScreenWeb() {
                               className={`cal-month__cell${sheetSelected ? " is-selected" : ""}${
                                 !inMonth ? " is-muted" : ""
                               }${isToday(d) ? " is-today" : ""}`}
-                              onClick={() => {
-                                setMonthSheetDate(d);
-                                setCurrentDate(d);
-                              }}
+                              onClick={() => goToDayForScheduling(d)}
                             >
                               <div className="cal-month__num">{format(d, "d")}</div>
                               <div className="cal-month__dots">
@@ -3892,6 +3981,7 @@ export default function CalendarScreenWeb() {
         <NewAppointmentOverlay
           initialStart={newApptInit}
           editing={editingApt}
+          seedClientName={newApptSeedClient || undefined}
           clients={clients}
           services={serviceCatalog}
           onAddClient={handleAddClient}
@@ -3899,6 +3989,7 @@ export default function CalendarScreenWeb() {
           onCancel={() => {
             setNewApptInit(null);
             setEditingApt(null);
+            setNewApptSeedClient(null);
           }}
           onSave={handleSaveAppointment}
         />
@@ -3916,6 +4007,7 @@ const REPEAT_INTERVALS = [
 function NewAppointmentOverlay({
   initialStart,
   editing,
+  seedClientName,
   clients,
   services,
   onAddClient,
@@ -3925,16 +4017,21 @@ function NewAppointmentOverlay({
 }) {
   // Try to match editing.clientName against the catalog when modifying
   const initialClient = useMemo(() => {
-    if (!editing) return null;
-    return clients.find((c) => c.name === editing.clientName) || null;
-  }, [editing, clients]);
+    if (editing) {
+      return clients.find((c) => c.name === editing.clientName) || null;
+    }
+    if (seedClientName) {
+      return clients.find((c) => c.name === seedClientName) || null;
+    }
+    return null;
+  }, [editing, seedClientName, clients]);
   const initialService = useMemo(() => {
     if (!editing) return null;
     return services.find((s) => s.name === editing.service) || null;
   }, [editing, services]);
 
   const [selectedClient, setSelectedClient] = useState(initialClient);
-  const [clientName, setClientName] = useState(editing?.clientName || "");
+  const [clientName, setClientName] = useState(editing?.clientName || seedClientName || "");
   const [selectedService, setSelectedService] = useState(initialService);
   const [serviceName, setServiceName] = useState(editing?.service || "");
   const [time, setTime] = useState(format(initialStart, "HH:mm"));

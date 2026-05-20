@@ -1,13 +1,36 @@
 .date-screen1 {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  right: calc(8px + env(safe-area-inset-right, 0px));
   z-index: 1000;
-  cursor: pointer;
-  font-size: 16px;
-  font-weight: bold;
-  text-align: right;
+  border: 0;
+  margin: 0;
+  padding: 8px 12px;
+  min-width: 52px;
+  min-height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 2px;
+  background: transparent;
   color: #fff;
+  cursor: pointer;
+  text-align: right;
+  -webkit-tap-highlight-color: transparent;
+  pointer-events: auto;
+}
+.date-screen1__dow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  line-height: 1;
+}
+.date-screen1__num {
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.01em;
 }
 
 /* Outer frame — reserves iOS PWA top/bottom safe areas without altering
@@ -84,6 +107,8 @@
   --s1-curve-top: -5px;
   --s1-curve-right: -6px;
   --s1-curve-w: 65px;
+  /* Upper hook of CurvedLine SVG (y≈192 / 973) — calendar tap above, partner link below. */
+  --s1-curve-rail-split: calc(100% * 192 / 973);
   /* Dock row — list/timer reserve space above this */
   --s1-toolbar-h: 64px;
 }
@@ -272,11 +297,32 @@
 .screen1-container:not(.screen1-container--demoImage)
   .curvedline-container--clientCurveHasMedia
   .screen1-cobraCreditLink {
-  inset: 0 0 0 auto;
+  top: var(--s1-curve-rail-split);
+  right: 0;
+  bottom: 0;
+  left: auto;
   width: min(28px, 38%);
   max-width: 100%;
-  height: 100%;
+  height: auto;
   z-index: 4;
+}
+
+/* Upper curve hook — opens Calendar (matches CurvedLine SVG split). */
+.screen1-curveCalendarTap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  width: 100%;
+  height: var(--s1-curve-rail-split);
+  z-index: 6;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  pointer-events: auto;
 }
 
 .profile-panel {
@@ -1355,12 +1401,15 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Demo route: narrow outer rail so curve-strip image slot still receives most taps. */
+/* Demo route: narrow outer rail on lower curve; upper hook is calendar tap. */
 .screen1-container--demoImage .curvedline-container--demoSlot .screen1-cobraCreditLink {
-  inset: 0 0 0 auto;
+  top: var(--s1-curve-rail-split);
+  right: 0;
+  bottom: 0;
+  left: auto;
   width: min(28px, 38%);
   max-width: 100%;
-  height: 100%;
+  height: auto;
   z-index: 4;
 }
 

@@ -24,8 +24,7 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(var(--salonx-primary-rgb), 0.12), transparent 55%),
-    #000;
+  background: #000000;
 }
 
 .s2c-topRightCurve {
