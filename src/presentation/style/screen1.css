@@ -1,13 +1,13 @@
 .date-screen1 {
   position: absolute;
-  top: calc(8px + env(safe-area-inset-top, 0px));
-  right: calc(8px + env(safe-area-inset-right, 0px));
+  top: 12px;
+  right: calc(4px + env(safe-area-inset-right, 0px));
   z-index: 1000;
   border: 0;
   margin: 0;
-  padding: 8px 12px;
-  min-width: 52px;
-  min-height: 48px;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -25,6 +25,7 @@
   font-weight: 800;
   letter-spacing: 0.18em;
   line-height: 1;
+  text-transform: uppercase;
 }
 .date-screen1__num {
   font-size: 22px;
@@ -33,13 +34,10 @@
   letter-spacing: -0.01em;
 }
 
-/* Outer frame — reserves iOS PWA top/bottom safe areas without altering
- * `.screen1-container` mask/curve/panel layout. Same recipe as `.screen0-root`
- * which we verified works on iOS PWA. */
+/* Outer frame — reserves iOS PWA top safe area; bottom handled by fixed BottomToolbar. */
 .screen1-frame {
   position: relative;
   width: 100%;
-  /* Fill `app-layout` above fixed BottomToolbar; avoid standalone `100vh` iOS PWA sizing gaps. */
   flex: 1 1 auto;
   min-height: 0;
   background-color: #000;
@@ -47,7 +45,7 @@
   flex-direction: column;
   overflow: hidden;
   padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: 0;
   box-sizing: border-box;
 }
 
@@ -58,14 +56,9 @@
   box-sizing: border-box;
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   width: 100%;
-  /*
-   * Do not rely on `height: 100%` up the React tree (StrictMode / context providers
-   * pass through with no DOM node — parent flex height can be missing). Pin to the
-   * real viewport shell so absolute children + `calc(100% - …)` resolve correctly.
-   */
-  min-height: var(--salonx-shell-height);
-  height: var(--salonx-shell-height);
+  height: auto;
   /*
    * Clear only what global BottomToolbar + safe slice need, minus intentional dip overlap.
    * Never floor with a px minimum — on iOS PWA (shrunk `--salonx-bottom-toolbar-safe-h`) that
@@ -104,6 +97,7 @@
   /* Logical frame for masks — percentage of this box (fills viewport via .screen1-container) */
   --s1-bg-w: 100%;
   --s1-bg-h: 100%;
+  --s1-content-inset-left: 5px;
   --s1-curve-top: -5px;
   --s1-curve-right: -6px;
   --s1-curve-w: 65px;
@@ -237,16 +231,7 @@
   transform: translateZ(0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  -webkit-mask-image: url('/curve-strip-content-mask.svg');
-  mask-image: url('/curve-strip-content-mask.svg');
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
+  overflow: hidden;
 }
 
 .screen1-container:not(.screen1-container--demoImage)
@@ -293,7 +278,6 @@
   object-position: center;
 }
 
-/* Narrow outer rail when curve media is shown so credit link does not cover the strip. */
 .screen1-container:not(.screen1-container--demoImage)
   .curvedline-container--clientCurveHasMedia
   .screen1-cobraCreditLink {
@@ -345,9 +329,9 @@
 }
 
 .company-header {
-  --s1-panel-left: 0px;
+  --s1-panel-left: var(--s1-content-inset-left, 5px);
   --s1-panel-top: 208px;
-  width: 100%;
+  width: calc(100% - var(--s1-panel-left));
   height: 70px;
   top: var(--s1-panel-top);
   position: absolute;
@@ -356,9 +340,9 @@
 }
 
 .client-list-wrapper {
-  --s1-panel-left: 0px;
+  --s1-panel-left: var(--s1-content-inset-left, 5px);
   --s1-panel-top: 286px;
-  width: 100%;
+  width: calc(100% - var(--s1-panel-left));
   /*
    * Appointments + waiting list: viewport extends toward global BottomToolbar
    * (subtract less than toolbar stack — avoids a dead gap / “tail” when scrolled flush).
@@ -379,12 +363,12 @@
 }
 
 .timer-panel {
-  --s1-panel-left: 0px;
+  --s1-panel-left: var(--s1-content-inset-left, 5px);
   --s1-panel-top: 286px;
   position: absolute;
   top: var(--s1-panel-top);
   left: var(--s1-panel-left);
-  width: 100%;
+  width: calc(100% - var(--s1-panel-left));
   height: 384px;
   z-index: 2;
   transition: transform 0.5s ease;
@@ -800,8 +784,9 @@
 .screen1-container--demoImage .s1demo-grayStack {
   --s1-panel-top: var(--s1demo-gray-stack-margin-top);
   margin-top: var(--s1demo-gray-stack-margin-top);
+  margin-left: var(--s1-content-inset-left, 5px);
   /* Widen with hero so mask cuts one shape for top bar + hero */
-  width: 100%;
+  width: calc(100% - var(--s1-content-inset-left, 5px));
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -849,8 +834,8 @@
   --s1-panel-top: var(--s1demo-gray-promo-top);
   position: absolute;
   top: var(--s1-panel-top);
-  left: 0;
-  width: 100%;
+  left: var(--s1-content-inset-left, 5px);
+  width: calc(100% - var(--s1-content-inset-left, 5px));
   height: var(--s1demo-gray-promo-h);
   z-index: 2;
   box-sizing: border-box;
@@ -899,8 +884,9 @@
 .screen1-container--demoImage .s1demo-curveStripLayer {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 2;
   overflow: hidden;
+  isolation: isolate;
 }
 
 .screen1-container--demoImage .curvedline-container--demoSlot .curvedline-svg {
@@ -909,7 +895,18 @@
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.screen1-container--demoImage .curvedline-container--demoSlot .curvedline-svg--bodyFill {
+  z-index: 1;
+}
+
+.screen1-container--demoImage .curvedline-container--demoSlot .curvedline-svg--full {
   z-index: 2;
+}
+
+.screen1-container--demoImage .curvedline-container--demoSlot .curvedline-svg--stroke {
+  z-index: 3;
 }
 
 .screen1-container--demoImage .s1demo-curveStripSlot.s1demo-slot {
@@ -922,22 +919,44 @@
   padding: 0;
   border-radius: 0;
   background: #000000;
-  /* Clip slot + image to the silhouette right of the neon curve (see `public/curve-strip-content-mask.svg`). */
-  /* Promote own compositing layer — WebKit/iOS often fails to apply SVG masks without it. */
   -webkit-transform: translateZ(0);
   transform: translateZ(0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  -webkit-mask-image: url('/curve-strip-content-mask.svg');
-  mask-image: url('/curve-strip-content-mask.svg');
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-mode: alpha;
-  mask-mode: alpha;
+  overflow: hidden;
+}
+
+/*
+ * Curve-strip media — SVG clip-path matches CurvedLine body geometry exactly.
+ * Applied at layer + slot + media so iOS video cannot paint left of the orange stroke.
+ */
+.screen1-container .curvedline-container--hasStripMedia .s1demo-curveStripLayer,
+.screen1-container .curvedline-container--hasStripMedia .s1demo-curveStripSlot.s1demo-slot,
+.screen1-container .curvedline-container--hasStripMedia .s1demo-curveStripSlot .s1demo-slot__imgLayer,
+.screen1-container .curvedline-container--hasStripMedia .s1demo-curveStripSlot .s1demo-slot__imgLayer video,
+.screen1-container .curvedline-container--hasStripMedia .s1demo-curveStripSlot .s1demo-slot__imgLayer img,
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurveHasMedia
+  .s1demo-curveStripLayer,
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurveHasMedia
+  .s1demo-curveStripSlot.s1demo-slot,
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurveHasMedia
+  .s1demo-curveStripSlot
+  .s1demo-slot__imgLayer,
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurveHasMedia
+  .s1demo-curveStripSlot
+  .s1demo-slot__imgLayer
+  video,
+.screen1-container:not(.screen1-container--demoImage)
+  .curvedline-container--clientCurveHasMedia
+  .s1demo-curveStripSlot
+  .s1demo-slot__imgLayer
+  img {
+  -webkit-clip-path: url(#s1-curve-strip-clip);
+  clip-path: url(#s1-curve-strip-clip);
 }
 
 .screen1-container--demoImage .s1demo-curveStripSlot .s1demo-slot__hint {
@@ -1418,8 +1437,8 @@
   --s1-panel-top: var(--s1demo-gray-promo-top);
   position: absolute;
   top: var(--s1-panel-top);
-  left: 0;
-  width: 100%;
+  left: var(--s1-content-inset-left, 5px);
+  width: calc(100% - var(--s1-content-inset-left, 5px));
   height: var(--s1demo-gray-promo-h);
   z-index: 10;
   box-sizing: border-box;

@@ -28,8 +28,32 @@ function applyIosStandalonePwaClass() {
   }
 }
 
+/** iOS PWA first paint: `100dvh` / safe-area can settle late — sync shell height from the real viewport. */
+function startIosPwaViewportSync() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return () => {}
+  if (!document.documentElement.classList.contains('salonx-ios-pwa')) return () => {}
+
+  const sync = () => {
+    const h = Math.round(window.visualViewport?.height ?? window.innerHeight)
+    if (h > 0) {
+      document.documentElement.style.setProperty('--salonx-shell-height', `${h}px`)
+    }
+  }
+
+  sync()
+  window.addEventListener('resize', sync)
+  window.addEventListener('orientationchange', sync)
+  window.visualViewport?.addEventListener('resize', sync)
+  return () => {
+    window.removeEventListener('resize', sync)
+    window.removeEventListener('orientationchange', sync)
+    window.visualViewport?.removeEventListener('resize', sync)
+  }
+}
+
 function startApp() {
   applyIosStandalonePwaClass()
+  startIosPwaViewportSync()
   applyCachedV2AdminConfigFromStorage()
   applySalonxPrimaryTheme(readStoredPrimaryHex())
   startV2AdminRealtimeSync()

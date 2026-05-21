@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,6 +18,7 @@ import {
   CaretRight,
 } from 'phosphor-react';
 import CurvedLine from '../../component/CurvedLine';
+import S1CurveStripClipDefs from '../../component/S1CurveStripClipDefs';
 import { AppContext } from '../../context/AppContext';
 import ClientList from '../../component/ClientList';
 import SetTimmer from '../../component/SetTimmer';
@@ -887,14 +889,28 @@ function S1DemoImageSlot({
               loop
               autoPlay
               draggable={false}
-              style={{ objectFit: adjust.fit, transform }}
+              style={{
+                objectFit: adjust.fit,
+                transform,
+                WebkitClipPath: 'url(#s1-curve-strip-clip)',
+                clipPath: 'url(#s1-curve-strip-clip)',
+              }}
             />
           ) : (
             <img
               src={optimizeMediaDeliveryUrl(src, 'image')}
               alt=""
               draggable={false}
-              style={{ objectFit: adjust.fit, transform }}
+              style={
+                slotId === 'curveStrip'
+                  ? {
+                      objectFit: adjust.fit,
+                      transform,
+                      WebkitClipPath: 'url(#s1-curve-strip-clip)',
+                      clipPath: 'url(#s1-curve-strip-clip)',
+                    }
+                  : { objectFit: adjust.fit, transform }
+              }
             />
           )}
         </div>
@@ -933,6 +949,10 @@ function Screen1DemoImage() {
 
   const calendarEvents = useCalendarEvents();
   const openScreen1Calendar = useScreen1CalendarNav();
+  const stylistRouteVisible =
+    location.pathname === SCREEN1_ROUTE ||
+    location.pathname === S1_DEMO_IMAGE_ROUTE;
+  const screen1FrameRef = useRef(null);
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return undefined;
@@ -987,6 +1007,30 @@ function Screen1DemoImage() {
     window.addEventListener('salonx:v2admin-s1demo', onV2Admin);
     return () => window.removeEventListener('salonx:v2admin-s1demo', onV2Admin);
   }, []);
+
+  useEffect(() => {
+    const root = screen1FrameRef.current;
+    if (!root) return;
+    root.querySelectorAll('video').forEach((v) => {
+      if (stylistRouteVisible) {
+        void v.play().catch(() => {});
+      } else {
+        v.pause();
+      }
+    });
+  }, [stylistRouteVisible, demoImages.curveStrip, demoMediaKinds.curveStrip]);
+
+  /** iOS PWA: masked client column can fail first paint until layout settles (calendar visit used to “fix” it). */
+  useLayoutEffect(() => {
+    if (!stylistRouteVisible) return;
+    const root = screen1FrameRef.current;
+    if (!root) return;
+    void root.offsetHeight;
+    const id = requestAnimationFrame(() => {
+      void root.offsetHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [stylistRouteVisible]);
 
   /** Slot currently in adjust-before-upload mode (null = nothing pending). */
   const [editingSlot, setEditingSlot] = useState(
@@ -1211,8 +1255,9 @@ function Screen1DemoImage() {
       : '';
 
   return (
-    <div className="screen1-frame">
+    <div className="screen1-frame" ref={screen1FrameRef}>
     <div className="screen1-container screen1-container--demoImage">
+      <S1CurveStripClipDefs />
       {allowImageUpload ? (
         <input
           ref={fileInputRef}
@@ -1314,7 +1359,14 @@ function Screen1DemoImage() {
             </div>
             {/* Global bottom toolbar is rendered by AppLayout (router.jsx). */}
           </div>
-          <div className="curvedline-container curvedline-container--demoSlot">
+          <div
+            className={`curvedline-container curvedline-container--demoSlot${
+              demoImages.curveStrip ? ' curvedline-container--hasStripMedia' : ''
+            }`}
+          >
+            {demoImages.curveStrip ? (
+              <CurvedLine part="body" />
+            ) : null}
             <div className="s1demo-curveStripLayer">
               <S1DemoImageSlot
                 slotId="curveStrip"
@@ -1334,7 +1386,11 @@ function Screen1DemoImage() {
                 mediaKind={demoMediaKinds.curveStrip === 'video' ? 'video' : 'image'}
               />
             </div>
-            <CurvedLine hideBodyFill={!!demoImages.curveStrip} />
+            {demoImages.curveStrip ? (
+              <CurvedLine part="stroke" />
+            ) : (
+              <CurvedLine part="full" />
+            )}
             <button
               type="button"
               className="screen1-curveCalendarTap"

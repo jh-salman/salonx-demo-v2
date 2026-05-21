@@ -1,32 +1,51 @@
+import { CURVE_BODY_PATH, CURVE_STROKE_PATH } from './curvePaths';
+
 /** Right-edge decorative strip for Screen1.
  *  Width/height are 100% — the SVG fills `.curvedline-container`'s slot.
- *  @param {{ hideBodyFill?: boolean }} [props]
- *    Omit the solid body fill so a stacked image can show under the stroke.
+ *
+ *  @param {{ part?: 'full' | 'body' | 'stroke' }} [props]
+ *    `full` — black body + stroke (no strip media).
+ *    `body` / `stroke` — split stack: body under strip media, stroke on top.
  */
-function CurvedLine({ hideBodyFill = false }) {
+
+const SVG_PROPS = {
+  width: '100%',
+  height: '100%',
+  viewBox: '0 0 76 973',
+  fill: 'none',
+  xmlns: 'http://www.w3.org/2000/svg',
+  preserveAspectRatio: 'none',
+  'aria-hidden': true,
+};
+
+function CurvedLine({ part = 'full' }) {
+  if (part === 'body') {
+    return (
+      <svg {...SVG_PROPS} className="curvedline-svg curvedline-svg--bodyFill">
+        <path d={CURVE_BODY_PATH} fill="#000000" />
+      </svg>
+    );
+  }
+
+  if (part === 'stroke') {
+    return (
+      <svg {...SVG_PROPS} className="curvedline-svg curvedline-svg--stroke">
+        <path
+          d={CURVE_STROKE_PATH}
+          fill="none"
+          stroke="var(--salonx-primary)"
+          strokeWidth="3"
+          vectorEffect="nonScalingStroke"
+        />
+      </svg>
+    );
+  }
+
   return (
-    <svg
-      className="curvedline-svg"
-      width="100%"
-      height="100%"
-      viewBox="0 0 76 973"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      {hideBodyFill ? null : (
-        <>
-          {/* Body silhouette — keep `public/curve-strip-content-mask.svg` in sync. */}
-          <path
-            d="M38.0749 377.503C40.2632 368.048 41.483 362.743 43.5986 353.252C43.5986 353.252 68.8256 287.211 72.8383 223.827L72.8598 217.5V192.646C72.1107 182.231 70.5056 172.232 67.8085 163C63.6493 148.763 60.061 143.055 52.163 130.5C48.4975 124.673 45.3306 121.059 40.663 116C34.2897 109.092 30.4741 106.465 24.163 99.5C-1.3427 71.3515 2.16299 2 2.16299 2H72.8598V192.646C73.5868 202.753 73.5077 213.253 72.8383 223.827L70.2967 972C70.2967 972 65.8077 950.628 62.9317 936.933L55.5667 901.866C55.5667 901.866 51.2177 879.297 48.4319 864.833C45.6452 850.371 44.0138 842.29 41.2971 827.8L40.4447 823.256C35.4621 796.696 32.417 780.465 27.9481 752.423C23.5632 724.91 21.2141 709.353 17.8213 681.634C13.7903 648.701 10.7518 630.376 9.53567 597.08C8.28362 562.803 8.4079 543.224 11.8372 509.25C14.9692 478.217 18.8533 461.278 25.1862 431.251C29.666 410.009 33.1984 398.568 38.0749 377.503Z"
-            fill="#000000"
-          />
-        </>
-      )}
-      {/* Outline */}
+    <svg {...SVG_PROPS} className="curvedline-svg curvedline-svg--full">
+      <path d={CURVE_BODY_PATH} fill="#000000" />
       <path
-        d="M40.663 116C45.3306 121.059 48.4975 124.673 52.163 130.5C60.061 143.055 63.6493 148.763 67.8085 163C88.8108 234.892 43.5986 353.252 43.5986 353.252C41.483 362.743 40.2632 368.048 38.0749 377.503C33.1984 398.568 29.666 410.009 25.1862 431.251C18.8533 461.278 14.9692 478.217 11.8372 509.25C8.4079 543.224 8.28362 562.803 9.53567 597.08C10.7518 630.376 13.7903 648.701 17.8213 681.634C21.2141 709.353 23.5632 724.91 27.9481 752.423C32.6663 782.029 35.7973 798.47 41.2971 827.8C44.0138 842.29 45.6452 850.371 48.4319 864.833C51.2177 879.297 55.5667 901.866 55.5667 901.866C55.5667 901.866 60.0557 923.24 62.9317 936.933C65.8077 950.628 70.2967 972 70.2967 972L72.8598 217.5V2H2.16299C2.16299 2 -1.3427 71.3515 24.163 99.5C30.4741 106.465 34.2897 109.092 40.663 116Z"
+        d={CURVE_STROKE_PATH}
         fill="none"
         stroke="var(--salonx-primary)"
         strokeWidth="3"

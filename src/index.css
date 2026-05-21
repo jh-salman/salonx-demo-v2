@@ -131,3 +131,30 @@ body {
   -webkit-clip-path: inset(env(safe-area-inset-top, 0px) 0 0 0);
   clip-path: inset(env(safe-area-inset-top, 0px) 0 0 0);
 }
+
+/* Stylist (Screen1) keep-alive — stay mounted when navigating via toolbar. */
+.app-keepalive-screen1 {
+  display: none;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+.app-keepalive-screen1.is-active {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+.app-layout__outlet {
+  display: none;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+.app-layout__outlet.is-active {
+  display: flex;
+}

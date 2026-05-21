@@ -267,8 +267,15 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: var(--s2-screen-card-gap);
-  pointer-events: none;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .s2-rightStamp__dow {
@@ -343,7 +350,7 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  padding-top: 0;
+  padding-top: 4px;
   padding-bottom: 0;
   gap: var(--s2-screen-card-gap);
   padding-left: calc(var(--s2-page-gutter) + env(safe-area-inset-left, 0px));
@@ -356,7 +363,7 @@
   position: relative;
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--s2-screen-card-gap);
   width: 100%;
   min-width: 0;
@@ -368,7 +375,7 @@
   z-index: 1;
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--s2-screen-card-gap);
   flex-shrink: 0;
   min-width: 0;
@@ -377,7 +384,7 @@
 .s2-identityCenter {
   position: absolute;
   left: 50%;
-  top: 0;
+  top: -4px;
   transform: translateX(-50%);
   z-index: 0;
   min-width: 0;
@@ -391,8 +398,8 @@
   z-index: 2;
   flex-shrink: 0;
   margin-left: auto;
-  margin-right: var(--s2-header-timer-curve-inset);
-  align-self: center;
+  margin-right: calc(var(--s2-header-timer-curve-inset) + 5px);
+  align-self: flex-end;
 }
 
 .s2-headerTimer {
@@ -489,7 +496,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
   width: 100%;
   padding-top: 0;
@@ -1512,9 +1519,24 @@
 }
 
 .s2-actionCard .s2-ctaLabel {
-  font-size: 12px;
+  font-size: 24px;
   font-weight: 650;
   letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.s2-actionCard .s2-cta.is-notify {
+  animation: s2-cta-notify 1.4s ease-in-out infinite;
+}
+
+@keyframes s2-cta-notify {
+  0%,
+  100% {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px rgba(var(--salonx-primary-rgb), 0.35);
+  }
+  50% {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 8px 2px rgba(var(--salonx-primary-rgb), 0.45);
+  }
 }
 
 .s2-actionCard .s2-flagIcon {
@@ -2307,7 +2329,7 @@
 }
 
 .s2-consultCard .s2-paneLine {
-  font-size: clamp(0.75rem, 11cqh, 0.875rem);
+  font-size: clamp(0.875rem, 12cqh, 1rem);
   font-weight: 450;
   line-height: 1.4;
   color: rgba(255, 255, 255, 0.92);
@@ -3211,6 +3233,12 @@
   border-color: rgba(251, 113, 133, 0.45);
   background: rgba(251, 113, 133, 0.14);
   color: #fda4af;
+}
+
+.s2-confirmBtn--primary {
+  border-color: rgba(var(--salonx-primary-rgb), 0.45);
+  background: rgba(var(--salonx-primary-rgb), 0.14);
+  color: var(--salonx-primary);
 }
 
 /* Avatar photo sheet */

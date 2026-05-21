@@ -130,12 +130,44 @@ export function readPersistedScreen2Apt() {
   }
 }
 
-export function writePersistedScreen2Apt(apt, from) {
+/** Client phone saved with the Screen2 checkout session (S2 → Climax pipe). */
+export function readPersistedScreen2ClientPhone() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(SCREEN2_APT_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const phone =
+      parsed && typeof parsed === 'object' && typeof parsed.clientPhone === 'string'
+        ? parsed.clientPhone.trim()
+        : '';
+    return phone || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writePersistedScreen2Apt(apt, from, clientPhone) {
   if (typeof window === 'undefined' || !apt) return;
   try {
+    let phone =
+      typeof clientPhone === 'string' && clientPhone.trim() ? clientPhone.trim() : null;
+    if (!phone) {
+      const raw = sessionStorage.getItem(SCREEN2_APT_SESSION_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const existing =
+          parsed && typeof parsed.clientPhone === 'string' ? parsed.clientPhone.trim() : '';
+        if (existing) phone = existing;
+      }
+    }
     sessionStorage.setItem(
       SCREEN2_APT_SESSION_KEY,
-      JSON.stringify({ apt, from: from || null }),
+      JSON.stringify({
+        apt,
+        from: from || null,
+        ...(phone ? { clientPhone: phone } : {}),
+      }),
     );
   } catch {
     /* noop */
@@ -179,9 +211,43 @@ export function readPersistedClimaxBack() {
   }
 }
 
-/** @typedef {{ from: string, bookFuture?: boolean, seedClient?: { clientName?: string } | null }} CalendarBackPayload */
+/** @typedef {{ id: string, title: string, service?: string, color?: string, isParked: true, fromMove?: boolean, fromRebook?: boolean, durationMinutes: number, targetStart?: string, targetEnd?: string, price?: number, notes?: string }} RebookParkItem */
 
-/** @param {string} from @param {{ bookFuture?: boolean, seedClient?: { clientName?: string } | null }} [extras] */
+/** @typedef {{ from: string, bookFuture?: boolean, seedClient?: { clientName?: string } | null, rebookToPark?: RebookParkItem | null, goToDate?: string | null }} CalendarBackPayload */
+
+/**
+ * Build a toolbar parked card for S2 rebook → MOVE TO PARK (+4 weeks, not on grid).
+ * @param {{ clientName?: string, service?: string, color?: string, price?: number, notes?: string }} apt
+ * @param {{ start: Date, end: Date }} target
+ * @param {string} [clientNameFallback]
+ * @returns {RebookParkItem}
+ */
+export function buildRebookParkItem(apt, target, clientNameFallback = '') {
+  const durationMinutes = Math.max(
+    5,
+    Math.round((target.end.getTime() - target.start.getTime()) / 60000) || 60,
+  );
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? `pk-rebook-${crypto.randomUUID()}`
+      : `pk-rebook-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return {
+    id,
+    title: apt?.clientName || clientNameFallback || '',
+    service: apt?.service || '',
+    color: apt?.color || '#25AFFF',
+    isParked: true,
+    fromMove: false,
+    fromRebook: true,
+    durationMinutes,
+    targetStart: target.start.toISOString(),
+    targetEnd: target.end.toISOString(),
+    price: typeof apt?.price === 'number' ? apt.price : 0,
+    notes: apt?.notes || '',
+  };
+}
+
+/** @param {string} from @param {{ bookFuture?: boolean, seedClient?: { clientName?: string } | null, rebookToPark?: RebookParkItem | null, goToDate?: string | null }} [extras] */
 export function writePersistedCalendarBack(from, extras = {}) {
   if (typeof window === 'undefined' || !from || typeof from !== 'string') return;
   try {
@@ -191,6 +257,8 @@ export function writePersistedCalendarBack(from, extras = {}) {
         from,
         bookFuture: Boolean(extras.bookFuture),
         seedClient: extras.seedClient || null,
+        rebookToPark: extras.rebookToPark || null,
+        goToDate: typeof extras.goToDate === 'string' ? extras.goToDate : null,
       }),
     );
   } catch {
@@ -213,6 +281,11 @@ export function readPersistedCalendarBack() {
       bookFuture: Boolean(parsed.bookFuture),
       seedClient:
         parsed.seedClient && typeof parsed.seedClient === 'object' ? parsed.seedClient : null,
+      rebookToPark:
+        parsed.rebookToPark && typeof parsed.rebookToPark === 'object'
+          ? parsed.rebookToPark
+          : null,
+      goToDate: typeof parsed.goToDate === 'string' ? parsed.goToDate : null,
     };
   } catch {
     return null;

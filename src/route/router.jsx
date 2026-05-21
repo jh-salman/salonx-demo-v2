@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { createBrowserRouter, Outlet, useLocation } from "react-router-dom";
 import Home from "../presentation/screen/Home";
 import Screen2 from "../presentation/screen/Screen2";
@@ -8,13 +9,26 @@ import CheckOut from "../presentation/screen/CheckOut";
 import Clients from "../presentation/screen/Clients";
 import SettingsScreen from "../presentation/screen/SettingsScreen";
 import Screen1DemoImage from "../presentation/screen/Screen1DemoImage";
+import RampPostIt from "../presentation/screen/RampPostIt";
 import BottomToolbar from "../component/BottomToolbar";
 
-/**
- * Routes that should NOT show the global bottom toolbar:
- *  - `/`         → Welcome / pre-login screen
- */
+function isScreen1Path(pathname) {
+  return (
+    pathname.startsWith("/screen1") || pathname.startsWith("/s1-demo-image")
+  );
+}
+
+/** Route slot only — Screen1 stays mounted in AppLayout keep-alive shell. */
+function Screen1RouteSlot() {
+  return null;
+}
+
+/** Routes without global bottom toolbar (welcome + public RAMP). */
 const HIDE_TOOLBAR_PATHS = new Set(["/"]);
+
+function hideToolbarForPath(pathname) {
+  return HIDE_TOOLBAR_PATHS.has(pathname) || pathname.startsWith("/p/");
+}
 
 function activeIndexForPath(pathname) {
   if (pathname.startsWith("/screen1") || pathname.startsWith("/s1-demo-image"))
@@ -35,10 +49,31 @@ function activeIndexForPath(pathname) {
  * latter would otherwise stretch full-viewport and stack icons vertically. */
 function AppLayout() {
   const location = useLocation();
-  const hideToolbar = HIDE_TOOLBAR_PATHS.has(location.pathname);
+  const hideToolbar = hideToolbarForPath(location.pathname);
+  const screen1Active = isScreen1Path(location.pathname);
+  const [screen1KeepAlive, setScreen1KeepAlive] = useState(() =>
+    isScreen1Path(location.pathname),
+  );
+
+  useEffect(() => {
+    if (screen1Active) setScreen1KeepAlive(true);
+  }, [screen1Active]);
+
   return (
     <div className="app-layout">
-      <Outlet />
+      {screen1KeepAlive ? (
+        <div
+          className={`app-keepalive-screen1${screen1Active ? " is-active" : ""}`}
+          aria-hidden={!screen1Active}
+        >
+          <Screen1DemoImage />
+        </div>
+      ) : null}
+      <div
+        className={`app-layout__outlet${screen1Active ? "" : " is-active"}`}
+      >
+        <Outlet />
+      </div>
       {!hideToolbar ? (
         <BottomToolbar
           activeIndex={activeIndexForPath(location.pathname)}
@@ -54,8 +89,8 @@ export const router = createBrowserRouter([
     element: <AppLayout />,
     children: [
       { path: "/", element: <Home /> },
-      { path: "/screen1", element: <Screen1DemoImage /> },
-      { path: "/s1-demo-image", element: <Screen1DemoImage /> },
+      { path: "/screen1", element: <Screen1RouteSlot /> },
+      { path: "/s1-demo-image", element: <Screen1RouteSlot /> },
       { path: "/screen2", element: <Screen2 /> },
       { path: "/screen3", element: <Calendar /> },
       { path: "/climax", element: <Climax /> },
@@ -63,6 +98,7 @@ export const router = createBrowserRouter([
       { path: "/checkout", element: <CheckOut /> },
       { path: "/clients", element: <Clients /> },
       { path: "/settings", element: <SettingsScreen /> },
+      { path: "/p/:token", element: <RampPostIt /> },
     ],
   },
 ]);

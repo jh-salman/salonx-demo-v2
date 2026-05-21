@@ -10,6 +10,7 @@ import {
   loadApptStateStore,
   readPersistedClimaxBack,
   readPersistedScreen2Apt,
+  readPersistedScreen2ClientPhone,
   readPersistedScreen2From,
   saveApptStateStore,
   writePersistedScreen2Apt,
@@ -22,6 +23,9 @@ import { useCalendarEvents } from "../../data/calendarEventsStore";
 import { useTheme } from "../../context/ThemeContext";
 import { readClimaxBgPersisted } from "../../sync/v2AdminBootstrap.js";
 import { optimizeMediaDeliveryUrl } from "../../lib/mediaDeliveryUrl.js";
+import { fireCareCard, isRampApiAvailable } from "../../data/rampApi.js";
+
+const RAMP_DEMO_STYLIST_NAME = "Joe Stylzz";
 
 // Climax = checkout. Everything here is driven by the active appointment:
 //   * services + products = `appointmentStateStore` keyed by apt id (the same
@@ -183,10 +187,18 @@ export default function Climax() {
     [checkoutFromScreen2, location.state?.apt],
   );
 
+  /** S2 checkout only — ready for RAMP fire-care-card (Phase 4). */
+  const checkoutClientPhone = useMemo(() => {
+    if (!checkoutFromScreen2) return '';
+    const fromNav = location?.state?.clientPhone;
+    if (typeof fromNav === 'string' && fromNav.trim()) return fromNav.trim();
+    return readPersistedScreen2ClientPhone() || '';
+  }, [checkoutFromScreen2, location.state?.clientPhone, location.key]);
+
   useEffect(() => {
     if (!checkoutFromScreen2 || !location?.state?.apt) return;
-    writePersistedScreen2Apt(location.state.apt, "/screen2");
-  }, [checkoutFromScreen2, location.key, location?.state?.apt]);
+    writePersistedScreen2Apt(location.state.apt, '/screen2', checkoutClientPhone);
+  }, [checkoutFromScreen2, location.key, location?.state?.apt, checkoutClientPhone]);
 
   const apptKey = apptStateKey(activeApt);
 
@@ -304,6 +316,62 @@ export default function Climax() {
     [aptState.svcQueue, aptState.hourlyRate, aptState.consultRate],
   );
   const products = aptState.productQueue || [];
+
+  const careCardProductLabels = useMemo(() => {
+    return products
+      .filter((p) => selectedProducts[p.id])
+      .map((p) => {
+        const brand = String(p.brand || "").trim();
+        const name = String(p.name || "").trim();
+        if (brand && name) return `${brand} ${name}`;
+        return name || brand;
+      })
+      .filter(Boolean)
+      .slice(0, 8);
+  }, [products, selectedProducts]);
+
+  const canFireCareCard = checkoutFromScreen2 && Boolean(checkoutClientPhone);
+  const [careCardState, setCareCardState] = useState("idle");
+  const [careCardNote, setCareCardNote] = useState("");
+
+  const handleFireCareCard = useCallback(async () => {
+    if (!canFireCareCard || careCardState === "loading" || careCardState === "sent") return;
+    if (!isRampApiAvailable()) {
+      setCareCardState("error");
+      setCareCardNote("API not configured");
+      return;
+    }
+    setCareCardState("loading");
+    setCareCardNote("");
+    try {
+      const result = await fireCareCard({
+        recipientPhone: checkoutClientPhone,
+        recipientName: (activeApt?.clientName || "").trim() || resolveClimaxDisplayName(activeApt),
+        stylistName: RAMP_DEMO_STYLIST_NAME,
+        products: careCardProductLabels,
+      });
+      setCareCardState("sent");
+      setCareCardNote(
+        result?.smsMode === "twilio"
+          ? "Care card sent via SMS"
+          : "Care card sent (mock SMS — check API log)",
+      );
+    } catch (e) {
+      setCareCardState("error");
+      setCareCardNote(e instanceof Error ? e.message : "Send failed");
+    }
+  }, [
+    activeApt,
+    canFireCareCard,
+    careCardProductLabels,
+    careCardState,
+    checkoutClientPhone,
+  ]);
+
+  useEffect(() => {
+    setCareCardState("idle");
+    setCareCardNote("");
+  }, [apptKey, checkoutClientPhone]);
 
   const totals = useMemo(() => {
     const serviceTotal = services.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
@@ -940,6 +1008,32 @@ export default function Climax() {
                 >
                   Future
                 </button>
+              </div>
+            ) : null}
+            {checkoutFromScreen2 ? (
+              <div className="climax-careCardSlot" aria-live="polite">
+                <button
+                  type="button"
+                  className={`climax-careCardBtn${
+                    careCardState === "sent" ? " is-sent" : ""
+                  }${careCardState === "error" ? " is-error" : ""}`}
+                  onClick={handleFireCareCard}
+                  disabled={!canFireCareCard || careCardState === "loading" || careCardState === "sent"}
+                  aria-label={
+                    canFireCareCard
+                      ? "Send client care card"
+                      : "Client phone required for care card"
+                  }
+                >
+                  {careCardState === "loading"
+                    ? "Sending…"
+                    : careCardState === "sent"
+                      ? "Care card sent"
+                      : "Client care"}
+                </button>
+                {careCardNote ? (
+                  <div className="climax-careCardNote">{careCardNote}</div>
+                ) : null}
               </div>
             ) : null}
             <div className="climax-actions" aria-label="Payment actions">

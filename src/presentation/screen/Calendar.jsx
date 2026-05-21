@@ -462,6 +462,35 @@ export default function CalendarScreenWeb() {
     return { active: false, seedClientName: "" };
   }, [location.key, location?.state?.bookFuture, location?.state?.seedClient]);
 
+  const rebookToParkCtx = useMemo(() => {
+    const fromState = location?.state?.rebookToPark;
+    if (fromState && typeof fromState === "object") {
+      return {
+        active: true,
+        item: fromState,
+        goToDate:
+          typeof location?.state?.goToDate === "string"
+            ? location.state.goToDate
+            : typeof fromState.targetStart === "string"
+              ? fromState.targetStart
+              : null,
+      };
+    }
+    const persisted = readPersistedCalendarBack();
+    if (persisted?.rebookToPark && typeof persisted.rebookToPark === "object") {
+      return {
+        active: true,
+        item: persisted.rebookToPark,
+        goToDate:
+          persisted.goToDate ||
+          (typeof persisted.rebookToPark.targetStart === "string"
+            ? persisted.rebookToPark.targetStart
+            : null),
+      };
+    }
+    return { active: false, item: null, goToDate: null };
+  }, [location.key, location?.state?.rebookToPark, location?.state?.goToDate]);
+
   useEffect(() => {
     const fromNav = location?.state?.from;
     if (
@@ -474,12 +503,17 @@ export default function CalendarScreenWeb() {
     writePersistedCalendarBack(fromNav, {
       bookFuture: Boolean(location?.state?.bookFuture),
       seedClient: location?.state?.seedClient || null,
+      rebookToPark: location?.state?.rebookToPark || null,
+      goToDate:
+        typeof location?.state?.goToDate === "string" ? location.state.goToDate : null,
     });
   }, [
     location.key,
     location?.state?.from,
     location?.state?.bookFuture,
     location?.state?.seedClient,
+    location?.state?.rebookToPark,
+    location?.state?.goToDate,
   ]);
 
   // Tap dispatcher — double tap opens appointment options (single tap is inert)
@@ -594,11 +628,13 @@ export default function CalendarScreenWeb() {
   const [confirmCancelApt, setConfirmCancelApt] = useState(null);
 
   const bookFutureEnteredRef = useRef(false);
+  const rebookParkHandledRef = useRef(false);
   useEffect(() => {
     if (!bookFutureCtx.active || bookFutureEnteredRef.current) return;
+    if (rebookToParkCtx.active) return;
     bookFutureEnteredRef.current = true;
     setViewMode("month");
-  }, [bookFutureCtx.active]);
+  }, [bookFutureCtx.active, rebookToParkCtx.active]);
 
   const handleExitCalendar = useCallback(() => {
     setNewApptInit(null);
@@ -646,6 +682,42 @@ export default function CalendarScreenWeb() {
   const [toolbarEvents, setToolbarEvents] = useState(
     () => persisted?.toolbarEvents || initialToolbarEvents,
   );
+
+  // S2 rebook → MOVE TO PARK: day view on target date + toolbar card (synced via calendar-toolbar API).
+  useEffect(() => {
+    if (!rebookToParkCtx.active || !rebookToParkCtx.item) return;
+    if (rebookParkHandledRef.current) return;
+    if (isAppointmentsApiAvailable() && !calendarToolbarRemoteReady) return;
+
+    rebookParkHandledRef.current = true;
+    const item = rebookToParkCtx.item;
+    const goDate = rebookToParkCtx.goToDate
+      ? new Date(rebookToParkCtx.goToDate)
+      : item.targetStart
+        ? new Date(item.targetStart)
+        : new Date();
+
+    setViewMode("day");
+    setCurrentDate(goDate);
+    setMonthSheetDate(null);
+    setNewApptInit(null);
+    setNewApptSeedClient(null);
+    setEmptySlotInfo(null);
+
+    setParkedFromDrag((prev) => {
+      if (prev.some((p) => String(p.id) === String(item.id))) return prev;
+      return [...prev, item];
+    });
+
+    writePersistedCalendarBack(calendarBackTarget);
+    pauseServerPersist(500);
+  }, [
+    rebookToParkCtx,
+    calendarToolbarRemoteReady,
+    calendarBackTarget,
+    pauseServerPersist,
+  ]);
+
   const [overlapAlert, setOverlapAlert] = useState(null); // { message }
 
   // Live drag tooltip ({ x, y, label }) following the pointer during a move
@@ -4469,7 +4541,7 @@ function CalendarDecorations() {
         </svg>
       </div>
       <div className="cal-deco cal-deco--rightStamp" aria-hidden>
-        <div className="cal-deco__stampDow">{format(today, "EEE")}</div>
+        <div className="cal-deco__stampDow">{format(today, "EEE").toUpperCase()}</div>
         <div className="cal-deco__stampNum">{format(today, "d")}</div>
       </div>
     </>

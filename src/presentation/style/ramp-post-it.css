@@ -1,0 +1,164 @@
+.ramp-post-it {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 16px)
+    calc(env(safe-area-inset-right, 0px) + 16px)
+    calc(env(safe-area-inset-bottom, 0px) + 16px)
+    calc(env(safe-area-inset-left, 0px) + 16px);
+  background: #000;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.ramp-post-it__shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ramp-post-it__panel {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 20px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  box-sizing: border-box;
+}
+
+.ramp-post-it__panel--wide {
+  max-width: 400px;
+}
+
+.ramp-post-it__fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ramp-post-it__eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--salonx-primary, #00ff8a);
+  opacity: 0.92;
+}
+
+.ramp-post-it__title {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ramp-post-it__copy,
+.ramp-post-it__hint,
+.ramp-post-it__copyNote,
+.ramp-post-it__error {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 500;
+  opacity: 0.82;
+}
+
+.ramp-post-it__error {
+  color: #ffb4b4;
+  opacity: 1;
+}
+
+.ramp-post-it__hint {
+  font-size: 12px;
+  text-align: center;
+  opacity: 0.64;
+}
+
+.ramp-post-it__copyNote {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--salonx-primary, #00ff8a);
+  opacity: 1;
+}
+
+.ramp-post-it__cta {
+  height: 44px;
+  border: none;
+  border-radius: 999px;
+  background: var(--salonx-primary, #00ff8a);
+  color: #041109;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ramp-post-it__cta--ghost {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.ramp-post-it__artifactWrap {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.ramp-post-it__artifact {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.ramp-post-it__caption {
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.ramp-post-it__spinner {
+  width: 28px;
+  height: 28px;
+  margin: 8px auto 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--salonx-primary, #00ff8a);
+  animation: ramp-post-it-spin 0.8s linear infinite;
+}
+
+@keyframes ramp-post-it-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -41,7 +41,7 @@ import {
   refreshClientsCatalogCache,
   uploadClientProfileImage,
 } from '../../data/clientProfileAvatar';
-import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
+import { isAppointmentsApiAvailable, createAppointmentRemote } from '../../data/v2AppointmentsApi';
 import {
   apptStateFromVisitPayload,
   loadConsultStore,
@@ -61,6 +61,7 @@ import {
 import {
   apptStateKey,
   buildAptNavPayload,
+  buildRebookParkItem,
   getApptState,
   loadApptStateStore,
   readPersistedScreen2Apt,
@@ -70,8 +71,10 @@ import {
   SVC_CONSULT_BASE,
   SVC_HOURLY_BASE,
   writePersistedScreen2Apt,
+  writePersistedCalendarBack,
   writeScreen2WorkflowForApt,
 } from '../../data/appointmentStateStore';
+import { useScreen1CalendarNav } from '../../hooks/useScreen1CalendarNav';
 import { useTimers } from '../../context/TimersContext';
 import TimerModal from '../../component/TimerModal';
 import { fmtCountdown, fmtElapsed } from '../../component/AppointmentTimerBox';
@@ -482,6 +485,7 @@ function createRecognition() {
 export default function Screen2() {
   const navigate = useNavigate();
   const location = useLocation();
+  const openCalendar = useScreen1CalendarNav();
 
   // Resolve appointment + client from nav state (Calendar single-tap passes `apt`).
   // After a full refresh, `state` is gone — fall back to last apt saved for this tab.
@@ -1452,6 +1456,79 @@ export default function Screen2() {
     return ix < 0 ? -1 : ix;
   }, [s2Workflow]);
 
+  const bookingStepNotify = s2WorkflowNextIndex === 4 && !s2Workflow.booking;
+
+  const rebookTarget = useMemo(() => {
+    if (!activeApt?.start || !activeApt?.end) return null;
+    const start = new Date(activeApt.start);
+    const end = new Date(activeApt.end);
+    start.setDate(start.getDate() + 28);
+    end.setDate(end.getDate() + 28);
+    return { start, end };
+  }, [activeApt]);
+
+  const rebookTargetLabel = useMemo(() => {
+    if (!rebookTarget) return '';
+    return rebookTarget.start.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }, [rebookTarget]);
+
+  const [rebookModalOpen, setRebookModalOpen] = useState(false);
+  const [rebookBusy, setRebookBusy] = useState(false);
+
+  const handleOpenRebookModal = useCallback(() => {
+    markS2BookingVisited();
+    setRebookModalOpen(true);
+  }, [markS2BookingVisited]);
+
+  const handleRebookMoveToPark = useCallback(() => {
+    if (!rebookTarget) return;
+    markS2BookingVisited();
+    const rebookToPark = buildRebookParkItem(
+      activeApt,
+      rebookTarget,
+      activeClientName,
+    );
+    const goToDate = rebookTarget.start.toISOString();
+    writePersistedCalendarBack('/screen2', { rebookToPark, goToDate });
+    setRebookModalOpen(false);
+    navigate('/calendar', {
+      state: { from: '/screen2', rebookToPark, goToDate },
+    });
+  }, [navigate, rebookTarget, activeApt, activeClientName, markS2BookingVisited]);
+
+  const handleRebookOk = useCallback(async () => {
+    if (!rebookTarget) return;
+    markS2BookingVisited();
+    if (!isAppointmentsApiAvailable()) {
+      setRebookModalOpen(false);
+      handleRebookMoveToPark();
+      return;
+    }
+    setRebookBusy(true);
+    try {
+      await createAppointmentRemote({
+        clientName: activeApt?.clientName || activeClientName,
+        service: activeApt?.service || '',
+        start: rebookTarget.start.toISOString(),
+        end: rebookTarget.end.toISOString(),
+        color: activeApt?.color || '#3b82f6',
+        price: typeof activeApt?.price === 'number' ? activeApt.price : 0,
+        notes: activeApt?.notes || '',
+      });
+      setRebookModalOpen(false);
+    } catch (err) {
+      console.warn('[Screen2] rebook create failed', err);
+      window.alert(`Could not rebook (${err instanceof Error ? err.message : 'error'}).`);
+    } finally {
+      setRebookBusy(false);
+    }
+  }, [rebookTarget, activeApt, activeClientName, markS2BookingVisited, handleRebookMoveToPark]);
+
   // Persist on any change (debounced) — but only when we have a key to persist
   // against. Visiting Screen2 without an appointment shouldn't pollute storage.
   useEffect(() => {
@@ -1720,7 +1797,12 @@ export default function Screen2() {
         </svg>
       </div>
       {/* Today's date — mirrors Calendar's right-side stamp; sits over the top-right curve */}
-      <div className="s2-rightStamp" aria-hidden>
+      <button
+        type="button"
+        className="s2-rightStamp"
+        onClick={openCalendar}
+        aria-label="Open calendar"
+      >
         <div className="s2-rightStamp__dow">
           {new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
         </div>
@@ -1728,7 +1810,7 @@ export default function Screen2() {
         <div className="s2-rightStamp__mo">
           {new Date().toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
         </div>
-      </div>
+      </button>
 
       {/* TOP BAR */}
       <div className="s2-topbar">
@@ -1810,12 +1892,6 @@ export default function Screen2() {
               }}
               onChange={handleAvatarFileChosen}
             />
-            <div className="s2-msgBadges" aria-label="Unread messages">
-              <div className="s2-msgBadge" aria-hidden>
-                <ChatCircleDots size={24} weight="fill" className="s2-msgBadge__icon" />
-                <span className="s2-msgBadge__count">{META.msgCount}</span>
-              </div>
-            </div>
           </div>
           <div className="s2-identityCenter">
             <div className="s2-identityText">
@@ -2104,20 +2180,30 @@ export default function Screen2() {
           <div className="s2-card s2-card--v13 s2-actionCard">
             <div className="s2-actionBody">
               <div className="s2-actionRow" aria-label="Actions">
-                <button type="button" className="s2-cta is-rebook" onClick={markS2BookingVisited}>
+                <button
+                  type="button"
+                  className={`s2-cta is-rebook${bookingStepNotify ? ' is-notify' : ''}`}
+                  onClick={handleOpenRebookModal}
+                >
                   <div className="s2-ctaIcon" aria-hidden>↻</div>
-                  <div className="s2-ctaLabel">Rebook</div>
+                  <div className="s2-ctaLabel">REBOOK</div>
                 </button>
                 <button
                   type="button"
-                  className="s2-cta is-checkout"
+                  className={`s2-cta is-checkout${bookingStepNotify ? ' is-notify' : ''}`}
                   onClick={() => {
                     markS2BookingVisited();
-                    navigate('/climax', { state: { apt: activeApt, from: '/screen2' } });
+                    navigate('/climax', {
+                      state: {
+                        apt: activeApt,
+                        from: '/screen2',
+                        clientPhone: activeClient.phone || '',
+                      },
+                    });
                   }}
                 >
                   <div className="s2-ctaIcon" aria-hidden><span className="s2-flagIcon" /></div>
-                  <div className="s2-ctaLabel">Check out</div>
+                  <div className="s2-ctaLabel">CLIMAX</div>
                 </button>
               </div>
             </div>
@@ -2892,6 +2978,45 @@ export default function Screen2() {
                 </button>
               </div>
             </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {rebookModalOpen ? (
+        <div className="s2-confirmOverlay" role="dialog" aria-modal="true" aria-labelledby="s2-rebook-confirm-title">
+          <button
+            type="button"
+            className="s2-addProdBackdrop"
+            aria-label="Cancel"
+            onClick={() => setRebookModalOpen(false)}
+          />
+          <div className="s2-confirmSheet">
+            <h2 id="s2-rebook-confirm-title" className="s2-confirmTitle">
+              Rebook in 4 weeks?
+            </h2>
+            <p className="s2-confirmBody">
+              {activeClientName}
+              {rebookTargetLabel ? ` · ${rebookTargetLabel}` : ''}
+              {activeApptInfo?.service?.trim() ? ` · ${activeApptInfo.service}` : ''}
+            </p>
+            <div className="s2-confirmActions">
+              <button
+                type="button"
+                className="s2-confirmBtn s2-confirmBtn--ghost"
+                onClick={handleRebookMoveToPark}
+                disabled={rebookBusy || !rebookTarget}
+              >
+                MOVE TO PARK
+              </button>
+              <button
+                type="button"
+                className="s2-confirmBtn s2-confirmBtn--primary"
+                onClick={() => void handleRebookOk()}
+                disabled={rebookBusy || !rebookTarget}
+              >
+                {rebookBusy ? 'Booking…' : 'OK'}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
