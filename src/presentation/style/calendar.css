@@ -190,6 +190,11 @@
   align-items: center;
   justify-content: center;
 }
+.cal-toolbar__center > .cal-pill{
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: min(100%, calc(50% - 19px));
+}
 .cal-toolbar__gap{
   width: 30px;
   flex: 0 0 30px;

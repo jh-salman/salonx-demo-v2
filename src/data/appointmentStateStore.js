@@ -266,6 +266,19 @@ export function writePersistedCalendarBack(from, extras = {}) {
   }
 }
 
+/** Drop one-shot S2/Climax navigation intents — must not re-run after calendar reload. */
+export function clearPersistedCalendarNavIntents() {
+  const persisted = readPersistedCalendarBack();
+  if (!persisted?.from) return;
+  if (!persisted.rebookToPark && !persisted.goToDate && !persisted.bookFuture) return;
+  writePersistedCalendarBack(persisted.from, {
+    bookFuture: false,
+    seedClient: null,
+    rebookToPark: null,
+    goToDate: null,
+  });
+}
+
 /** @returns {CalendarBackPayload | null} */
 export function readPersistedCalendarBack() {
   if (typeof window === 'undefined') return null;

@@ -14,6 +14,9 @@ import {
   fetchAppointmentsRange,
   isAppointmentsApiAvailable,
 } from './v2AppointmentsApi.js';
+import { fetchCalendarToolbar } from './calendarToolbarApi.js';
+import { startCalendarRealtimeSync } from '../sync/calendarRealtimeSync.js';
+import { syncRampQueueFromApi } from './rampQueueStore.js';
 
 const CALENDAR_STORAGE_KEY = '@salonx/calendar/v1';
 const UPDATE_EVENT_NAME = 'salonx:calendar-updated';
@@ -107,13 +110,28 @@ export function loadCalendarEvents() {
  */
 export function loadCalendarParked() {
   const data = readCalendarRoot();
-  const list = Array.isArray(data?.parkedFromDrag) ? data.parkedFromDrag : [];
-  return list
-    .filter((p) => p && typeof p === 'object')
-    .map((p) => ({
-      ...p,
-      ...(p.waitlistAddedAt ? { waitlistAddedAt: ensureDate(p.waitlistAddedAt) } : {}),
-    }));
+  const toolbar = Array.isArray(data?.toolbarEvents) ? data.toolbarEvents : [];
+  const dragged = Array.isArray(data?.parkedFromDrag) ? data.parkedFromDrag : [];
+  const seen = new Set();
+  const out = [];
+
+  const push = (raw) => {
+    if (!raw || typeof raw !== 'object') return;
+    const id = raw.id != null ? String(raw.id) : '';
+    if (id && seen.has(id)) return;
+    if (id) seen.add(id);
+    out.push({
+      ...raw,
+      ...(raw.waitlistAddedAt ? { waitlistAddedAt: ensureDate(raw.waitlistAddedAt) } : {}),
+    });
+  };
+
+  for (const e of toolbar) {
+    if (e?.isParked === true) push(e);
+  }
+  for (const p of dragged) push(p);
+
+  return out;
 }
 
 /**
@@ -124,11 +142,15 @@ export function loadCalendarWaitlist() {
   const data = readCalendarRoot();
   const list = Array.isArray(data?.toolbarEvents) ? data.toolbarEvents : [];
   return list
-    .filter((t) => t && typeof t === 'object')
+    .filter((t) => t && typeof t === 'object' && !t.isParked && t.waitlistAddedAt)
     .map((t) => ({
       ...t,
-      ...(t.waitlistAddedAt ? { waitlistAddedAt: ensureDate(t.waitlistAddedAt) } : {}),
-    }));
+      waitlistAddedAt: ensureDate(t.waitlistAddedAt),
+    }))
+    .sort(
+      (a, b) =>
+        new Date(a.waitlistAddedAt).getTime() - new Date(b.waitlistAddedAt).getTime(),
+    );
 }
 
 export function notifyCalendarUpdated() {
@@ -138,6 +160,95 @@ export function notifyCalendarUpdated() {
   } catch {
     // ignore — environments without CustomEvent
   }
+}
+
+/** Merge parked + waitlist toolbar into local calendar storage (Screen1 WaitingList reads this). */
+export function persistToolbarToCalendarStorage(parkedFromDrag, toolbarEvents) {
+  if (typeof window === 'undefined') return;
+  try {
+    let existing = {};
+    try {
+      const json = window.localStorage.getItem(CALENDAR_STORAGE_KEY);
+      if (json) existing = JSON.parse(json);
+    } catch {
+      /* keep empty */
+    }
+    existing.parkedFromDrag = Array.isArray(parkedFromDrag) ? parkedFromDrag : [];
+    existing.toolbarEvents = Array.isArray(toolbarEvents) ? toolbarEvents : [];
+    window.localStorage.setItem(CALENDAR_STORAGE_KEY, JSON.stringify(existing));
+    notifyCalendarUpdated();
+  } catch (err) {
+    console.warn('[calendarEventsStore] toolbar persist failed', err);
+  }
+}
+
+/**
+ * Realtime sync for Screen1 — appointments, waitlist, and parked toolbar.
+ * @returns {() => void}
+ */
+export function startWaitingListRealtimeSync() {
+  if (!isAppointmentsApiAvailable()) return () => {};
+
+  const applyToolbarPayload = (payload) => {
+    if (!payload?.stored) return;
+    persistToolbarToCalendarStorage(payload.parkedFromDrag, payload.toolbarEvents);
+  };
+
+  const reloadToolbar = () => {
+    void fetchCalendarToolbar()
+      .then((data) => {
+        if (data?.stored) applyToolbarPayload(data);
+      })
+      .catch(() => {
+        /* offline / unreachable */
+      });
+  };
+
+  void bootstrapStylistHomeData();
+
+  return startCalendarRealtimeSync({
+    onAppointmentCreated: (p) => {
+      if (p?.appointment) upsertAppointmentInSessionCache(p.appointment);
+    },
+    onAppointmentUpdated: (p) => {
+      if (p?.appointment) upsertAppointmentInSessionCache(p.appointment);
+    },
+    onAppointmentDeleted: (p) => {
+      if (p?.id) removeAppointmentFromSessionCache(p.id);
+    },
+    onToolbarUpdated: applyToolbarPayload,
+    onPoll: () => {
+      reloadToolbar();
+      void syncRampQueueFromApi();
+      void ensureStylistAppointmentsCache({ force: true });
+    },
+  });
+}
+
+/** Instantly mirror one appointment into session cache (no network wait). */
+export function upsertAppointmentInSessionCache(dto) {
+  if (!isAppointmentsApiAvailable() || !dto) return null;
+  const ev = appointmentDtoToEvent(dto);
+  if (!(ev.start instanceof Date) || !(ev.end instanceof Date)) return null;
+  const prev = readApiAppointmentsSessionCache() || [];
+  const next = [...prev.filter((e) => e.id !== ev.id), ev].sort(
+    (a, b) => a.start.getTime() - b.start.getTime(),
+  );
+  writeApiAppointmentsSessionCache(next);
+  setApiModeCalendarEventsMirror(next);
+  notifyCalendarUpdated();
+  return ev;
+}
+
+/** Remove one appointment from session cache + mirror (socket delete). */
+export function removeAppointmentFromSessionCache(id) {
+  if (!isAppointmentsApiAvailable() || !id) return;
+  const prev = readApiAppointmentsSessionCache() || [];
+  const next = prev.filter((e) => String(e.id) !== String(id));
+  if (next.length === prev.length) return;
+  writeApiAppointmentsSessionCache(next);
+  setApiModeCalendarEventsMirror(next);
+  notifyCalendarUpdated();
 }
 
 export function isSameLocalDay(a, b) {
@@ -195,6 +306,38 @@ function localDayBounds(d = new Date()) {
   const end = new Date(d);
   end.setHours(23, 59, 59, 999);
   return { start, end };
+}
+
+/**
+ * Load today's appointments + toolbar (waitlist / need attention) for Screen1.
+ * Safe to call on first paint and when the stylist route becomes visible again.
+ *
+ * @param {{ signal?: AbortSignal, force?: boolean }} [opts]
+ */
+export async function bootstrapStylistHomeData(opts = {}) {
+  if (!isAppointmentsApiAvailable()) {
+    return {
+      events: loadCalendarEvents(),
+      toolbar: null,
+    };
+  }
+
+  const toolbarPromise = fetchCalendarToolbar()
+    .then((data) => {
+      if (opts.signal?.aborted) return null;
+      if (data?.stored) {
+        persistToolbarToCalendarStorage(data.parkedFromDrag, data.toolbarEvents);
+      }
+      return data;
+    })
+    .catch(() => null);
+
+  const [events, toolbar] = await Promise.all([
+    ensureStylistAppointmentsCache(opts),
+    toolbarPromise,
+  ]);
+
+  return { events, toolbar };
 }
 
 /**

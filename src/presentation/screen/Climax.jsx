@@ -24,6 +24,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { readClimaxBgPersisted } from "../../sync/v2AdminBootstrap.js";
 import { optimizeMediaDeliveryUrl } from "../../lib/mediaDeliveryUrl.js";
 import { fireCareCard, isRampApiAvailable } from "../../data/rampApi.js";
+import { upsertRampQueueItem } from "../../data/rampQueueStore.js";
 
 const RAMP_DEMO_STYLIST_NAME = "Joe Stylzz";
 
@@ -349,6 +350,14 @@ export default function Climax() {
         recipientName: (activeApt?.clientName || "").trim() || resolveClimaxDisplayName(activeApt),
         stylistName: RAMP_DEMO_STYLIST_NAME,
         products: careCardProductLabels,
+      });
+      upsertRampQueueItem({
+        token: result?.token,
+        title:
+          (activeApt?.clientName || "").trim() ||
+          resolveClimaxDisplayName(activeApt) ||
+          checkoutClientPhone,
+        status: "care_sent",
       });
       setCareCardState("sent");
       setCareCardNote(

@@ -49,6 +49,17 @@ export async function fetchRampPost(token) {
   return res.json()
 }
 
+/** Recent RAMP posts for Screen1 queue (Matrix preview feed). */
+export async function fetchRampRecent(limit = 24) {
+  if (!isRampApiAvailable()) return { items: [] }
+  const res = await rampFetch(`/api/ramp/recent?limit=${encodeURIComponent(String(limit))}`)
+  if (!res?.ok) return { items: [] }
+  const data = await res.json().catch(() => ({}))
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+  }
+}
+
 /** @param {{ token: string, mediaUrl: string, phone?: string, source?: string }} payload */
 export async function storeSharedSelfie(payload) {
   if (!isRampApiAvailable()) {

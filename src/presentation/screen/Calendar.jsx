@@ -8,6 +8,7 @@ import {
   addWeeks,
   differenceInMinutes,
   format,
+  parse,
   isSameDay,
   isSameMonth,
   isToday,
@@ -28,7 +29,10 @@ import { MOCK_CLIENTS } from "../../data/mockClients";
 import { MOCK_SERVICES } from "../../data/mockServices";
 import {
   notifyCalendarUpdated,
+  persistToolbarToCalendarStorage,
+  removeAppointmentFromSessionCache,
   setApiModeCalendarEventsMirror,
+  upsertAppointmentInSessionCache,
 } from "../../data/calendarEventsStore.js";
 import {
   appointmentDtoToEvent,
@@ -54,6 +58,7 @@ import {
 } from "../../data/apiAppointmentsSessionCache.js";
 import { startCalendarRealtimeSync } from "../../sync/calendarRealtimeSync.js";
 import {
+  clearPersistedCalendarNavIntents,
   readPersistedCalendarBack,
   writePersistedCalendarBack,
 } from "../../data/appointmentStateStore.js";
@@ -330,6 +335,60 @@ function releasePointerCaptureIfHeld(target, pointerId) {
 // ---------- Phase 5: localStorage persistence ----------
 const CALENDAR_STORAGE_KEY = "@salonx/calendar/v1";
 
+/** True on hard refresh (F5) — avoid painting stale cached appointments before server fetch. */
+function isBrowserReloadNavigation() {
+  if (typeof performance === "undefined") return false;
+  const nav = performance.getEntriesByType("navigation")[0];
+  if (nav?.type === "reload") return true;
+  // Legacy Navigation Timing API (some WebViews)
+  if (typeof performance.navigation !== "undefined" && performance.navigation.type === 1) {
+    return true;
+  }
+  return false;
+}
+
+const CALENDAR_VIEW_SESSION_KEY = "@salonx/calendar-view/v1";
+
+function readPersistedCalendarView() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(CALENDAR_VIEW_SESSION_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== "object") return null;
+    let currentDate = null;
+    if (typeof o.dateKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.dateKey)) {
+      currentDate = parse(o.dateKey, "yyyy-MM-dd", new Date());
+    } else if (typeof o.currentDate === "string") {
+      const parsed = new Date(o.currentDate);
+      if (!Number.isNaN(parsed.getTime())) {
+        currentDate = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+      }
+    }
+    if (!currentDate || Number.isNaN(currentDate.getTime())) return null;
+    const vm = o.viewMode;
+    const viewMode = vm === "week" || vm === "month" ? vm : "day";
+    return { currentDate, viewMode };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedCalendarView(currentDate, viewMode) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      CALENDAR_VIEW_SESSION_KEY,
+      JSON.stringify({
+        dateKey: format(currentDate, "yyyy-MM-dd"),
+        viewMode,
+      }),
+    );
+  } catch {
+    /* quota */
+  }
+}
+
 function reviveDate(value) {
   if (value && typeof value === "object" && value.__type === "Date") {
     return new Date(value.value);
@@ -449,16 +508,6 @@ export default function CalendarScreenWeb() {
             : "",
       };
     }
-    const persisted = readPersistedCalendarBack();
-    if (persisted?.bookFuture) {
-      return {
-        active: true,
-        seedClientName:
-          typeof persisted?.seedClient?.clientName === "string"
-            ? persisted.seedClient.clientName
-            : "",
-      };
-    }
     return { active: false, seedClientName: "" };
   }, [location.key, location?.state?.bookFuture, location?.state?.seedClient]);
 
@@ -474,18 +523,6 @@ export default function CalendarScreenWeb() {
             : typeof fromState.targetStart === "string"
               ? fromState.targetStart
               : null,
-      };
-    }
-    const persisted = readPersistedCalendarBack();
-    if (persisted?.rebookToPark && typeof persisted.rebookToPark === "object") {
-      return {
-        active: true,
-        item: persisted.rebookToPark,
-        goToDate:
-          persisted.goToDate ||
-          (typeof persisted.rebookToPark.targetStart === "string"
-            ? persisted.rebookToPark.targetStart
-            : null),
       };
     }
     return { active: false, item: null, goToDate: null };
@@ -585,15 +622,24 @@ export default function CalendarScreenWeb() {
     [calendarToolbarRemoteReady, pauseServerPersist],
   );
 
-  const [viewMode, setViewMode] = useState("day");
+  const initialCalendarViewRef = useRef(null);
+  if (initialCalendarViewRef.current === null) {
+    initialCalendarViewRef.current = readPersistedCalendarView();
+  }
+  const initialCalendarView = initialCalendarViewRef.current;
+
+  const [viewMode, setViewMode] = useState(() => initialCalendarView?.viewMode || "day");
   const [currentDate, setCurrentDate] = useState(() => {
+    if (initialCalendarView?.currentDate) return initialCalendarView.currentDate;
     const t = new Date();
     return new Date(t.getFullYear(), t.getMonth(), t.getDate());
   });
   const [events, setEvents] = useState(() => {
     if (isAppointmentsApiAvailable()) {
+      if (isBrowserReloadNavigation()) return [];
       const cached = readApiAppointmentsSessionCache();
-      return Array.isArray(cached) && cached.length > 0 ? cached : [];
+      if (Array.isArray(cached) && cached.length > 0) return cached;
+      return [];
     }
     return persisted?.events || buildInitialMockAppointments();
   });
@@ -629,6 +675,18 @@ export default function CalendarScreenWeb() {
 
   const bookFutureEnteredRef = useRef(false);
   const rebookParkHandledRef = useRef(false);
+  /** Set after `refetchAppointmentsFromServer` is defined — early handlers call this after REST mutations. */
+  const refreshAppointmentsRef = useRef(async () => {});
+
+  useEffect(() => {
+    writePersistedCalendarView(currentDate, viewMode);
+  }, [currentDate, viewMode]);
+
+  useEffect(() => {
+    if (!isBrowserReloadNavigation()) return;
+    clearPersistedCalendarNavIntents();
+  }, []);
+
   useEffect(() => {
     if (!bookFutureCtx.active || bookFutureEnteredRef.current) return;
     if (rebookToParkCtx.active) return;
@@ -683,19 +741,23 @@ export default function CalendarScreenWeb() {
     () => persisted?.toolbarEvents || initialToolbarEvents,
   );
 
-  // S2 rebook → MOVE TO PARK: day view on target date + toolbar card (synced via calendar-toolbar API).
+  // S2 rebook → MOVE TO PARK: one-shot via React Router state only (never on reload).
   useEffect(() => {
-    if (!rebookToParkCtx.active || !rebookToParkCtx.item) return;
+    if (isBrowserReloadNavigation()) return;
+    const fromState = location?.state?.rebookToPark;
+    if (!fromState || typeof fromState !== "object") return;
     if (rebookParkHandledRef.current) return;
     if (isAppointmentsApiAvailable() && !calendarToolbarRemoteReady) return;
 
     rebookParkHandledRef.current = true;
-    const item = rebookToParkCtx.item;
-    const goDate = rebookToParkCtx.goToDate
-      ? new Date(rebookToParkCtx.goToDate)
-      : item.targetStart
-        ? new Date(item.targetStart)
-        : new Date();
+    const item = fromState;
+    const goToDateRaw =
+      typeof location?.state?.goToDate === "string"
+        ? location.state.goToDate
+        : typeof fromState.targetStart === "string"
+          ? fromState.targetStart
+          : null;
+    const goDate = goToDateRaw ? new Date(goToDateRaw) : new Date();
 
     setViewMode("day");
     setCurrentDate(goDate);
@@ -710,9 +772,12 @@ export default function CalendarScreenWeb() {
     });
 
     writePersistedCalendarBack(calendarBackTarget);
+    clearPersistedCalendarNavIntents();
     pauseServerPersist(500);
   }, [
-    rebookToParkCtx,
+    location.key,
+    location?.state?.rebookToPark,
+    location?.state?.goToDate,
     calendarToolbarRemoteReady,
     calendarBackTarget,
     pauseServerPersist,
@@ -1225,7 +1290,11 @@ export default function CalendarScreenWeb() {
       // keys are per appointment id (see Calendar + Screen2 timerKey).
       if (apt.id) clearTimer(String(apt.id));
       if (isAppointmentsApiAvailable() && apt.id) {
-        void deleteAppointmentRemote(apt.id).catch((err) => {
+        void deleteAppointmentRemote(apt.id)
+          .then(() => {
+            refreshAppointmentsRef.current();
+          })
+          .catch((err) => {
           console.warn("[Calendar] park: API delete failed", err);
           setParkedFromDrag((prev) => prev.filter((p) => p.id !== apt.id));
           setEvents((prev) =>
@@ -1462,6 +1531,7 @@ export default function CalendarScreenWeb() {
             setEvents((prev) => [...prev, appointmentDtoToEvent(appointment)]);
             setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
             setWaitlistModalOpen(false);
+            refreshAppointmentsRef.current();
           } catch (err) {
             console.warn("[Calendar] waitlist book API failed", err);
             setOverlapAlert({
@@ -1517,6 +1587,7 @@ export default function CalendarScreenWeb() {
         end,
       };
 
+      setEvents((prev) => [...prev, localEvent]);
       if (isAppointmentsApiAvailable()) {
         void (async () => {
           try {
@@ -1529,16 +1600,20 @@ export default function CalendarScreenWeb() {
               price: 0,
               notes: "",
             });
-            setEvents((prev) => [...prev, appointmentDtoToEvent(appointment)]);
+            const saved = appointmentDtoToEvent(appointment);
+            setEvents((prev) => [
+              ...prev.filter((ev) => ev.id !== localEvent.id),
+              saved,
+            ]);
+            refreshAppointmentsRef.current();
           } catch (err) {
             console.warn("[Calendar] unpark API create failed", err);
+            setEvents((prev) => prev.filter((ev) => ev.id !== localEvent.id));
             setOverlapAlert({
               message: `Could not save unparked appointment (${err instanceof Error ? err.message : "error"}).`,
             });
           }
         })();
-      } else {
-        setEvents((prev) => [...prev, localEvent]);
       }
     }
     setBookConfirm(null);
@@ -1890,7 +1965,7 @@ export default function CalendarScreenWeb() {
     return () => clearInterval(id);
   }, []);
 
-  // API mode: debounced PUT for toolbar + catalogs only (not on every appointment change).
+  // API mode: persist toolbar locally; appointments live on server + session cache only.
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
     const timer = setTimeout(() => {
@@ -2077,11 +2152,16 @@ export default function CalendarScreenWeb() {
     return [...server, ...extras].sort((a, b) => a.start.getTime() - b.start.getTime());
   }, []);
 
-  const refetchAppointmentsFromServer = useCallback(async () => {
+  const refetchAppointmentsFromServer = useCallback(async (opts = {}) => {
+    const { replace = false, background = false } = opts;
     if (!isAppointmentsApiAvailable()) return;
-    appointmentsFetchAbortRef.current?.abort();
+    if (!background) {
+      appointmentsFetchAbortRef.current?.abort();
+    }
     const ac = new AbortController();
-    appointmentsFetchAbortRef.current = ac;
+    if (!background) {
+      appointmentsFetchAbortRef.current = ac;
+    }
     const myToken = ++appointmentsListFetchTokenRef.current;
     try {
       const from = addDays(new Date(), -120);
@@ -2090,7 +2170,11 @@ export default function CalendarScreenWeb() {
       if (ac.signal.aborted) return;
       if (myToken !== appointmentsListFetchTokenRef.current) return;
       setEvents((prev) => {
-        const next = mergeServerAppointmentRows(rows, prev);
+        const next = replace
+          ? rows
+              .map(appointmentDtoToEvent)
+              .sort((a, b) => a.start.getTime() - b.start.getTime())
+          : mergeServerAppointmentRows(rows, prev);
         queueMicrotask(() => {
           appointmentsInitialFetchDoneRef.current = true;
           writeApiAppointmentsSessionCache(next);
@@ -2105,9 +2189,15 @@ export default function CalendarScreenWeb() {
     }
   }, [mergeServerAppointmentRows]);
 
+  refreshAppointmentsRef.current = () =>
+    refetchAppointmentsFromServer({ replace: false, background: true });
+
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
-    void refetchAppointmentsFromServer();
+    void refetchAppointmentsFromServer({
+      replace: true,
+      background: !isBrowserReloadNavigation(),
+    });
     return () => {
       appointmentsFetchAbortRef.current?.abort();
     };
@@ -2121,79 +2211,50 @@ export default function CalendarScreenWeb() {
         parkedFromDrag: payload.parkedFromDrag,
         toolbarEvents: payload.toolbarEvents,
       });
-      setParkedFromDrag(Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : []);
-      setToolbarEvents(Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : []);
+      const nextParked = Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : [];
+      const nextToolbar = Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : [];
+      setParkedFromDrag(nextParked);
+      setToolbarEvents(nextToolbar);
+      persistToolbarToCalendarStorage(nextParked, nextToolbar);
       if (payload.updatedAt) toolbarUpdatedAtRef.current = payload.updatedAt;
     },
     [pauseServerPersist],
   );
 
-  const upsertRemoteAppointment = useCallback((dto) => {
-    if (!dto?.id) {
-      void refetchAppointmentsFromServer();
-      return;
-    }
-    setEvents((prev) => {
-      const ev = appointmentDtoToEvent(dto);
-      const next = [...prev.filter((e) => e.id !== ev.id), ev].sort(
-        (a, b) => a.start.getTime() - b.start.getTime(),
-      );
-      queueMicrotask(() => writeApiAppointmentsSessionCache(next));
-      notifyCalendarUpdated();
-      return next;
-    });
-  }, [refetchAppointmentsFromServer]);
-
-  const reloadCalendarRemoteSnapshot = useCallback(async () => {
+  const reloadToolbarFromServer = useCallback(async () => {
     pauseServerPersist();
-    await refetchAppointmentsFromServer();
     try {
       const data = await fetchCalendarToolbar();
       if (data?.stored) applyRemoteToolbarPayload(data);
     } catch {
       /* */
     }
-    try {
-      const [clientsData, servicesData] = await Promise.all([
-        fetchClientsCatalog(),
-        fetchServiceCatalog(),
-      ]);
-      if (clientsData?.stored && Array.isArray(clientsData.clients)) {
-        pauseServerPersist();
-        setClients(clientsData.clients);
-        if (clientsData.updatedAt) {
-          clientsCatalogUpdatedAtRef.current = clientsData.updatedAt;
-        }
-      }
-      if (servicesData?.stored && Array.isArray(servicesData.serviceCatalog)) {
-        pauseServerPersist();
-        setServiceCatalog(servicesData.serviceCatalog);
-        if (servicesData.updatedAt) {
-          serviceCatalogUpdatedAtRef.current = servicesData.updatedAt;
-        }
-      }
-    } catch {
-      /* */
-    }
-  }, [refetchAppointmentsFromServer, applyRemoteToolbarPayload, pauseServerPersist]);
+  }, [applyRemoteToolbarPayload, pauseServerPersist]);
+
+  const applyRemoteAppointmentDto = useCallback((dto) => {
+    if (!dto || typeof dto !== "object") return;
+    const ev = appointmentDtoToEvent(dto);
+    if (!(ev.start instanceof Date) || !(ev.end instanceof Date)) return;
+    setEvents((prev) =>
+      [...prev.filter((e) => e.id !== ev.id), ev].sort(
+        (a, b) => a.start.getTime() - b.start.getTime(),
+      ),
+    );
+    upsertAppointmentInSessionCache(dto);
+  }, []);
+
+  const removeRemoteAppointment = useCallback((id) => {
+    if (!id) return;
+    setEvents((prev) => prev.filter((e) => String(e.id) !== String(id)));
+    removeAppointmentFromSessionCache(id);
+  }, []);
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
     return startCalendarRealtimeSync({
-      onAppointmentCreated: ({ appointment }) => upsertRemoteAppointment(appointment),
-      onAppointmentUpdated: ({ appointment }) => upsertRemoteAppointment(appointment),
-      onAppointmentDeleted: ({ id }) => {
-        if (!id) {
-          void refetchAppointmentsFromServer();
-          return;
-        }
-        setEvents((prev) => {
-          const next = prev.filter((e) => e.id !== id);
-          queueMicrotask(() => writeApiAppointmentsSessionCache(next));
-          notifyCalendarUpdated();
-          return next;
-        });
-      },
+      onAppointmentCreated: (p) => applyRemoteAppointmentDto(p?.appointment),
+      onAppointmentUpdated: (p) => applyRemoteAppointmentDto(p?.appointment),
+      onAppointmentDeleted: (p) => removeRemoteAppointment(p?.id),
       onToolbarUpdated: applyRemoteToolbarPayload,
       onClientsCatalogUpdated: (payload) => {
         if (payload?.stored && Array.isArray(payload.clients)) {
@@ -2214,14 +2275,16 @@ export default function CalendarScreenWeb() {
         }
       },
       onPoll: () => {
-        void reloadCalendarRemoteSnapshot();
+        void reloadToolbarFromServer();
+        void refetchAppointmentsFromServer({ replace: true, background: true });
       },
     });
   }, [
+    applyRemoteAppointmentDto,
+    removeRemoteAppointment,
     applyRemoteToolbarPayload,
-    upsertRemoteAppointment,
+    reloadToolbarFromServer,
     refetchAppointmentsFromServer,
-    reloadCalendarRemoteSnapshot,
     pauseServerPersist,
   ]);
 
@@ -2816,8 +2879,6 @@ export default function CalendarScreenWeb() {
       };
 
       if (isAppointmentsApiAvailable()) {
-        appointmentsFetchAbortRef.current?.abort();
-
         const finish = () => {
           setNewApptInit(null);
           setEditingApt(null);
@@ -2873,6 +2934,7 @@ export default function CalendarScreenWeb() {
                   ...prev.filter((ev) => ev.id !== editingApt.id),
                   ...created,
                 ]);
+                refreshAppointmentsRef.current();
               } else {
                 const patch = {
                   clientName: baseExtras.clientName,
@@ -2902,6 +2964,7 @@ export default function CalendarScreenWeb() {
                       ev.id === editingApt.id ? appointmentDtoToEvent(appointment) : ev,
                     ),
                   );
+                  refreshAppointmentsRef.current();
                 } catch (e) {
                   console.warn("[Calendar] appointments API save failed", e);
                   reportSaveError(e);
@@ -2940,6 +3003,7 @@ export default function CalendarScreenWeb() {
                   ...prev.filter((e) => !optimisticIds.includes(e.id)),
                   ...created,
                 ]);
+                refreshAppointmentsRef.current();
               } catch (err) {
                 console.warn("[Calendar] appointments API save failed", err);
                 reportSaveError(err);
@@ -3030,11 +3094,14 @@ export default function CalendarScreenWeb() {
       setAptOptionsApt(null);
     };
     if (isAppointmentsApiAvailable()) {
-      appointmentsFetchAbortRef.current?.abort();
       const snapshot = { ...apt, start: new Date(apt.start), end: new Date(apt.end) };
       setEvents((prev) => prev.filter((ev) => ev.id !== apt.id));
       closeModals();
-      void deleteAppointmentRemote(apt.id).catch((err) => {
+      void deleteAppointmentRemote(apt.id)
+        .then(() => {
+          refreshAppointmentsRef.current();
+        })
+        .catch((err) => {
         console.warn("[Calendar] appointments API delete failed", err);
         setOverlapAlert({
           message: `Could not delete appointment (${err instanceof Error ? err.message : "error"}).`,
@@ -3176,8 +3243,6 @@ export default function CalendarScreenWeb() {
                 >
                   <span className="cal-pill__dot" aria-hidden="true" />
                   <span className="cal-pill__text">{waitlist[0].title}</span>
-                  <span className="cal-pill__meta">{format(new Date(waitlist[0].waitlistAddedAt), "M/d  HH:mm")}</span>
-                  {waitlist[0].service ? <span className="cal-pill__svc">{waitlist[0].service}</span> : null}
                 </div>
               ) : (
                 <button
@@ -3187,8 +3252,6 @@ export default function CalendarScreenWeb() {
                 >
                   <span className="cal-pill__dot" aria-hidden="true" />
                   <span className="cal-pill__text">{waitlist[0].title}</span>
-                  <span className="cal-pill__meta">{format(new Date(waitlist[0].waitlistAddedAt), "M/d  HH:mm")}</span>
-                  {waitlist[0].service ? <span className="cal-pill__svc">{waitlist[0].service}</span> : null}
                 </button>
               )
             ) : (

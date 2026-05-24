@@ -69,7 +69,6 @@ function mergeS1AdjustFromConfig(cfg) {
   return base
 }
 
-/** @returns {Record<string, 'image' | 'video'>} */
 function mergeS1MediaKindsFromConfig(cfg) {
   const base = {
     topBar: /** @type {'image'} */ ('image'),
@@ -89,6 +88,29 @@ function mergeS1MediaKindsFromConfig(cfg) {
     if (v === 'video') base[slot] = 'video'
   }
   return base
+}
+
+function mergeS1VariantsFromConfig(cfg) {
+  const raw =
+    cfg.s1Demo &&
+    typeof cfg.s1Demo === 'object' &&
+    cfg.s1Demo.variants &&
+    typeof cfg.s1Demo.variants === 'object'
+      ? cfg.s1Demo.variants
+      : null
+  if (!raw) return undefined
+  /** @type {Record<string, { activeIndex: number; items: unknown[] }>} */
+  const out = {}
+  for (const slot of ['topBar', 'hero', 'promo', 'curveStrip']) {
+    const set = raw[slot]
+    if (!set || typeof set !== 'object' || !Array.isArray(set.items)) continue
+    if (set.items.length === 0) continue
+    out[slot] = {
+      activeIndex: typeof set.activeIndex === 'number' ? set.activeIndex : 0,
+      items: set.items,
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 function hasS1SessionPayload() {
@@ -450,14 +472,14 @@ export function applyV2AdminConfigJson(cfg) {
         cfg.s1Demo.images && typeof cfg.s1Demo.images === 'object'
           ? { ...cfg.s1Demo.images, topBar: '' }
           : cfg.s1Demo.images
-      sessionStorage.setItem(
-        S1_SESSION_KEY,
-        JSON.stringify({
-          images: imgs,
-          adjust: mergeS1AdjustFromConfig(cfg),
-          mediaKinds: mergeS1MediaKindsFromConfig(cfg),
-        }),
-      )
+      const variants = mergeS1VariantsFromConfig(cfg)
+      const payload = {
+        images: imgs,
+        adjust: mergeS1AdjustFromConfig(cfg),
+        mediaKinds: mergeS1MediaKindsFromConfig(cfg),
+      }
+      if (variants) payload.variants = variants
+      sessionStorage.setItem(S1_SESSION_KEY, JSON.stringify(payload))
     }
 
     if (activeBrand) {

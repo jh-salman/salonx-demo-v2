@@ -144,10 +144,10 @@ function TimerModal({
 
   if (!open) return null;
 
-  const portalTarget =
-    (typeof document !== 'undefined' &&
-      (document.getElementById('screen1-modal-root') || document.body)) ||
-    null;
+  // Always portal to `document.body`. `#screen1-modal-root` lives inside the
+  // Screen1 keep-alive layer (`display:none` when S2/outlet is active), which
+  // hid the modal and blocked taps on S2+.
+  const portalTarget = typeof document !== 'undefined' ? document.body : null;
   if (!portalTarget) return null;
 
   const totalSec = hours * 3600 + minutes * 60;

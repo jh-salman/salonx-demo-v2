@@ -20,9 +20,10 @@ export function normalizeServiceCatalogEntry(raw) {
   return out;
 }
 
-export function normalizeProductCatalogEntry(raw) {
+export function normalizeProductCatalogEntry(raw, fallbackId = '') {
   if (!raw || typeof raw !== 'object') return null;
-  const id = raw.id != null ? String(raw.id) : '';
+  const idRaw = raw.id != null ? String(raw.id).trim() : '';
+  const id = idRaw || (typeof fallbackId === 'string' ? fallbackId.trim() : '');
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   if (!id || !name) return null;
   const brand = typeof raw.brand === 'string' ? raw.brand.trim() : '';
@@ -96,7 +97,9 @@ export async function fetchDynamicProductCatalog() {
   }
   const data = await fetchProductCatalog();
   if (data?.stored && Array.isArray(data.products)) {
-    const list = data.products.map(normalizeProductCatalogEntry).filter(Boolean);
+    const list = data.products
+      .map((raw, i) => normalizeProductCatalogEntry(raw, `legacy-prod-${i}`))
+      .filter(Boolean);
     return { list, updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : null };
   }
   return { list: [], updatedAt: null };

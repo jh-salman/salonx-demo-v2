@@ -1,46 +1,60 @@
 import React, { useMemo } from 'react';
-import { useTheme } from '../context/ThemeContext';
-import { accentCardGradientCss } from '../theme/primaryTheme';
 import {
   useCalendarParked,
   useCalendarWaitlist,
 } from '../data/calendarEventsStore';
+import { useRampQueue } from '../data/rampQueueStore';
 
-/** Row height; width matches ClientList (full list column). */
+const QUEUE_ATTENTION_LABEL = 'Need Attention';
+
+/** S1 queue sections — unified blue (RAMP / Waiting List / Park). */
+const S1_QUEUE_INDICATOR_BLUE = '#25AFFF';
+
 const CARD_HEIGHT = 56;
-
-/** Screen1: matches appointment card stack (see ClientList). */
 const S1_CARD_STACK_GAP_PX = 10;
 
-const containerStyle = {
+const stackStyle = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'stretch',
   justifyContent: 'flex-start',
   width: '100%',
   boxSizing: 'border-box',
-  marginTop: 0,
-  paddingBottom: 0,
-  gap: S1_CARD_STACK_GAP_PX,
+  gap: 0,
+  /* Pull flush under last appointment card (ClientCard marginBottom). */
+  marginTop: `-${S1_CARD_STACK_GAP_PX}px`,
 };
 
-const waitingListHeaderStyle = {
-  position: 'sticky',
-  top: 0,
-  zIndex: 1,
+const sectionStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  width: '100%',
+  boxSizing: 'border-box',
+  gap: 0,
+  margin: 0,
+  padding: 0,
+};
+
+const headerStyle = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  padding: '6px 14px',
+  padding: '4px 0',
+  margin: 0,
   width: '100%',
-  background: '#0a0a0c',
-  boxShadow: '0 6px 10px -10px rgba(0, 0, 0, 0.55)',
+  minHeight: 0,
+  lineHeight: 1,
+  background: 'transparent',
+  boxShadow: 'none',
   boxSizing: 'border-box',
 };
 
 const innerFlexStyle = {
   display: 'flex',
   alignItems: 'center',
+  minHeight: 0,
+  lineHeight: 1,
+  paddingLeft: '14px',
 };
 
 const headerCountStyle = {
@@ -49,13 +63,15 @@ const headerCountStyle = {
   color: 'rgba(245, 245, 247, 0.55)',
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
+  lineHeight: 1,
+  paddingRight: '14px',
 };
 
-const clientsContainerStyle = {
+const rowsStyle = {
   display: 'flex',
   flexDirection: 'column',
   width: '100%',
-  padding: '0 0 4px',
+  padding: 0,
   boxSizing: 'border-box',
   gap: S1_CARD_STACK_GAP_PX,
 };
@@ -66,7 +82,6 @@ const cardInnerStyle = {
   height: '100%',
   background: '#1A1A1A',
   borderRadius: '9px',
-  /* matches ClientList: +20px right padding to clear the right-edge curve */
   padding: '2px 74px 2px 14px',
   display: 'flex',
   alignItems: 'center',
@@ -86,116 +101,147 @@ const clientNameStyle = {
   textOverflow: 'ellipsis',
 };
 
-const clientServiceAttentionStyle = {
+const metaStyle = (accent) => ({
   fontSize: '11px',
   margin: 0,
   lineHeight: 1.2,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
-  color: '#FF6B6B',
+  color: accent,
   fontWeight: 700,
   letterSpacing: '0.04em',
-};
+});
 
-const emptyStyle = {
-  padding: '18px 14px',
-  fontSize: '11px',
-  color: 'rgba(245, 245, 247, 0.5)',
-  fontStyle: 'italic',
-  textAlign: 'center',
-};
+function headerTextStyle(accent) {
+  return {
+    color: accent,
+    fontSize: '0.72rem',
+    fontWeight: 'bold',
+    paddingLeft: '10px',
+    margin: 0,
+    lineHeight: 1,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  };
+}
 
-// The Stylist's "Waiting List" panel mirrors the Calendar screen's two staging
-// queues:
-//   • Parked appointments — cards the stylist dragged off the schedule for
-//     reasons like "client didn't show / running late". They need attention
-//     because they have to be re-booked into a slot.
-//   • Waitlist entries — clients who asked for an opening but haven't been
-//     given a time yet.
-// Both lists live in the Calendar screen's persisted state ("@salonx/calendar/v1")
-// and update in-tab via the "salonx:calendar-updated" CustomEvent, so this
-// list reflects every park/un-park/book action immediately.
-function WaitingList() {
-  const { primaryHex } = useTheme();
-  const parked = useCalendarParked();
-  const waitlist = useCalendarWaitlist();
+function indicatorDotStyle(accent) {
+  return {
+    width: '8px',
+    height: '8px',
+    flexShrink: 0,
+    background: accent,
+    borderRadius: '50%',
+    boxShadow: `0 0 4px ${accent}`,
+  };
+}
 
-  // Both queues (parked appointments + waitlist clients) read as "Need
-  // Attention" on Stylist — the row's name is the only differentiator the
-  // stylist needs there, and the right-hand label is the universal call to
-  // action regardless of which queue produced the row.
-  const items = useMemo(() => {
-    const parkedRows = parked.map((p) => ({
-      key: `parked-${p.id}`,
-      name: p.title || 'Unknown',
-    }));
-    const waitlistRows = waitlist.map((w) => ({
-      key: `wait-${w.id}`,
-      name: w.title || 'Unknown',
-    }));
-    return [...parkedRows, ...waitlistRows];
-  }, [parked, waitlist]);
+function cardOuterStyle(accent) {
+  return {
+    position: 'relative',
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    alignSelf: 'stretch',
+    height: `${CARD_HEIGHT}px`,
+    padding: '1.5px',
+    borderRadius: '10.5px',
+    background: `linear-gradient(to right, ${accent} 0%, ${accent}cc 18%, ${accent}66 45%, ${accent}00 85%)`,
+    boxSizing: 'border-box',
+  };
+}
 
-  const { indicatorDotStyle, waitingListHeaderTextStyle, cardOuterStyle } = useMemo(() => {
-    const h = primaryHex;
-    return {
-      indicatorDotStyle: {
-        width: '10px',
-        height: '10px',
-        background: h,
-        borderRadius: '50%',
-        boxShadow: `0 0 8px ${h}`,
-      },
-      waitingListHeaderTextStyle: {
-        color: h,
-        fontSize: '0.72rem',
-        fontWeight: 'bold',
-        paddingLeft: '10px',
-        margin: 0,
-        letterSpacing: '0.04em',
-      },
-      cardOuterStyle: {
-        position: 'relative',
-        width: '100%',
-        maxWidth: '100%',
-        minWidth: 0,
-        alignSelf: 'stretch',
-        height: `${CARD_HEIGHT}px`,
-        padding: '1.5px',
-        borderRadius: '10.5px',
-        background: accentCardGradientCss(primaryHex),
-        boxSizing: 'border-box',
-      },
-    };
-  }, [primaryHex]);
+function QueueSection({ label, accent, items }) {
+  if (!items.length) return null;
 
   return (
-    <div style={containerStyle}>
-      <div style={waitingListHeaderStyle}>
+    <section style={sectionStyle} aria-label={label}>
+      <div style={headerStyle}>
         <div style={innerFlexStyle}>
-          <div style={indicatorDotStyle} />
-          <h1 style={waitingListHeaderTextStyle}>Waiting List</h1>
+          <div style={indicatorDotStyle(accent)} aria-hidden />
+          <h2 style={headerTextStyle(accent)}>{label}</h2>
         </div>
         <span style={headerCountStyle} aria-label={`${items.length} entries`}>
           {items.length}
         </span>
       </div>
 
-      <div style={clientsContainerStyle}>
-        {items.length === 0 ? (
-          <div style={emptyStyle}>No parked appointments or waitlist clients</div>
-        ) : (
-          items.map((client) => (
-            <div key={client.key} style={cardOuterStyle}>
-              <div style={cardInnerStyle}>
-                <span style={clientNameStyle}>{client.name}</span>
-                <span style={clientServiceAttentionStyle}>Need Attention</span>
-              </div>
+      <div style={rowsStyle}>
+        {items.map((row) => (
+          <div key={row.key} style={cardOuterStyle(accent)}>
+            <div style={cardInnerStyle}>
+              <span style={clientNameStyle}>{row.name}</span>
+              <span style={metaStyle(accent)}>{row.meta}</span>
             </div>
-          ))
-        )}
+          </div>
+        ))}
       </div>
+    </section>
+  );
+}
+
+function WaitingList() {
+  const parked = useCalendarParked();
+  const waitlist = useCalendarWaitlist();
+  const rampItems = useRampQueue();
+
+  const rampRows = useMemo(
+    () =>
+      rampItems.map((row) => ({
+        key: `ramp-${row.token || row.id}`,
+        name: row.title || 'Client',
+        meta: QUEUE_ATTENTION_LABEL,
+      })),
+    [rampItems],
+  );
+
+  const waitlistRows = useMemo(
+    () =>
+      waitlist.map((w) => ({
+        key: `wait-${w.id}`,
+        name: w.title || 'Unknown',
+        meta: QUEUE_ATTENTION_LABEL,
+      })),
+    [waitlist],
+  );
+
+  const parkRows = useMemo(
+    () =>
+      parked.map((p) => ({
+        key: `parked-${p.id}`,
+        name: p.title || 'Unknown',
+        meta: QUEUE_ATTENTION_LABEL,
+      })),
+    [parked],
+  );
+
+  const hasAnyQueue =
+    rampRows.length > 0 || waitlistRows.length > 0 || parkRows.length > 0;
+
+  if (!hasAnyQueue) return null;
+
+  const visibleSections = [
+    { key: 'ramp', label: 'RAMP', accent: S1_QUEUE_INDICATOR_BLUE, items: rampRows },
+    {
+      key: 'waitlist',
+      label: 'Waiting List',
+      accent: S1_QUEUE_INDICATOR_BLUE,
+      items: waitlistRows,
+    },
+    { key: 'park', label: 'Park', accent: S1_QUEUE_INDICATOR_BLUE, items: parkRows },
+  ].filter((section) => section.items.length > 0);
+
+  return (
+    <div style={stackStyle}>
+      {visibleSections.map((section) => (
+        <QueueSection
+          key={section.key}
+          label={section.label}
+          accent={section.accent}
+          items={section.items}
+        />
+      ))}
     </div>
   );
 }

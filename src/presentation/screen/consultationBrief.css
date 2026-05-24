@@ -146,11 +146,11 @@
   font-size: 20px;
   font-weight: 800;
   letter-spacing: 0.14em;
-  color: #8c52ff;
+  color: #ffb62a;
 }
 
 .nc-popup .ncv2-section.is-look .ncv2-section__dot {
-  background: #8c52ff;
+  background: #ffb62a;
   box-shadow: 0 0 0 2px #000;
 }
 
@@ -159,10 +159,10 @@
   height: 28px;
   margin-left: 0;
   justify-self: center;
-  border: 1px solid rgba(140, 82, 255, 0.35);
+  border: 1px solid rgba(255, 182, 42, 0.35);
   border-radius: 8px;
   background: transparent;
-  color: #8c52ff;
+  color: #ffb62a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -214,6 +214,25 @@
   max-width: 100%;
   margin-left: var(--nc-popup-content-inset);
   width: calc(100% - var(--nc-popup-content-inset));
+}
+
+.nc-popup .ncv2-look__col--add {
+  flex: 0 0 var(--nc-popup-look-col-w);
+  width: var(--nc-popup-look-col-w);
+  min-width: var(--nc-popup-look-col-w);
+  max-width: var(--nc-popup-look-col-w);
+}
+
+.nc-popup .ncv2-look__card.ncv2-look__add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent;
+}
+
+.nc-popup .ncv2-look__date--spacer {
+  visibility: hidden;
 }
 
 .nc-popup .ncv2-look__gallery {
@@ -349,10 +368,20 @@
   z-index: 3;
 }
 
+.nc-popup .s2-calendarHit {
+  z-index: 6;
+  pointer-events: auto;
+}
+
 .nc-popup .s2-topbar,
 .nc-popup .s2-identity {
   position: relative;
   z-index: 4;
+  pointer-events: none;
+}
+
+.nc-popup .s2-identity :is(button, a, input, [role='button']) {
+  pointer-events: auto;
 }
 
 .nc-popup .s2-identity--popup {
@@ -1310,14 +1339,20 @@ button.nc-note:focus-visible {
   font-size: 15px;
   font-weight: 700;
 }
+.ncv2-timerPill__row svg {
+  color: var(--salonx-primary);
+}
+
 .ncv2-timerPill__value {
   font-variant-numeric: tabular-nums;
+  color: var(--salonx-primary);
 }
 .ncv2-timerPill__label {
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.22em;
   opacity: 0.9;
+  color: var(--salonx-primary);
 }
 
 .ncv2-headerCurve {
@@ -1774,6 +1809,25 @@ button.nc-note:focus-visible {
     minmax(0, 34fr);
 }
 
+/* Back — absolute on rail above LIFE label (reference mark); no layout shift */
+.nc-popup .nc-popup__backRail.s2-sectionBackTab {
+  position: absolute;
+  left: calc(
+    var(--nc-popup-rail-x) + (var(--nc-popup-rail-w) / 2) - (var(--s2-back-tab-target, 44px) / 2)
+  );
+  top: calc((100% - 3 * var(--nc-popup-gap)) * 0.44 + 2 * var(--nc-popup-gap));
+  transform: translateY(calc(-100% - 4px));
+  z-index: 6;
+  flex-shrink: 0;
+  align-self: auto;
+  margin: 0;
+  pointer-events: auto;
+}
+
+.nc-popup .nc-popup__backRail.s2-sectionBackTab:active {
+  transform: translateY(calc(-100% - 4px)) scale(0.96);
+}
+
 /* One continuous spine — gray, +1px vs base 1px line */
 .nc-popup .ncv2-scroll::before {
   content: '';
@@ -1826,6 +1880,17 @@ button.nc-note:focus-visible {
   box-sizing: border-box;
 }
 
+.nc-popup .ncv2-section__rows {
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  justify-content: start;
+  gap: var(--s2-screen-card-gap, 8px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .nc-popup .ncv2-section__dot {
   position: relative;
   z-index: 3;
@@ -1836,11 +1901,26 @@ button.nc-note:focus-visible {
 
 .nc-popup .ncv2-row {
   gap: var(--nc-popup-gap);
-  padding: var(--nc-popup-gap) 0;
+  padding: 0;
+  margin: 0;
   width: 100%;
   max-width: 100%;
+  min-height: 0;
+  height: auto;
+  flex: 0 0 auto;
+  align-self: start;
+  align-items: start;
   box-sizing: border-box;
   grid-template-columns: 50px minmax(0, 1fr);
+}
+
+.nc-popup .ncv2-row__date {
+  align-self: start;
+  padding-top: 1px;
+}
+
+.nc-popup .ncv2-row + .ncv2-row {
+  border-top: none;
 }
 
 .nc-popup .ncv2-row__mic {
@@ -1859,39 +1939,61 @@ button.nc-note:focus-visible {
   align-content: center;
 }
 
-.nc-popup .ncv2-section.is-path .ncv2-section__dot,
-.nc-popup .ncv2-section.is-path .ncv2-section__label {
-  color: #38b6ff;
+/* Popup section titles — per-section orange ramp (reference lock) */
+.nc-popup .ncv2-section.is-chair {
+  --ncv2-accent: #fd612a;
+}
+.nc-popup .ncv2-section.is-path {
+  --ncv2-accent: #ff6818;
+}
+.nc-popup .ncv2-section.is-life {
+  --ncv2-accent: #e2731b;
+}
+.nc-popup .ncv2-section.is-look {
+  --ncv2-accent: #ffb62a;
 }
 
+.nc-popup .ncv2-section.is-chair .ncv2-section__label,
+.nc-popup .ncv2-section.is-chair .ncv2-section__dot {
+  color: #fd612a;
+}
+.nc-popup .ncv2-section.is-chair .ncv2-section__dot {
+  background: #fd612a;
+}
+
+.nc-popup .ncv2-section.is-path .ncv2-section__label,
 .nc-popup .ncv2-section.is-path .ncv2-section__dot {
-  background: #38b6ff;
+  color: #ff6818;
+}
+.nc-popup .ncv2-section.is-path .ncv2-section__dot {
+  background: #ff6818;
 }
 
-.nc-popup .ncv2-section.is-life .ncv2-section__dot,
-.nc-popup .ncv2-section.is-life .ncv2-section__label {
-  color: #ff3366;
-}
-
+.nc-popup .ncv2-section.is-life .ncv2-section__label,
 .nc-popup .ncv2-section.is-life .ncv2-section__dot {
-  background: #ff3366;
+  color: #e2731b;
+}
+.nc-popup .ncv2-section.is-life .ncv2-section__dot {
+  background: #e2731b;
+}
+
+.nc-popup .ncv2-section.is-look .ncv2-section__label {
+  color: #ffb62a;
+}
+.nc-popup .ncv2-section.is-look .ncv2-section__dot {
+  background: #ffb62a;
+}
+
+.nc-popup .ncv2-section__mic {
+  color: var(--ncv2-accent);
 }
 
 /* Section titles — larger type; dots match title color (rail stays gray) */
 .nc-popup .ncv2-section__label {
   font-size: 20px;
-}
-
-.nc-popup .ncv2-section.is-chair .ncv2-section__dot {
-  background: var(--salonx-primary);
-}
-
-.nc-popup .ncv2-section.is-path .ncv2-section__dot {
-  background: #38b6ff;
-}
-
-.nc-popup .ncv2-section.is-life .ncv2-section__dot {
-  background: #ff3366;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 /* Popup LOOK — final lock (after base .ncv2-look__* so image + date always show) */
@@ -1901,6 +2003,19 @@ button.nc-note:focus-visible {
   align-items: stretch;
   padding: 0;
   box-sizing: border-box;
+}
+
+.nc-popup .ncv2-section.is-look .ncv2-look__col--add {
+  flex: 0 0 var(--nc-popup-look-col-w);
+  width: var(--nc-popup-look-col-w);
+  min-width: var(--nc-popup-look-col-w);
+  max-width: var(--nc-popup-look-col-w);
+}
+
+.nc-popup .ncv2-section.is-look .ncv2-look__card.ncv2-look__add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nc-popup .ncv2-section.is-look .ncv2-look__col {

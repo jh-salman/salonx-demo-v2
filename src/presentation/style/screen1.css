@@ -73,6 +73,14 @@
         var(--s1-list-bottom-dip-under-toolbar)
     )
   );
+  /*
+   * Scroll slack after last appointment / waiting-list row — list viewport dips under
+   * the fixed BottomToolbar by `--s1-list-bottom-dip-under-toolbar`; pad by one row +
+   * gap so the last card can scroll fully above the nav bar.
+   */
+  --s1-client-list-scroll-end-pad: calc(
+    var(--s1-list-bottom-dip-under-toolbar) + 24px + 2px
+  );
 }
 
 .layout-wrapper {
@@ -119,6 +127,7 @@
 .timer-panel,
 .screen1-container--demoImage .s1demo-grayStack,
 .screen1-container--demoImage .s1demo-grayPromo,
+.screen1-container--demoImage .screen1-heroYoutubeLink,
 .screen1-container--demoImage .screen1-promoYoutubeLink {
   --s1-mask-offset-y: calc(var(--s1-curve-top) - var(--s1-panel-top));
   -webkit-mask-image: url('/curve-mask.svg'), linear-gradient(#ffffff, #ffffff);
@@ -355,6 +364,8 @@
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: var(--s1-client-list-scroll-end-pad);
+  scroll-padding-bottom: var(--s1-client-list-scroll-end-pad);
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -380,6 +391,7 @@
 .timer-panel,
 .screen1-container--demoImage .s1demo-grayStack,
 .screen1-container--demoImage .s1demo-grayPromo,
+.screen1-container--demoImage .screen1-heroYoutubeLink,
 .screen1-container--demoImage .screen1-promoYoutubeLink {
   isolation: isolate;
 }
@@ -508,8 +520,9 @@
   pointer-events: none;
 }
 .timerModal {
-  position: absolute;
+  position: fixed;
   inset: 0;
+  z-index: 1100;
   pointer-events: none;
 }
 .timerModal__backdrop {
@@ -768,9 +781,12 @@
   /* Same as section gap — drives mask vertical alignment */
   --s1demo-gray-stack-margin-top: var(--s1demo-section-gap);
   /* Stack top + brand + gap + hero + gap — keeps hero→promo gap === brand→hero gap */
-  --s1demo-gray-promo-top: calc(
+  --s1demo-gray-hero-top: calc(
     var(--s1demo-gray-stack-margin-top) + var(--s1demo-gray-top-h) +
-      var(--s1demo-section-gap) + var(--s1demo-gray-hero-h) + var(--s1demo-section-gap)
+      var(--s1demo-section-gap)
+  );
+  --s1demo-gray-promo-top: calc(
+    var(--s1demo-gray-hero-top) + var(--s1demo-gray-hero-h) + var(--s1demo-section-gap)
   );
   /* List floor uses same bottom reserve as `.client-list-wrapper` (.toolbar dip, no idle tail). */
   --s1demo-client-list-bottom: calc(var(--s1-bg-h, 100%) - var(--s1-client-list-bottom-reserve));
@@ -1430,6 +1446,25 @@
   max-width: 100%;
   height: auto;
   z-index: 4;
+}
+
+/* Hero butterfly: YouTube (Life Coach); same mask as hero slot; off while editing hero. */
+.screen1-container--demoImage .screen1-heroYoutubeLink {
+  --s1-panel-top: var(--s1demo-gray-hero-top);
+  position: absolute;
+  top: var(--s1-panel-top);
+  left: var(--s1-content-inset-left, 5px);
+  width: calc(100% - var(--s1-content-inset-left, 5px));
+  height: var(--s1demo-gray-hero-h);
+  z-index: 10;
+  box-sizing: border-box;
+  pointer-events: auto;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Promo row: YouTube (Life Coach); same mask as promo slot; off while editing promo. */

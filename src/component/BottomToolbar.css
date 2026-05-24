@@ -14,6 +14,7 @@
   z-index: 1000;
   box-sizing: border-box;
   pointer-events: auto;
+  padding-bottom: var(--salonx-bottom-toolbar-safe-h, env(safe-area-inset-bottom, 0px));
 }
 
 .bottom-toolbar-row {
@@ -28,20 +29,16 @@
 }
 
 .bottom-toolbar-safe {
-  flex-shrink: 0;
-  width: 100%;
-  height: var(--salonx-bottom-toolbar-safe-h, env(safe-area-inset-bottom, 0px));
-  background: #0e0e10;
-  pointer-events: none;
+  display: none;
 }
 
 .bottom-toolbar-btn {
   background: transparent;
   border: none;
   cursor: pointer;
-  color: var(--salonx-primary);
+  color: #ffffff;
   padding: 6px 9px;
-  transition: opacity 120ms ease, filter 120ms ease;
+  transition: color 120ms ease, filter 120ms ease;
   line-height: 0;
   display: flex;
   align-items: center;
@@ -49,13 +46,17 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+.bottom-toolbar-btn svg {
+  color: inherit;
+}
+
 .bottom-toolbar-btn[aria-current='page'] {
-  opacity: 1;
+  color: var(--salonx-primary);
   filter: drop-shadow(0 0 10px rgba(var(--salonx-primary-rgb), 0.35));
 }
 
 .bottom-toolbar-btn:not([aria-current='page']) {
-  opacity: 0.48;
+  color: #ffffff;
   filter: none;
 }
 
@@ -81,8 +82,7 @@
 }
 
 /*
- * iOS Add to Home: keep total chrome short (half safe strip) but center icons in the band above it
- * and use readable icon sizes (standalone-sized), not the tiny 16px override.
+ * iOS Add to Home: compact icon band; safe-area fill handled by shell padding-bottom.
  */
 html.salonx-ios-pwa .bottom-toolbar-shell {
   min-height: calc(
@@ -91,8 +91,7 @@ html.salonx-ios-pwa .bottom-toolbar-shell {
 }
 
 html.salonx-ios-pwa .bottom-toolbar-row {
-  flex: 1 1 auto;
-  flex-shrink: 1;
+  flex: 0 0 auto;
   min-height: var(--salonx-bottom-toolbar-row-h);
   padding: 0 10px;
   align-items: center;

@@ -25,7 +25,6 @@ export function readApiAppointmentsSessionCache() {
     const o = JSON.parse(raw)
     if (!o || typeof o !== 'object') return null
     if (o.baseKey !== apiBaseFingerprint()) return null
-    if (o.dayKey !== localDayKey()) return null
     if (!Array.isArray(o.events)) return null
     return o.events
       .map((ev) => {

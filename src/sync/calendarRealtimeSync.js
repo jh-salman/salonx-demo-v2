@@ -35,7 +35,7 @@ export function resolveCalendarSocketEndpoint() {
 }
 
 /**
- * Subscribe to demo-api calendar Socket.IO events.
+ * Subscribe to demo-api Socket.IO calendar events.
  * @param {{
  *   onAppointmentCreated?: (p: { appointment?: object }) => void
  *   onAppointmentUpdated?: (p: { appointment?: object }) => void

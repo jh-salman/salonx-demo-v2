@@ -35,15 +35,30 @@
 }
 
 /*
- * Safari “Add to Home” only — ~50% shorter home-indicator slice; icon band stays tappable/readable.
+ * Safari “Add to Home” only — keep toolbar compact but fill the home-indicator band.
  */
 html.salonx-ios-pwa {
-  --salonx-bottom-toolbar-safe-h: calc(env(safe-area-inset-bottom, 0px) * 0.5);
-  /*
-   * Min height of the icon band (flex-grow fills `shell min-height − safe` so glyphs stay
-   * vertically centered above the home-indicator slice without shrinking icons to 16px).
-   */
+  --salonx-bottom-toolbar-safe-h: env(safe-area-inset-bottom, 0px);
   --salonx-bottom-toolbar-row-h: 30px;
+}
+
+html.salonx-ios {
+  /* visualViewport sync in viewportShellSync.js drives --salonx-shell-height on iOS */
+  height: var(--salonx-shell-height, 100dvh);
+  min-height: var(--salonx-shell-height, 100dvh);
+  max-height: var(--salonx-shell-height, 100dvh);
+}
+
+html.salonx-ios body {
+  height: var(--salonx-shell-height, 100dvh);
+  min-height: var(--salonx-shell-height, 100dvh);
+  max-height: var(--salonx-shell-height, 100dvh);
+}
+
+html.salonx-ios #root {
+  height: var(--salonx-shell-height, 100dvh);
+  min-height: var(--salonx-shell-height, 100dvh);
+  max-height: var(--salonx-shell-height, 100dvh);
 }
 
 * {
@@ -120,12 +135,9 @@ body {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100vh;
-  height: 100dvh;
-  min-height: 100vh;
-  min-height: 100dvh;
-  max-height: 100vh;
-  max-height: 100dvh;
+  height: var(--salonx-shell-height, 100dvh);
+  min-height: var(--salonx-shell-height, 100dvh);
+  max-height: var(--salonx-shell-height, 100dvh);
   min-width: 0;
   overflow: hidden;
   -webkit-clip-path: inset(env(safe-area-inset-top, 0px) 0 0 0);
