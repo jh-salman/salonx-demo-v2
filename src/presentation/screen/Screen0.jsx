@@ -1,77 +1,56 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { readMarqueePersisted } from '../../sync/v2AdminBootstrap.js'
-import {
-  DEMO_FACE_ID_PHONE,
-  writeDemoLoginPhone,
-} from '../../lib/demoLoginPhone.js'
+import { writeDemoLoginPhone } from '../../lib/demoLoginPhone.js'
 import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js'
+import { syncSalonxShellHeight } from '../../layout/viewportShellSync.js'
 import '../style/screen0.css'
 
 function urlLooksLikeVideo(url) {
   return /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(String(url || ''))
 }
 
-/** Fake Face ID “scan” before Rock Star appears (boss demo). */
-const SCREEN0_FACE_ID_MS = 3000
-/** After Rock Star: full-bleed video hold before route. */
-const SCREEN0_POST_ROCKSTAR_HOLD_MS = 3000
-
-function FaceIdIcon({ className = '' }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 64 64"
-      width="32"
-      height="32"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        d="M20 28c0-6.6 5.4-12 12-12s12 5.4 12 12M44 36c0 6.6-5.4 12-12 12s-12-5.4-12-12"
-      />
-      <circle cx="26" cy="30" r="2.4" fill="currentColor" />
-      <circle cx="38" cy="30" r="2.4" fill="currentColor" />
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        d="M28 42c2.2 2.8 5.8 2.8 8 0"
-      />
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeDasharray="3 5"
-        opacity="0.55"
-        d="M32 14v6M32 44v6M14 32h6M44 32h6"
-      />
-    </svg>
-  )
+function digitsOnly(s) {
+  return String(s || '').replace(/\D/g, '').slice(0, 10)
 }
+
+function formatPhoneDisplay(digits) {
+  const d = digitsOnly(digits)
+  if (d.length === 0) return ''
+  if (d.length <= 3) return `(${d}`
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+}
+
+/** After Rock Star: full-bleed hold before route. */
+const SCREEN0_POST_ROCKSTAR_HOLD_MS = 3000
 
 function Screen0() {
   const navigate = useNavigate()
   const marqueeVideoRef = useRef(null)
   const postRockStarNavTimerRef = useRef(null)
-  const faceIdTimerRef = useRef(null)
   const [marquee, setMarquee] = useState(() => readMarqueePersisted())
   const [step, setStep] = useState('landing')
-  const [faceIdReady, setFaceIdReady] = useState(false)
+  const [phone, setPhone] = useState('')
+  const [glassKeyboardOpen, setGlassKeyboardOpen] = useState(false)
   const [entering, setEntering] = useState(false)
   const [mediaFailed, setMediaFailed] = useState(false)
+
+  const phoneDigits = digitsOnly(phone)
+  const phoneComplete = phoneDigits.length === 10
 
   useEffect(() => {
     const onSync = () => setMarquee(readMarqueePersisted())
     window.addEventListener('salonx:v2admin-marquee', onSync)
     return () => window.removeEventListener('salonx:v2admin-marquee', onSync)
   }, [])
+
+  useEffect(() => {
+    if (step !== 'login') return undefined
+    syncSalonxShellHeight()
+    const id = window.requestAnimationFrame(syncSalonxShellHeight)
+    return () => window.cancelAnimationFrame(id)
+  }, [step, glassKeyboardOpen])
 
   const customSrc = marquee?.image?.trim() ?? ''
   const isVideo =
@@ -94,10 +73,8 @@ function Screen0() {
   }
   const transform = `translate(0%, 0%) rotate(${adjust.rotate}deg) scale(${adjust.scale})`
 
-  const showVideoLayer =
-    Boolean(customSrc) && !mediaFailed && isVideo
-  const showImageLayer =
-    Boolean(customSrc) && !mediaFailed && !isVideo
+  const showVideoLayer = Boolean(customSrc) && !mediaFailed && isVideo
+  const showImageLayer = Boolean(customSrc) && !mediaFailed && !isVideo
 
   useEffect(() => {
     const el = marqueeVideoRef.current
@@ -111,39 +88,34 @@ function Screen0() {
         window.clearTimeout(postRockStarNavTimerRef.current)
         postRockStarNavTimerRef.current = null
       }
-      if (faceIdTimerRef.current != null) {
-        window.clearTimeout(faceIdTimerRef.current)
-        faceIdTimerRef.current = null
-      }
     },
     [],
   )
 
   const resetToLanding = useCallback(() => {
-    if (faceIdTimerRef.current != null) {
-      window.clearTimeout(faceIdTimerRef.current)
-      faceIdTimerRef.current = null
-    }
-    setFaceIdReady(false)
+    setGlassKeyboardOpen(false)
+    setPhone('')
     setStep('landing')
   }, [])
 
-  const startFaceId = useCallback(() => {
+  const openLogin = useCallback(() => {
     if (entering) return
-    setFaceIdReady(false)
-    setStep('faceId')
-    if (faceIdTimerRef.current != null) {
-      window.clearTimeout(faceIdTimerRef.current)
-    }
-    faceIdTimerRef.current = window.setTimeout(() => {
-      faceIdTimerRef.current = null
-      setFaceIdReady(true)
-    }, SCREEN0_FACE_ID_MS)
+    setStep('login')
+    setGlassKeyboardOpen(true)
   }, [entering])
 
+  const appendDigit = useCallback((digit) => {
+    setPhone((prev) => digitsOnly(`${prev}${digit}`))
+  }, [])
+
+  const backspaceDigit = useCallback(() => {
+    setPhone((prev) => digitsOnly(prev).slice(0, -1))
+  }, [])
+
   const goRockStar = useCallback(() => {
-    if (!faceIdReady || entering) return
-    writeDemoLoginPhone(DEMO_FACE_ID_PHONE)
+    if (!phoneComplete || entering) return
+    writeDemoLoginPhone(phoneDigits)
+    setGlassKeyboardOpen(false)
     setEntering(true)
     if (postRockStarNavTimerRef.current != null) {
       window.clearTimeout(postRockStarNavTimerRef.current)
@@ -152,15 +124,41 @@ function Screen0() {
       postRockStarNavTimerRef.current = null
       navigate('/screen1')
     }, SCREEN0_POST_ROCKSTAR_HOLD_MS)
-  }, [faceIdReady, entering, navigate])
+  }, [entering, navigate, phoneComplete, phoneDigits])
+
+  const handlePhoneKeyDown = useCallback(
+    (e) => {
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault()
+        appendDigit(e.key)
+        return
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault()
+        backspaceDigit()
+      }
+      if (e.key === 'Enter' && phoneComplete) {
+        e.preventDefault()
+        goRockStar()
+      }
+    },
+    [appendDigit, backspaceDigit, goRockStar, phoneComplete],
+  )
 
   const dockClass =
-    step === 'faceId'
-      ? `screen0-dock screen0-dock--faceId${faceIdReady ? ' screen0-dock--faceIdReady' : ''}`
+    step === 'login'
+      ? 'screen0-dock screen0-dock--login'
       : 'screen0-dock'
 
+  const phoneDisplay = formatPhoneDisplay(phoneDigits)
+  const sampleTail = '(555) 123-4567'.slice(phoneDisplay.length)
+
   return (
-    <div className="screen0-root">
+    <div
+      className="screen0-root"
+      data-salonx-keyboard-lock={step === 'login' ? '' : undefined}
+      onKeyDown={step === 'login' ? handlePhoneKeyDown : undefined}
+    >
       <div className="screen0-bg" aria-hidden="true">
         <div className="screen0-bgDecor" />
         {showVideoLayer ? (
@@ -206,20 +204,72 @@ function Screen0() {
 
       {entering ? <div className="screen0-enterFlash" aria-hidden /> : null}
 
+      {!entering && step === 'login' && glassKeyboardOpen ? (
+        <button
+          type="button"
+          className="screen0-kbScrim"
+          aria-label="Close keypad"
+          onClick={() => setGlassKeyboardOpen(false)}
+        />
+      ) : null}
+
       {!entering ? (
         <div className="screen0-bottom">
           <div className="screen0-bottomInner">
+            {!entering && step === 'login' && glassKeyboardOpen ? (
+              <div
+                className="screen0-glassKeypad"
+                role="group"
+                aria-label="Phone keypad"
+                onPointerDown={(e) => e.preventDefault()}
+              >
+                <div className="screen0-glassKeypad-grid">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+                    <button
+                      key={digit}
+                      type="button"
+                      className="screen0-glassKey"
+                      onClick={() => appendDigit(digit)}
+                    >
+                      {digit}
+                    </button>
+                  ))}
+                </div>
+                <div className="screen0-glassKeypad-row">
+                  <button
+                    type="button"
+                    className="screen0-glassKey screen0-glassKey--wide"
+                    aria-label="Delete"
+                    onClick={backspaceDigit}
+                  >
+                    ⌫
+                  </button>
+                  <button
+                    type="button"
+                    className="screen0-glassKey"
+                    onClick={() => appendDigit('0')}
+                  >
+                    0
+                  </button>
+                  <button
+                    type="button"
+                    className="screen0-glassKey screen0-glassKey--accent"
+                    aria-label="Done"
+                    onClick={() => setGlassKeyboardOpen(false)}
+                  >
+                    ✓
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
             <div className={dockClass}>
               {step === 'landing' ? (
-                <button
-                  type="button"
-                  className="screen0-dockWelcome"
-                  onClick={startFaceId}
-                >
+                <button type="button" className="screen0-dockWelcome" onClick={openLogin}>
                   Welcome
                 </button>
-              ) : faceIdReady ? (
-                <div className="screen0-dockRow screen0-dockRow--rockStar">
+              ) : (
+                <div className="screen0-dockRow">
                   <button
                     type="button"
                     className="screen0-dockIconBack"
@@ -229,60 +279,44 @@ function Screen0() {
                   >
                     ←
                   </button>
+                  <div
+                    className="screen0-dockField"
+                    onPointerDown={(e) => {
+                      e.preventDefault()
+                      setGlassKeyboardOpen(true)
+                    }}
+                  >
+                    {phoneDisplay.length === 0 ? (
+                      <span className="screen0-fakeSample" aria-hidden>
+                        <span className="screen0-fakeBlink">(</span>
+                        {sampleTail}
+                      </span>
+                    ) : null}
+                    <div
+                      id="screen0-phone"
+                      className={`screen0-dockInput screen0-dockDisplay${phoneDisplay.length === 0 ? ' screen0-dockInput--ghost' : ''}`}
+                      role="textbox"
+                      aria-readonly="true"
+                      aria-label="Phone number"
+                      aria-describedby="screen0-phone-hint"
+                    >
+                      {phoneDisplay}
+                    </div>
+                    <span id="screen0-phone-hint" className="screen0-srOnly">
+                      Enter ten digits, then tap Rock Star
+                    </span>
+                  </div>
                   <button
                     type="button"
-                    className="screen0-dockGo screen0-dockGo--full"
-                    disabled={entering}
+                    className="screen0-dockGo"
+                    disabled={!phoneComplete || entering}
                     onPointerDown={(e) => {
-                      if (!entering) e.preventDefault()
+                      if (phoneComplete && !entering) e.preventDefault()
                     }}
                     onClick={goRockStar}
                   >
                     Rock Star
                   </button>
-                </div>
-              ) : (
-                <div
-                  className="screen0-faceId"
-                  role="status"
-                  aria-live="polite"
-                  aria-busy="true"
-                >
-                  <button
-                    type="button"
-                    className="screen0-dockIconBack screen0-faceId__back"
-                    disabled={entering}
-                    onClick={resetToLanding}
-                    aria-label="Back"
-                  >
-                    ←
-                  </button>
-                  <div className="screen0-faceId__body">
-                    <div className="screen0-faceId__stage" aria-hidden>
-                      <span className="screen0-faceId__glow" />
-                      <span className="screen0-faceId__orbit" />
-                      <span className="screen0-faceId__ripple" />
-                      <span className="screen0-faceId__ripple screen0-faceId__ripple--2" />
-                      <span className="screen0-faceId__ripple screen0-faceId__ripple--3" />
-                      <span className="screen0-faceId__bracket screen0-faceId__bracket--tl" />
-                      <span className="screen0-faceId__bracket screen0-faceId__bracket--tr" />
-                      <span className="screen0-faceId__bracket screen0-faceId__bracket--bl" />
-                      <span className="screen0-faceId__bracket screen0-faceId__bracket--br" />
-                      <span className="screen0-faceId__ring">
-                        <span className="screen0-faceId__scanBeam" />
-                        <FaceIdIcon className="screen0-faceId__icon" />
-                      </span>
-                    </div>
-                    <span className="screen0-faceId__label">Face ID</span>
-                    <span className="screen0-faceId__status">
-                      Scanning
-                      <span className="screen0-faceId__dots" aria-hidden>
-                        <span>.</span>
-                        <span>.</span>
-                        <span>.</span>
-                      </span>
-                    </span>
-                  </div>
                 </div>
               )}
             </div>

@@ -84,6 +84,48 @@ export async function uploadClientProfileImage(file) {
   return url
 }
 
+/** Append a client row to `/api/clients` catalog (Postgres when configured). */
+export async function addClientToCatalog(client) {
+  if (!isAppointmentsApiAvailable()) return null
+  const row =
+    client && typeof client === 'object' && typeof client.name === 'string'
+      ? client
+      : null
+  const name = row?.name?.trim()
+  if (!name) return null
+
+  await refreshClientsCatalogCache()
+  const list = Array.isArray(catalogCache) ? [...catalogCache] : []
+  const key = name.toLowerCase()
+  const existing = list.find((c) => (c?.name || '').trim().toLowerCase() === key)
+  if (existing) return existing
+
+  const nextClient = {
+    id: row.id || `c-${Date.now().toString(36)}`,
+    name,
+    phone: typeof row.phone === 'string' ? row.phone.trim() : '',
+    email: typeof row.email === 'string' ? row.email.trim() : '',
+    notes: typeof row.notes === 'string' ? row.notes.trim() : '',
+    ...(typeof row.avatar === 'string' && row.avatar.trim()
+      ? { avatar: row.avatar.trim() }
+      : {}),
+  }
+  const next = [...list, nextClient]
+
+  const data = await saveClientsCatalogRemote({
+    clients: next,
+    ...(catalogUpdatedAt ? { expectedUpdatedAt: catalogUpdatedAt } : {}),
+  })
+  catalogCache = Array.isArray(data?.clients) ? data.clients : next
+  catalogUpdatedAt =
+    typeof data?.updatedAt === 'string' ? data.updatedAt : catalogUpdatedAt
+  dispatchCatalogUpdated()
+  return (
+    catalogCache.find((c) => (c?.name || '').trim().toLowerCase() === key) ||
+    nextClient
+  )
+}
+
 export async function persistClientAvatarToCatalog({ clientId, name, avatarUrl }) {
   if (!isAppointmentsApiAvailable()) return false
 

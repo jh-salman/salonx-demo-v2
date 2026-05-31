@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useState,
 } from 'react';
+import { fireTimerAlarm } from '../lib/timerAlarm';
 
 const STORAGE_KEY = '@salonx/timers/v1';
 
@@ -17,7 +18,16 @@ function loadInitialTimers() {
     if (!json) return {};
     const parsed = JSON.parse(json);
     if (!parsed || typeof parsed !== 'object') return {};
-    return parsed;
+    const now = Date.now();
+    const normalized = {};
+    Object.entries(parsed).forEach(([key, t]) => {
+      if (t?.kind === 'timerRunning' && typeof t.endsAt === 'number' && t.endsAt <= now) {
+        normalized[key] = { kind: 'completed' };
+      } else {
+        normalized[key] = t;
+      }
+    });
+    return normalized;
   } catch (err) {
     console.warn('[Timers] failed to load persisted state', err);
     return {};
@@ -42,9 +52,19 @@ function persistTimers(timers) {
  */
 export function TimersProvider({ children }) {
   const [timers, setTimers] = useState(loadInitialTimers);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     persistTimers(timers);
+  }, [timers]);
+
+  useEffect(() => {
+    const hasRunningCountdown = Object.values(timers).some(
+      (t) => t?.kind === 'timerRunning',
+    );
+    if (!hasRunningCountdown) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
   }, [timers]);
 
   const setTimer = useCallback((key, value) => {
@@ -56,6 +76,10 @@ export function TimersProvider({ children }) {
         delete next[key];
         return next;
       }
+      const prevEntry = prev[key];
+      if (value.kind === 'completed' && prevEntry?.kind === 'timerRunning') {
+        fireTimerAlarm();
+      }
       return { ...prev, [key]: value };
     });
   }, []);
@@ -63,6 +87,15 @@ export function TimersProvider({ children }) {
   const clearTimer = useCallback((key) => {
     setTimer(key, null);
   }, [setTimer]);
+
+  // Promote expired countdowns from any screen (Calendar, Screen2, Stylist).
+  useEffect(() => {
+    Object.entries(timers).forEach(([key, t]) => {
+      if (t?.kind === 'timerRunning' && typeof t.endsAt === 'number' && t.endsAt <= now) {
+        setTimer(key, { kind: 'completed' });
+      }
+    });
+  }, [timers, now, setTimer]);
 
   const value = { timers, setTimer, clearTimer };
   return <TimersContext.Provider value={value}>{children}</TimersContext.Provider>;

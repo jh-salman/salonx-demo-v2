@@ -4,16 +4,21 @@ import {
   normalizePrimaryHex,
   readStoredPrimaryHex,
 } from '../theme/primaryTheme.js'
+import {
+  hasS1DemoMemoryPayload,
+  s1DemoMemoryDiffersFrom,
+  setS1DemoMemoryPayload,
+} from '../data/s1DemoMemoryStore.js'
 
-const S1_SESSION_KEY = '@salonx/s1-demo-image/v1'
-/** Marquee / login hero (`Screen0`) — Build Station "Marquee" (`s2`). */
 export const MARQUEE_SESSION_KEY = '@salonx/s2-marquee/v1'
 /** Climax inlay — Build Station "Climax" (`s4`). */
 export const CLIMAX_BG_SESSION_KEY = '@salonx/s4-climax/v1'
 const V2_ACTIVE_BRAND_KEY = '@salonx/v2admin-active-brand'
 /** Last published marker from admin (`webProjectionAt`) — bumps on Apply to App. */
 const CONFIG_REV_KEY = '@salonx/v2admin-config-rev'
-const V2_CONFIG_CACHE_KEY = '@salonx/v2admin-config-cache/v1'
+/** In-memory only — config always re-fetched from DB (no localStorage). */
+/** @type {{ etag: string; body: object } | null} */
+let v2ConfigMemoryCache = null
 
 const S1_IMAGE_URL_SLOTS = ['hero', 'promo', 'curveStrip']
 
@@ -114,12 +119,37 @@ function mergeS1VariantsFromConfig(cfg) {
 }
 
 function hasS1SessionPayload() {
-  if (typeof sessionStorage === 'undefined') return false
-  try {
-    return Boolean(sessionStorage.getItem(S1_SESSION_KEY))
-  } catch {
-    return false
+  return hasS1DemoMemoryPayload()
+}
+
+/** @param {unknown} cfg */
+function buildS1SessionPayloadFromConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object' || !cfg.s1Demo || typeof cfg.s1Demo !== 'object') {
+    return null
   }
+  const imgs =
+    cfg.s1Demo.images && typeof cfg.s1Demo.images === 'object'
+      ? { ...cfg.s1Demo.images, topBar: '' }
+      : { topBar: '', hero: '', promo: '', curveStrip: '' }
+  const variants = mergeS1VariantsFromConfig(cfg)
+  const payload = {
+    images: imgs,
+    adjust: mergeS1AdjustFromConfig(cfg),
+    mediaKinds: mergeS1MediaKindsFromConfig(cfg),
+  }
+  if (variants) payload.variants = variants
+  return payload
+}
+
+/** @param {unknown} cfg */
+function s1BrandDiffersFromPersistedSession(cfg) {
+  const expected = buildS1SessionPayloadFromConfig(cfg)
+  if (!expected) return false
+  return s1DemoMemoryDiffersFrom(expected)
+}
+
+export function writeS1DemoSessionPayload(payload) {
+  setS1DemoMemoryPayload(payload)
 }
 
 function hasMarqueeSessionPayload() {
@@ -452,6 +482,7 @@ export function applyV2AdminConfigJson(cfg) {
     marqueeSessionMissing ||
     climaxSessionMissing ||
     climaxMediaOutOfSync ||
+    s1BrandDiffersFromPersistedSession(cfg) ||
     needsS1Hydration ||
     needsMarqueeHydration ||
     needsClimaxHydration ||
@@ -460,26 +491,11 @@ export function applyV2AdminConfigJson(cfg) {
 
   if (!shouldApplyProjectedMedia) return
 
-  const s1Ready =
-    cfg.s1Demo &&
-    typeof cfg.s1Demo === 'object' &&
-    cfg.s1Demo.images &&
-    s1HasAnyImageUrl(cfg.s1Demo.images)
+  const s1Payload = buildS1SessionPayloadFromConfig(cfg)
 
   try {
-    if (s1Ready) {
-      const imgs =
-        cfg.s1Demo.images && typeof cfg.s1Demo.images === 'object'
-          ? { ...cfg.s1Demo.images, topBar: '' }
-          : cfg.s1Demo.images
-      const variants = mergeS1VariantsFromConfig(cfg)
-      const payload = {
-        images: imgs,
-        adjust: mergeS1AdjustFromConfig(cfg),
-        mediaKinds: mergeS1MediaKindsFromConfig(cfg),
-      }
-      if (variants) payload.variants = variants
-      sessionStorage.setItem(S1_SESSION_KEY, JSON.stringify(payload))
+    if (s1Payload) {
+      setS1DemoMemoryPayload(s1Payload)
     }
 
     if (activeBrand) {
@@ -522,7 +538,7 @@ export function applyV2AdminConfigJson(cfg) {
   }
 
   if (typeof window !== 'undefined') {
-    if (s1Ready) {
+    if (s1Payload) {
       window.dispatchEvent(new CustomEvent('salonx:v2admin-s1demo'))
     }
     if (activeBrand) {
@@ -533,35 +549,16 @@ export function applyV2AdminConfigJson(cfg) {
 }
 
 function readV2ConfigCache() {
-  if (typeof localStorage === 'undefined') return null
-  try {
-    const raw = localStorage.getItem(V2_CONFIG_CACHE_KEY)
-    if (!raw) return null
-    const o = JSON.parse(raw)
-    if (!o || typeof o !== 'object' || !o.body || typeof o.body !== 'object')
-      return null
-    const etag = typeof o.etag === 'string' ? o.etag.trim() : ''
-    return { etag, body: o.body }
-  } catch {
-    return null
-  }
+  return v2ConfigMemoryCache
 }
 
 function writeV2ConfigCache(etag, body) {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(
-      V2_CONFIG_CACHE_KEY,
-      JSON.stringify({ etag: etag || '', body, savedAt: Date.now() }),
-    )
-  } catch {
-    /* */
-  }
+  if (!body || typeof body !== 'object') return
+  v2ConfigMemoryCache = { etag: etag || '', body }
 }
 
 export function applyCachedV2AdminConfigFromStorage() {
-  const c = readV2ConfigCache()
-  if (c?.body) applyV2AdminConfigJson(c.body)
+  if (v2ConfigMemoryCache?.body) applyV2AdminConfigJson(v2ConfigMemoryCache.body)
 }
 
 export async function syncFromV2Admin() {

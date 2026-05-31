@@ -9,7 +9,7 @@ const BOTTOM_TOOLBAR_ITEMS = [
   // Profile icon now opens the Clients picker; tapping a client there forwards
   // to Screen2 with the proper apt payload.
   { Icon: User, label: 'Clients', to: '/clients' },
-  { Icon: Lightning, label: 'Checkout', to: '/climax' },
+  { Icon: Lightning, label: 'RAMP', to: '/ramp' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
   { Icon: Gear, label: 'Settings', to: '/settings' },
 ];
@@ -43,10 +43,9 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
                   navigate(to, { state: { from: originPath } });
                   return;
                 }
-                if (to === '/climax') {
+                if (to === '/ramp') {
                   const from =
                     originPath && originPath.startsWith('/') ? originPath : '/screen1';
-                  /* No apt — Climax uses walk-in defaults unless opened from Screen2 checkout. */
                   navigate(to, { state: { from } });
                   return;
                 }

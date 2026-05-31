@@ -1,9 +1,9 @@
 /**
- * Read curve-strip media for `/screen1` from the same session key as
- * `Screen1DemoImage` / v2 admin bootstrap (`@salonx/s1-demo-image/v1`).
+ * Read curve-strip media for `/screen1` from in-memory S1 demo store
+ * (hydrated from server config / DB — no sessionStorage).
  */
 
-const S1_DEMO_IMAGE_SESSION_KEY = '@salonx/s1-demo-image/v1';
+import { getS1DemoMemoryPayload } from '../data/s1DemoMemoryStore.js';
 
 function clampScale(s) {
   return Math.min(60, Math.max(0.35, s));
@@ -27,11 +27,8 @@ function defaultCurveAdjust() {
  * @returns {{ src: string; adjust: ReturnType<typeof defaultCurveAdjust>; isVideo: boolean } | null}
  */
 export function readS1DemoCurveStripFromSession() {
-  if (typeof sessionStorage === 'undefined') return null;
   try {
-    const raw = sessionStorage.getItem(S1_DEMO_IMAGE_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    const parsed = getS1DemoMemoryPayload();
     if (!parsed || typeof parsed !== 'object') return null;
     const { images: im, adjust: ad, mediaKinds: mkRaw } = parsed;
     if (!im || typeof im !== 'object' || !ad || typeof ad !== 'object')

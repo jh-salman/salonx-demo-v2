@@ -10,6 +10,9 @@ import Clients from "../presentation/screen/Clients";
 import SettingsScreen from "../presentation/screen/SettingsScreen";
 import Screen1DemoImage from "../presentation/screen/Screen1DemoImage";
 import RampPostIt from "../presentation/screen/RampPostIt";
+import RampScreen from "../presentation/screen/RampScreen";
+import RampStation from "../presentation/screen/RampStation";
+import Screen5 from "../presentation/screen/Screen5";
 import BottomToolbar from "../component/BottomToolbar";
 
 function isScreen1Path(pathname) {
@@ -27,14 +30,22 @@ function Screen1RouteSlot() {
 const HIDE_TOOLBAR_PATHS = new Set(["/"]);
 
 function hideToolbarForPath(pathname) {
-  return HIDE_TOOLBAR_PATHS.has(pathname) || pathname.startsWith("/p/");
+  if (HIDE_TOOLBAR_PATHS.has(pathname) || pathname.startsWith("/p/")) return true;
+  // Ramp routes embed their own nav or are full-screen flows.
+  if (pathname.startsWith("/ramp") || pathname.startsWith("/screen5")) return true;
+  return false;
 }
 
 function activeIndexForPath(pathname) {
   if (pathname.startsWith("/screen1") || pathname.startsWith("/s1-demo-image"))
     return 0;
   if (pathname.startsWith("/clients") || pathname.startsWith("/screen2")) return 1;
-  if (pathname.startsWith("/climax") || pathname.startsWith("/checkout")) return 2;
+  if (
+    pathname.startsWith("/ramp") ||
+    pathname.startsWith("/screen5/ramp")
+  ) {
+    return 2;
+  }
   if (pathname.startsWith("/calendar") || pathname.startsWith("/screen3")) return 3;
   if (pathname.startsWith("/settings")) return 4;
   return -1;
@@ -94,10 +105,13 @@ export const router = createBrowserRouter([
       { path: "/screen2", element: <Screen2 /> },
       { path: "/screen3", element: <Calendar /> },
       { path: "/climax", element: <Climax /> },
+      { path: "/screen5", element: <Screen5 /> },
+      { path: "/ramp", element: <RampStation /> },
       { path: "/calendar", element: <Calendar /> },
       { path: "/checkout", element: <CheckOut /> },
       { path: "/clients", element: <Clients /> },
       { path: "/settings", element: <SettingsScreen /> },
+      { path: "/screen5/ramp/:token", element: <RampScreen /> },
       { path: "/p/:token", element: <RampPostIt /> },
     ],
   },

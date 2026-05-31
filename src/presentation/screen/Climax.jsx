@@ -23,10 +23,19 @@ import { useCalendarEvents } from "../../data/calendarEventsStore";
 import { useTheme } from "../../context/ThemeContext";
 import { readClimaxBgPersisted } from "../../sync/v2AdminBootstrap.js";
 import { optimizeMediaDeliveryUrl } from "../../lib/mediaDeliveryUrl.js";
-import { fireCareCard, isRampApiAvailable } from "../../data/rampApi.js";
-import { upsertRampQueueItem } from "../../data/rampQueueStore.js";
+import {
+  formatStoredPhoneDisplay,
+  resolveClientCarePhone,
+} from "../../lib/demoLoginPhone.js";
+import { fireClientCareCard } from "../../data/rampApi.js";
+import { removeRampAppointmentLink } from "../../data/rampAppointmentLink.js";
+import {
+  loadRampQueue,
+  syncRampQueueFromApi,
+  useRampQueue,
+} from "../../data/rampQueueStore.js";
 
-const RAMP_DEMO_STYLIST_NAME = "Joe Stylzz";
+const RAMP_CHECKOUT_SESSION_KEY = "@salonx/ramp/checkout-session/v1";
 
 // Climax = checkout. Everything here is driven by the active appointment:
 //   * services + products = `appointmentStateStore` keyed by apt id (the same
@@ -78,6 +87,7 @@ function isCheckoutFromScreen2(location) {
 }
 
 const CLIMAX_CLIENT_NAME_PLACEHOLDER = "Client name";
+const RAMP_DEMO_STYLIST_NAME = "Joe Stylzz";
 
 function resolveClimaxDisplayName(apt) {
   if (!apt) return CLIMAX_CLIENT_NAME_PLACEHOLDER;
@@ -188,7 +198,7 @@ export default function Climax() {
     [checkoutFromScreen2, location.state?.apt],
   );
 
-  /** S2 checkout only — ready for RAMP fire-care-card (Phase 4). */
+  /** S2 checkout only — client phone persisted for checkout continuity. */
   const checkoutClientPhone = useMemo(() => {
     if (!checkoutFromScreen2) return '';
     const fromNav = location?.state?.clientPhone;
@@ -290,6 +300,50 @@ export default function Climax() {
     );
   }, [apptKey, aptState.productQueue]);
 
+  /** Set when stylist bypassed RAMP on the prior screen. Survives refresh via sessionStorage. */
+  const checkoutRampSkipped = useMemo(() => {
+    if (location?.state?.rampSkipped === true) return true;
+    if (typeof sessionStorage === "undefined" || !apptKey) return false;
+    try {
+      const raw = sessionStorage.getItem(RAMP_CHECKOUT_SESSION_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return parsed?.apptKey === apptKey && parsed?.skipped === true;
+    } catch {
+      return false;
+    }
+  }, [apptKey, location?.state?.rampSkipped]);
+
+  const checkoutRampToken = useMemo(() => {
+    const fromNav = String(location?.state?.rampToken || "").trim();
+    if (fromNav) return fromNav;
+    if (typeof sessionStorage === "undefined" || !apptKey) return "";
+    try {
+      const raw = sessionStorage.getItem(RAMP_CHECKOUT_SESSION_KEY);
+      if (!raw) return "";
+      const parsed = JSON.parse(raw);
+      if (parsed?.apptKey !== apptKey) return "";
+      return String(parsed?.token || "").trim();
+    } catch {
+      return "";
+    }
+  }, [apptKey, location?.state?.rampToken]);
+
+  useEffect(() => {
+    if (typeof sessionStorage === "undefined" || !apptKey) return;
+    const token = String(location?.state?.rampToken || "").trim();
+    const skipped = location?.state?.rampSkipped === true;
+    if (!token && !skipped) return;
+    try {
+      sessionStorage.setItem(
+        RAMP_CHECKOUT_SESSION_KEY,
+        JSON.stringify({ apptKey, token, skipped }),
+      );
+    } catch {
+      /* private mode */
+    }
+  }, [apptKey, location?.state?.rampToken, location?.state?.rampSkipped]);
+
   const [globalDiscount, setGlobalDiscount] = useState({ value: 0, isPercent: false });
   useEffect(() => {
     // Reset per-ticket discount when switching appointments.
@@ -317,70 +371,6 @@ export default function Climax() {
     [aptState.svcQueue, aptState.hourlyRate, aptState.consultRate],
   );
   const products = aptState.productQueue || [];
-
-  const careCardProductLabels = useMemo(() => {
-    return products
-      .filter((p) => selectedProducts[p.id])
-      .map((p) => {
-        const brand = String(p.brand || "").trim();
-        const name = String(p.name || "").trim();
-        if (brand && name) return `${brand} ${name}`;
-        return name || brand;
-      })
-      .filter(Boolean)
-      .slice(0, 8);
-  }, [products, selectedProducts]);
-
-  const canFireCareCard = checkoutFromScreen2 && Boolean(checkoutClientPhone);
-  const [careCardState, setCareCardState] = useState("idle");
-  const [careCardNote, setCareCardNote] = useState("");
-
-  const handleFireCareCard = useCallback(async () => {
-    if (!canFireCareCard || careCardState === "loading" || careCardState === "sent") return;
-    if (!isRampApiAvailable()) {
-      setCareCardState("error");
-      setCareCardNote("API not configured");
-      return;
-    }
-    setCareCardState("loading");
-    setCareCardNote("");
-    try {
-      const result = await fireCareCard({
-        recipientPhone: checkoutClientPhone,
-        recipientName: (activeApt?.clientName || "").trim() || resolveClimaxDisplayName(activeApt),
-        stylistName: RAMP_DEMO_STYLIST_NAME,
-        products: careCardProductLabels,
-      });
-      upsertRampQueueItem({
-        token: result?.token,
-        title:
-          (activeApt?.clientName || "").trim() ||
-          resolveClimaxDisplayName(activeApt) ||
-          checkoutClientPhone,
-        status: "care_sent",
-      });
-      setCareCardState("sent");
-      setCareCardNote(
-        result?.smsMode === "twilio"
-          ? "Care card sent via SMS"
-          : "Care card sent (mock SMS — check API log)",
-      );
-    } catch (e) {
-      setCareCardState("error");
-      setCareCardNote(e instanceof Error ? e.message : "Send failed");
-    }
-  }, [
-    activeApt,
-    canFireCareCard,
-    careCardProductLabels,
-    careCardState,
-    checkoutClientPhone,
-  ]);
-
-  useEffect(() => {
-    setCareCardState("idle");
-    setCareCardNote("");
-  }, [apptKey, checkoutClientPhone]);
 
   const totals = useMemo(() => {
     const serviceTotal = services.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
@@ -800,6 +790,185 @@ export default function Climax() {
       : 1
   })`;
 
+  const rampCheckoutProducts = useMemo(
+    () =>
+      products
+        .filter((p) => selectedProducts[p.id])
+        .map((p) => (p.brand ? `${p.brand} ${p.name}` : p.name))
+        .filter(Boolean),
+    [products, selectedProducts],
+  );
+
+  /** Appointment/session client phone first, then unlock phone fallback. */
+  const careCardPhoneDigits = useMemo(
+    () => resolveClientCarePhone(checkoutClientPhone),
+    [checkoutClientPhone],
+  );
+
+  const careCardPhoneLabel = useMemo(
+    () => (careCardPhoneDigits ? formatStoredPhoneDisplay(careCardPhoneDigits) : ''),
+    [careCardPhoneDigits],
+  );
+
+  const [careCardState, setCareCardState] = useState('idle');
+  const [careCardError, setCareCardError] = useState('');
+
+  // RAMP status is driven by the shared queue store so Climax always mirrors
+  // the Screen1 queue (no separate, drift-prone status poll).
+  const rampQueueItems = useRampQueue();
+  const rampLiveStatus = useMemo(() => {
+    if (!checkoutRampToken) return '';
+    const item = rampQueueItems.find(
+      (it) => it.token === checkoutRampToken || it.id === checkoutRampToken,
+    );
+    return item?.status ? String(item.status).trim() : 'pending';
+  }, [rampQueueItems, checkoutRampToken]);
+
+  const rampStatusText = useMemo(() => {
+    if (!checkoutRampToken) return '';
+    switch (rampLiveStatus) {
+      case 'ready':
+        return 'RAMP is ready';
+      case 'generating':
+        return 'RAMP is generating — usually ~30–45s';
+      case 'failed':
+        return 'RAMP generation failed — retry from Screen 1 queue or RAMP';
+      case 'pending':
+      case 'processing':
+      default:
+        return 'RAMP is pending';
+    }
+  }, [checkoutRampToken, rampLiveStatus]);
+
+  const navigateToClientCare = useCallback(() => {
+    const climaxReturnFrom =
+      location?.state?.from === "/screen2" || climaxBackTarget === "/screen2"
+        ? "/screen2"
+        : typeof location?.state?.from === "string" && location.state.from.startsWith("/")
+          ? location.state.from
+          : climaxBackTarget;
+
+    navigate("/screen5", {
+      state: {
+        from: "/climax",
+        climaxReturnState: {
+          from: climaxReturnFrom,
+          apt: activeApt,
+          clientPhone: checkoutClientPhone,
+          ...(checkoutRampToken ? { rampToken: checkoutRampToken } : {}),
+          ...(checkoutRampSkipped ? { rampSkipped: true } : {}),
+        },
+      },
+    });
+  }, [
+    activeApt,
+    checkoutClientPhone,
+    checkoutRampSkipped,
+    checkoutRampToken,
+    climaxBackTarget,
+    location?.state?.from,
+    navigate,
+  ]);
+
+  const handleCashCheckout = useCallback(async () => {
+    if (careCardState === 'sending' || careCardState === 'skipped') return;
+
+    if (checkoutRampSkipped) {
+      setCareCardError('');
+      setCareCardState('skipped');
+      return;
+    }
+
+    const phone = resolveClientCarePhone(checkoutClientPhone);
+    if (phone.length < 10) {
+      setCareCardState('error');
+      setCareCardError('Client phone missing on this appointment.');
+      return;
+    }
+
+    // RAMP post checkout — only send the image MMS once generation is ready.
+    if (checkoutRampToken) {
+      let status = rampLiveStatus;
+      try {
+        await syncRampQueueFromApi();
+        const item = loadRampQueue().find(
+          (it) => it.token === checkoutRampToken || it.id === checkoutRampToken,
+        );
+        if (item?.status) status = String(item.status).trim();
+      } catch {
+        /* fall back to last known status */
+      }
+      if (status === 'failed') {
+        setCareCardState('error');
+        setCareCardError('RAMP generation failed — re-run from RAMP.');
+        return;
+      }
+      if (status !== 'ready') {
+        // Still pending / generating → do NOT send the RAMP image.
+        setCareCardError('');
+        setCareCardState('ramp_pending');
+        return;
+      }
+    }
+
+    setCareCardError('');
+    setCareCardState('sending');
+    try {
+      await fireClientCareCard({
+        recipientPhone: phone,
+        recipientName: clientHeader.name,
+        stylistName: RAMP_DEMO_STYLIST_NAME,
+        products: rampCheckoutProducts,
+        appointmentId: activeApt?.id ?? null,
+        demoOnly: false,
+        rampToken: checkoutRampToken || undefined,
+      });
+      if (activeApt?.id != null) {
+        removeRampAppointmentLink(activeApt.id);
+      }
+      try {
+        sessionStorage.removeItem(RAMP_CHECKOUT_SESSION_KEY);
+      } catch {
+        /* ignore */
+      }
+      setCareCardState('sent');
+    } catch (e) {
+      setCareCardState('error');
+      setCareCardError(
+        e instanceof Error ? e.message : 'Could not send Client Care Card.',
+      );
+    }
+  }, [
+    activeApt?.id,
+    careCardState,
+    checkoutClientPhone,
+    checkoutRampSkipped,
+    checkoutRampToken,
+    rampLiveStatus,
+    clientHeader.name,
+    rampCheckoutProducts,
+  ]);
+
+  useEffect(() => {
+    setCareCardState('idle');
+    setCareCardError('');
+  }, [apptKey, careCardPhoneDigits, checkoutRampSkipped, checkoutRampToken]);
+
+  useEffect(() => {
+    if (!checkoutRampToken) return;
+    if (rampLiveStatus === 'ready' && careCardState === 'ramp_pending') {
+      setCareCardState('idle');
+      setCareCardError('');
+    }
+    if (
+      rampLiveStatus === 'failed' &&
+      (careCardState === 'idle' || careCardState === 'ramp_pending')
+    ) {
+      setCareCardState('error');
+      setCareCardError('RAMP generation failed — open RAMP from Screen 1 to retry.');
+    }
+  }, [checkoutRampToken, rampLiveStatus, careCardState]);
+
   return (
     <div
       ref={climaxRootRef}
@@ -971,7 +1140,7 @@ export default function Climax() {
               </div>
             </section>
 
-            {nextFutureApt ? (
+            {!checkoutFromScreen2 && nextFutureApt ? (
               <>
                 <div className="climax-divider" />
                 <section
@@ -1007,7 +1176,7 @@ export default function Climax() {
           </div>
 
           <div className="climax-checkoutDock" aria-label="Checkout actions">
-            {!nextFutureApt ? (
+            {!checkoutFromScreen2 && !nextFutureApt ? (
               <div className="climax-futureSlot">
                 <button
                   type="button"
@@ -1019,36 +1188,84 @@ export default function Climax() {
                 </button>
               </div>
             ) : null}
-            {checkoutFromScreen2 ? (
-              <div className="climax-careCardSlot" aria-live="polite">
-                <button
-                  type="button"
-                  className={`climax-careCardBtn${
-                    careCardState === "sent" ? " is-sent" : ""
-                  }${careCardState === "error" ? " is-error" : ""}`}
-                  onClick={handleFireCareCard}
-                  disabled={!canFireCareCard || careCardState === "loading" || careCardState === "sent"}
-                  aria-label={
-                    canFireCareCard
-                      ? "Send client care card"
-                      : "Client phone required for care card"
-                  }
-                >
-                  {careCardState === "loading"
-                    ? "Sending…"
-                    : careCardState === "sent"
-                      ? "Care card sent"
-                      : "Client care"}
-                </button>
-                {careCardNote ? (
-                  <div className="climax-careCardNote">{careCardNote}</div>
-                ) : null}
-              </div>
-            ) : null}
             <div className="climax-actions" aria-label="Payment actions">
-              <button type="button" className="climax-actionBtn">CASH</button>
+              <button
+                type="button"
+                className={`climax-actionBtn${
+                  careCardState === 'sent' || careCardState === 'skipped' ? ' is-sent' : ''
+                }${
+                  checkoutRampToken &&
+                  rampLiveStatus === 'ready' &&
+                  careCardState !== 'sent' &&
+                  careCardState !== 'skipped' &&
+                  careCardState !== 'sending'
+                    ? ' is-ramp-ready'
+                    : ''
+                }`}
+                disabled={careCardState === 'sending' || careCardState === 'skipped'}
+                onClick={handleCashCheckout}
+              >
+                {careCardState === 'sending'
+                  ? 'SENDING…'
+                  : careCardState === 'sent'
+                    ? 'CARE SENT'
+                    : careCardState === 'skipped'
+                      ? 'RAMP SKIPPED'
+                      : 'CASH'}
+              </button>
               <button type="button" className="climax-actionBtn">CREDIT</button>
-              <button type="button" className="climax-actionBtn">OTHER</button>
+              <button type="button" className="climax-actionBtn" onClick={navigateToClientCare}>
+                OTHER
+              </button>
+            </div>
+            <div className="climax-careCardSlot">
+            {checkoutRampToken && rampStatusText ? (
+              <p
+                className={`climax-careCardNote${
+                  rampLiveStatus === 'ready'
+                    ? ' climax-careCardNote--ready'
+                    : rampLiveStatus === 'failed'
+                      ? ' climax-careCardNote--error'
+                      : ' climax-careCardNote--pending'
+                }`}
+              >
+                {careCardState === 'ramp_pending'
+                  ? `${rampStatusText} — tap CASH again when ready.`
+                  : rampLiveStatus === 'ready' && careCardState === 'idle'
+                    ? `${rampStatusText} — tap CASH to send Client Care + RAMP image.`
+                    : rampStatusText}
+              </p>
+            ) : null}
+            {careCardPhoneLabel || careCardState === 'error' || careCardState === 'skipped' ? (
+              <>
+                {careCardState === 'sent' ? (
+                  <p className="climax-careCardNote">
+                    Client Care Card sent to {careCardPhoneLabel} via Salesmsg
+                  </p>
+                ) : null}
+                {careCardState === 'skipped' ? (
+                  <p className="climax-careCardNote">
+                    RAMP was skipped — no client MMS sent from this checkout.
+                  </p>
+                ) : null}
+                {careCardState === 'error' && careCardError ? (
+                  <p className="climax-careCardNote climax-careCardNote--error">{careCardError}</p>
+                ) : null}
+                {careCardState === 'idle' &&
+                careCardPhoneLabel &&
+                !checkoutRampSkipped &&
+                !checkoutFromScreen2 ? (
+                  <p className="climax-careCardNote">
+                    Cash sends Client Care Card MMS → {careCardPhoneLabel}
+                  </p>
+                ) : null}
+                {careCardState === 'idle' && checkoutRampSkipped ? (
+                  <p className="climax-careCardNote">
+                    RAMP bypassed — tap Cash to confirm skip.
+                  </p>
+                ) : null}
+              </>
+            ) : null}
             </div>
           </div>
         </div>

@@ -10,3 +10,8 @@
     box-shadow: 0 0 4px rgba(var(--salonx-primary-rgb), 0.18);
   }
 }
+
+/* Screen2 LOOK row timer ring — same completed flash rhythm */
+.s2-lookTimer__ring--done {
+  animation: timerCompletedBlink 1s ease-in-out 10 forwards;
+}

@@ -42,6 +42,14 @@ import {
   readVariantsFromPersisted,
   syncLegacyFromActiveVariants,
 } from '../../lib/s1DemoVariants.js';
+import {
+  isS1DemoServerSyncAvailable,
+  syncS1DemoToServer,
+} from '../../data/s1DemoConfigApi.js';
+import {
+  getS1DemoMemoryPayload,
+  setS1DemoMemoryPayload,
+} from '../../data/s1DemoMemoryStore.js';
 import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js';
 import { syncSalonxShellHeight } from '../../layout/viewportShellSync.js';
 import '../style/screen1.css';
@@ -99,19 +107,15 @@ function clampPan(n) {
   return Math.min(50, Math.max(-50, n));
 }
 
-/** Persist demo slot images across route changes (`useState` resets on remount). */
-const S1_DEMO_IMAGE_SESSION_KEY = '@salonx/s1-demo-image/v1';
+/** In-memory mirror only — server brand config (DB) is the source of truth across devices. */
 
 /** @typedef {{ images: Record<string, string>; adjust: Record<string, S1DemoSlotAdjust>; mediaKinds?: Record<string, string>; variants?: Record<string, { activeIndex: number; items: Array<{ id: string; url: string; kind: 'image' | 'video'; adjust: S1DemoSlotAdjust }> }> }} S1PersistedShape */
 
 /** @returns {S1PersistedShape | null} */
-function readS1DemoPersisted() {
-  if (typeof sessionStorage === 'undefined') return null;
+function readS1DemoFromMemory() {
+  const parsed = getS1DemoMemoryPayload();
+  if (!parsed || typeof parsed !== 'object') return null;
   try {
-    const raw = sessionStorage.getItem(S1_DEMO_IMAGE_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
     const { images: im, adjust: ad, mediaKinds: mkRaw } = parsed;
     if (!im || typeof im !== 'object' || !ad || typeof ad !== 'object')
       return null;
@@ -178,26 +182,21 @@ function readS1DemoPersisted() {
   }
 }
 
-function persistS1Demo(
+function writeS1DemoToMemory(
   /** @type {Record<S1DemoSlotId, string>} */ images,
   /** @type {Record<S1DemoSlotId, S1DemoSlotAdjust>} */ adjust,
   /** @type {Record<S1DemoSlotId, 'image' | 'video'>} */ mediaKinds,
   /** @type {S1PersistedShape['variants']} */ variants,
 ) {
-  if (typeof sessionStorage === 'undefined') return;
-  try {
-    const payload = {
-      images: { ...images, topBar: '' },
-      adjust,
-      mediaKinds,
-    };
-    if (variants && Object.keys(variants).length > 0) {
-      payload.variants = variants;
-    }
-    sessionStorage.setItem(S1_DEMO_IMAGE_SESSION_KEY, JSON.stringify(payload));
-  } catch (_) {
-    /* quota / private browsing */
+  const payload = {
+    images: { ...images, topBar: '' },
+    adjust,
+    mediaKinds,
+  };
+  if (variants && Object.keys(variants).length > 0) {
+    payload.variants = variants;
   }
+  setS1DemoMemoryPayload(payload);
 }
 
 /** Pinch super-linearity (finger spread → scale). Larger = zoom reacts faster. */
@@ -213,68 +212,57 @@ const WHEEL_ZOOM_GAIN = 0.008;
  */
 const LONG_PRESS_REPLACE_MS = 520;
 
-function S1StageYoutubeLink({
+/** Invisible bottom-left tap target — cycles saved looks on iOS PWA (no long-press). */
+function S1VariantCycleHotspot({ disabled, onCycle, ariaLabel = 'Switch saved look' }) {
+  if (!onCycle) return null;
+  return (
+    <button
+      type="button"
+      className="s1-variantCycleHotspot"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onCycle();
+      }}
+    />
+  );
+}
+
+function S1StageYoutubeZone({
   href,
-  className,
+  zoneClassName,
+  linkClassName,
   ariaLabel,
   disabled,
   canCycleVariants,
   onCycleVariant,
-  style,
   tabIndex,
 }) {
-  const holdTimerRef = useRef(null);
-  const didHoldRef = useRef(false);
-
-  const clearHold = useCallback(() => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  }, []);
-
-  const onPointerDown = useCallback(() => {
-    if (disabled || !canCycleVariants) return;
-    didHoldRef.current = false;
-    clearHold();
-    holdTimerRef.current = window.setTimeout(() => {
-      didHoldRef.current = true;
-      onCycleVariant?.();
-    }, LONG_PRESS_REPLACE_MS);
-  }, [disabled, canCycleVariants, clearHold, onCycleVariant]);
-
-  const onPointerEnd = useCallback(
-    (e) => {
-      clearHold();
-      if (didHoldRef.current) {
-        e.preventDefault();
-        didHoldRef.current = false;
-      }
-    },
-    [clearHold],
-  );
-
-  const onClick = useCallback((e) => {
-    if (didHoldRef.current) {
-      e.preventDefault();
-    }
-  }, []);
-
   return (
-    <a
-      href={href}
-      className={className}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={ariaLabel}
-      style={style}
-      tabIndex={tabIndex}
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerEnd}
-      onPointerCancel={onPointerEnd}
-      onPointerLeave={clearHold}
-      onClick={onClick}
-    />
+    <div
+      className={zoneClassName}
+      style={disabled ? { pointerEvents: 'none' } : undefined}
+    >
+      {canCycleVariants ? (
+        <S1VariantCycleHotspot
+          disabled={disabled}
+          onCycle={onCycleVariant}
+        />
+      ) : null}
+      <a
+        href={href}
+        className={linkClassName}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={ariaLabel}
+        tabIndex={tabIndex}
+      />
+    </div>
   );
 }
 
@@ -649,7 +637,7 @@ function S1DemoResizeBottomSheet({
  *   onAdjust: (slot: S1DemoSlotId, updater: (a: S1DemoSlotAdjust) => S1DemoSlotAdjust) => void;
  *   imageUploadEnabled?: boolean;
  *   mediaKind?: 'image' | 'video';
- *   variantCycleOnHold?: boolean;
+ *   showVariantCycleCorner?: boolean;
  *   onVariantCycle?: () => void;
  * }} props
  */
@@ -669,7 +657,7 @@ function S1DemoImageSlot({
   onAdjust,
   imageUploadEnabled = true,
   mediaKind = 'image',
-  variantCycleOnHold = false,
+  showVariantCycleCorner = false,
   onVariantCycle,
 }) {
   const elRef = useRef(/** @type {HTMLDivElement | null} */ (null));
@@ -828,19 +816,8 @@ function S1DemoImageSlot({
         gestureStartMsRef.current > 0 &&
         Date.now() - gestureStartMsRef.current >= LONG_PRESS_REPLACE_MS;
 
-      const variantCycledByLongPress =
-        !imageUploadEnabled &&
-        variantCycleOnHold &&
-        src &&
-        !movedRef.current &&
-        !hadMultiFingerRef.current &&
-        gestureStartMsRef.current > 0 &&
-        Date.now() - gestureStartMsRef.current >= LONG_PRESS_REPLACE_MS;
-
       if (!movedRef.current && gesturesOn) {
-        if (variantCycledByLongPress) {
-          onVariantCycle?.();
-        } else if (replacedByLongPress) {
+        if (replacedByLongPress) {
           // Synchronous `input.click()` on pointer up keeps iOS / Android happy.
           lastTapRef.current = 0;
           openSlotPicker(slotId);
@@ -872,8 +849,6 @@ function S1DemoImageSlot({
       onAdjust,
       openSlotPicker,
       imageUploadEnabled,
-      variantCycleOnHold,
-      onVariantCycle,
     ],
   );
 
@@ -1025,6 +1000,9 @@ function S1DemoImageSlot({
       ) : (
         <span className="s1demo-slot__hint">{hintEmpty}</span>
       )}
+      {showVariantCycleCorner && src && !disabled ? (
+        <S1VariantCycleHotspot onCycle={onVariantCycle} />
+      ) : null}
     </div>
   );
 }
@@ -1044,7 +1022,7 @@ function Screen1DemoImage() {
     () => [
       { Icon: Scissors, label: 'Stylist', to: stylistToolbarTarget },
       { Icon: User, label: 'Clients', to: '/clients' },
-      { Icon: Lightning, label: 'Checkout', to: '/climax' },
+      { Icon: Lightning, label: 'RAMP', to: '/ramp' },
       { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
       { Icon: Gear, label: 'Settings', to: '/settings' },
     ],
@@ -1106,12 +1084,12 @@ function Screen1DemoImage() {
   const lastPickerOpenRef = useRef(
     /** @type {{ t: number; slot: S1DemoSlotId | null }} */ ({ t: 0, slot: null }),
   );
-  /** One `sessionStorage` read per mount so both `useState` initializers stay in sync. */
+  /** One in-memory read per mount so both `useState` initializers stay in sync. */
   const s1PersistedMountRef = useRef(
     /** @type {S1PersistedShape | null | undefined} */ (undefined),
   );
   if (s1PersistedMountRef.current === undefined) {
-    s1PersistedMountRef.current = readS1DemoPersisted();
+    s1PersistedMountRef.current = readS1DemoFromMemory();
   }
   const [demoImages, setDemoImages] = useState(
     () => s1PersistedMountRef.current?.images ?? initialDemoImages(),
@@ -1133,6 +1111,39 @@ function Screen1DemoImage() {
     setDemoVariants(synced.variants);
   }, []);
 
+  const pushS1DemoState = useCallback(async (payload) => {
+    const synced = syncLegacyFromActiveVariants({
+      images: { ...payload.images, topBar: '' },
+      adjust: payload.adjust,
+      mediaKinds: payload.mediaKinds ?? initialDemoMediaKinds(),
+      variants: payload.variants,
+    });
+    const sessionPayload = {
+      images: synced.images,
+      adjust: synced.adjust,
+      mediaKinds: synced.mediaKinds,
+      variants: synced.variants,
+    };
+    if (isS1DemoServerSyncAvailable()) {
+      const ok = await syncS1DemoToServer(sessionPayload);
+      if (!ok) {
+        writeS1DemoToMemory(
+          sessionPayload.images,
+          sessionPayload.adjust,
+          sessionPayload.mediaKinds,
+          sessionPayload.variants,
+        );
+      }
+      return;
+    }
+    writeS1DemoToMemory(
+      sessionPayload.images,
+      sessionPayload.adjust,
+      sessionPayload.mediaKinds,
+      sessionPayload.variants,
+    );
+  }, []);
+
   const cycleDemoVariant = useCallback(
     (slot) => {
       const synced = cycleSlotVariant(
@@ -1146,8 +1157,19 @@ function Screen1DemoImage() {
         1,
       );
       applyDemoVariantState(synced);
+      if (allowImageUpload) {
+        void pushS1DemoState(synced);
+      }
     },
-    [demoImages, demoAdjust, demoMediaKinds, demoVariants, applyDemoVariantState],
+    [
+      allowImageUpload,
+      demoImages,
+      demoAdjust,
+      demoMediaKinds,
+      demoVariants,
+      applyDemoVariantState,
+      pushS1DemoState,
+    ],
   );
 
   const slotCanCycleVariants = useCallback(
@@ -1159,12 +1181,8 @@ function Screen1DemoImage() {
   );
 
   useEffect(() => {
-    persistS1Demo(demoImages, demoAdjust, demoMediaKinds, demoVariants);
-  }, [demoImages, demoAdjust, demoMediaKinds, demoVariants]);
-
-  useEffect(() => {
     const onV2Admin = () => {
-      const next = readS1DemoPersisted();
+      const next = readS1DemoFromMemory();
       if (!next) return;
       setDemoImages({ ...next.images, topBar: '' });
       setDemoAdjust(next.adjust);
@@ -1256,7 +1274,21 @@ function Screen1DemoImage() {
   const confirmEdit = useCallback(() => {
     setEditingSlot(null);
     setEditSnapshot(null);
-  }, []);
+    if (!allowImageUpload) return;
+    void pushS1DemoState({
+      images: demoImages,
+      adjust: demoAdjust,
+      mediaKinds: demoMediaKinds,
+      variants: demoVariants,
+    });
+  }, [
+    allowImageUpload,
+    demoImages,
+    demoAdjust,
+    demoMediaKinds,
+    demoVariants,
+    pushS1DemoState,
+  ]);
 
   const cancelEdit = useCallback(() => {
     if (editingSlot && editSnapshot) {
@@ -1323,14 +1355,39 @@ function Screen1DemoImage() {
   const removeWhileEditing = useCallback(() => {
     const slot = editingSlot;
     if (!slot) return;
-    setDemoImages((prev) => ({ ...prev, [slot]: '' }));
-    setDemoAdjust((prev) => ({ ...prev, [slot]: defaultSlotAdjust() }));
+    const nextImages = { ...demoImages, [slot]: '' };
+    const nextAdjust = { ...demoAdjust, [slot]: defaultSlotAdjust() };
+    const nextMediaKinds =
+      slot === 'curveStrip'
+        ? { ...demoMediaKinds, curveStrip: 'image' }
+        : demoMediaKinds;
+    const nextVariants = demoVariants ? { ...demoVariants } : undefined;
+    if (nextVariants?.[slot]) {
+      delete nextVariants[slot];
+    }
+    setDemoImages(nextImages);
+    setDemoAdjust(nextAdjust);
     if (slot === 'curveStrip') {
-      setDemoMediaKinds((prev) => ({ ...prev, curveStrip: 'image' }));
+      setDemoMediaKinds(nextMediaKinds);
     }
     setEditingSlot(null);
     setEditSnapshot(null);
-  }, [editingSlot]);
+    if (!allowImageUpload) return;
+    void pushS1DemoState({
+      images: nextImages,
+      adjust: nextAdjust,
+      mediaKinds: nextMediaKinds,
+      variants: nextVariants,
+    });
+  }, [
+    allowImageUpload,
+    demoImages,
+    demoAdjust,
+    demoMediaKinds,
+    demoVariants,
+    editingSlot,
+    pushS1DemoState,
+  ]);
 
   /** From the bottom bar — real tap keeps iOS happy for `input.click()`. */
   const replaceWhileEditing = useCallback(() => {
@@ -1494,16 +1551,14 @@ function Screen1DemoImage() {
               </div>
             </div>
 
-            <S1StageYoutubeLink
+            <S1StageYoutubeZone
               href={S1_HERO_YOUTUBE_URL}
-              className="screen1-heroYoutubeLink"
+              zoneClassName="screen1-heroYoutubeZone"
+              linkClassName="screen1-heroYoutubeLink"
               ariaLabel="Danger Jones butterfly — watch on YouTube (opens in new tab)"
               disabled={editingSlot === 'hero'}
-              canCycleVariants={slotCanCycleVariants('hero')}
+              canCycleVariants={!allowImageUpload && slotCanCycleVariants('hero')}
               onCycleVariant={() => cycleDemoVariant('hero')}
-              style={
-                editingSlot === 'hero' ? { pointerEvents: 'none' } : undefined
-              }
               tabIndex={editingSlot === 'hero' ? -1 : undefined}
             />
             <S1DemoImageSlot
@@ -1520,16 +1575,14 @@ function Screen1DemoImage() {
               onAdjust={handleAdjust}
               imageUploadEnabled={allowImageUpload}
             />
-            <S1StageYoutubeLink
+            <S1StageYoutubeZone
               href={S1_PROMO_YOUTUBE_URL}
-              className="screen1-promoYoutubeLink"
+              zoneClassName="screen1-promoYoutubeZone"
+              linkClassName="screen1-promoYoutubeLink"
               ariaLabel="Epilogue — watch on YouTube (opens in new tab)"
               disabled={editingSlot === 'promo'}
-              canCycleVariants={slotCanCycleVariants('promo')}
+              canCycleVariants={!allowImageUpload && slotCanCycleVariants('promo')}
               onCycleVariant={() => cycleDemoVariant('promo')}
-              style={
-                editingSlot === 'promo' ? { pointerEvents: 'none' } : undefined
-              }
               tabIndex={editingSlot === 'promo' ? -1 : undefined}
             />
             <div
@@ -1575,7 +1628,9 @@ function Screen1DemoImage() {
                 openSlotPicker={openSlotPicker}
                 onAdjust={handleAdjust}
                 imageUploadEnabled={allowImageUpload}
-                variantCycleOnHold={slotCanCycleVariants('curveStrip')}
+                showVariantCycleCorner={
+                  !allowImageUpload && slotCanCycleVariants('curveStrip')
+                }
                 onVariantCycle={() => cycleDemoVariant('curveStrip')}
                 mediaKind={demoMediaKinds.curveStrip === 'video' ? 'video' : 'image'}
               />

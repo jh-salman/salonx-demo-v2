@@ -244,6 +244,7 @@ export function buildRebookParkItem(apt, target, clientNameFallback = '') {
     targetEnd: target.end.toISOString(),
     price: typeof apt?.price === 'number' ? apt.price : 0,
     notes: apt?.notes || '',
+    ...(apt?.id ? { sourceAppointmentId: String(apt.id) } : {}),
   };
 }
 

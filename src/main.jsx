@@ -12,17 +12,20 @@ import {
   startV2AdminRealtimeSync,
   syncFromV2Admin,
 } from './sync/v2AdminBootstrap.js'
+import { clearS1ApiCaches } from './data/clearS1ApiCaches.js'
 import {
   applyIosStandalonePwaClass,
   startSalonxViewportShellSync,
 } from './layout/viewportShellSync.js'
 
-function startApp() {
+async function startApp() {
   applyIosStandalonePwaClass()
   startSalonxViewportShellSync()
+  clearS1ApiCaches()
   applyCachedV2AdminConfigFromStorage()
   applySalonxPrimaryTheme(readStoredPrimaryHex())
   startV2AdminRealtimeSync()
+  await syncFromV2Admin()
 
   createRoot(document.getElementById('root')).render(
     <StrictMode>
@@ -37,8 +40,6 @@ function startApp() {
       </ThemeProvider>
     </StrictMode>,
   )
-
-  void syncFromV2Admin()
 }
 
 void startApp()

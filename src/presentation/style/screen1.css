@@ -127,8 +127,8 @@
 .timer-panel,
 .screen1-container--demoImage .s1demo-grayStack,
 .screen1-container--demoImage .s1demo-grayPromo,
-.screen1-container--demoImage .screen1-heroYoutubeLink,
-.screen1-container--demoImage .screen1-promoYoutubeLink {
+.screen1-container--demoImage .screen1-heroYoutubeZone,
+.screen1-container--demoImage .screen1-promoYoutubeZone {
   --s1-mask-offset-y: calc(var(--s1-curve-top) - var(--s1-panel-top));
   -webkit-mask-image: url('/curve-mask.svg'), linear-gradient(#ffffff, #ffffff);
   mask-image: url('/curve-mask.svg'), linear-gradient(#ffffff, #ffffff);
@@ -364,6 +364,8 @@
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   padding-bottom: var(--s1-client-list-scroll-end-pad);
   scroll-padding-bottom: var(--s1-client-list-scroll-end-pad);
   scrollbar-width: none;
@@ -391,8 +393,8 @@
 .timer-panel,
 .screen1-container--demoImage .s1demo-grayStack,
 .screen1-container--demoImage .s1demo-grayPromo,
-.screen1-container--demoImage .screen1-heroYoutubeLink,
-.screen1-container--demoImage .screen1-promoYoutubeLink {
+.screen1-container--demoImage .screen1-heroYoutubeZone,
+.screen1-container--demoImage .screen1-promoYoutubeZone {
   isolation: isolate;
 }
 
@@ -1449,7 +1451,7 @@
 }
 
 /* Hero butterfly: YouTube (Life Coach); same mask as hero slot; off while editing hero. */
-.screen1-container--demoImage .screen1-heroYoutubeLink {
+.screen1-container--demoImage .screen1-heroYoutubeZone {
   --s1-panel-top: var(--s1demo-gray-hero-top);
   position: absolute;
   top: var(--s1-panel-top);
@@ -1457,6 +1459,13 @@
   width: calc(100% - var(--s1-content-inset-left, 5px));
   height: var(--s1demo-gray-hero-h);
   z-index: 10;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.screen1-container--demoImage .screen1-heroYoutubeZone .screen1-heroYoutubeLink {
+  position: absolute;
+  inset: 0;
   box-sizing: border-box;
   pointer-events: auto;
   cursor: pointer;
@@ -1468,7 +1477,7 @@
 }
 
 /* Promo row: YouTube (Life Coach); same mask as promo slot; off while editing promo. */
-.screen1-container--demoImage .screen1-promoYoutubeLink {
+.screen1-container--demoImage .screen1-promoYoutubeZone {
   --s1-panel-top: var(--s1demo-gray-promo-top);
   position: absolute;
   top: var(--s1-panel-top);
@@ -1478,10 +1487,45 @@
   z-index: 10;
   box-sizing: border-box;
   pointer-events: auto;
+}
+
+.screen1-container--demoImage .screen1-promoYoutubeZone .screen1-promoYoutubeLink {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  pointer-events: auto;
   cursor: pointer;
   background: transparent;
   border: none;
   padding: 0;
   margin: 0;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Bottom-left invisible tap — cycle saved looks (iOS PWA; avoids long-press → YouTube). */
+.s1-variantCycleHotspot {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 20px;
+  height: 20px;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  opacity: 0;
+  cursor: default;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.screen1-container--demoImage .s1demo-slot .s1-variantCycleHotspot {
+  z-index: 3;
+}
+
+/* Hero: 2× tap target (40px) — variant cycle without hitting YouTube link. */
+.screen1-container--demoImage .screen1-heroYoutubeZone .s1-variantCycleHotspot {
+  width: 60px;
+  height: 60px;
 }

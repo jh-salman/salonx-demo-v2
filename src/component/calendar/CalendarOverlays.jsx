@@ -76,7 +76,13 @@ export function PickerTrigger({ value, placeholder, onClick }) {
 
 // ---------- New customer screen ----------
 
-export function NewCustomerScreen({ initialName = '', onCancel, onSave }) {
+export function NewCustomerScreen({
+  initialName = '',
+  onCancel,
+  onSave,
+  saving = false,
+  error = '',
+}) {
   const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -84,6 +90,7 @@ export function NewCustomerScreen({ initialName = '', onCancel, onSave }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (saving) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     const id = `c-${Date.now().toString(36)}`;
@@ -110,6 +117,7 @@ export function NewCustomerScreen({ initialName = '', onCancel, onSave }) {
             placeholder="Full name"
             autoFocus
             required
+            disabled={saving}
           />
         </label>
 
@@ -121,6 +129,7 @@ export function NewCustomerScreen({ initialName = '', onCancel, onSave }) {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="(555) 555-5555"
+            disabled={saving}
           />
         </label>
 
@@ -132,6 +141,7 @@ export function NewCustomerScreen({ initialName = '', onCancel, onSave }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="name@example.com"
+            disabled={saving}
           />
         </label>
 
@@ -144,16 +154,32 @@ export function NewCustomerScreen({ initialName = '', onCancel, onSave }) {
             placeholder="Allergies, preferences, etc."
             rows={3}
             maxLength={500}
+            disabled={saving}
           />
           <span className="cal-field__counter">{notes.length}/500</span>
         </label>
 
+        {error ? (
+          <p className="cal-field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+
         <div className="cal-modal__row">
-          <button type="button" className="cal-modal__btn cal-modal__btn--ghost" onClick={onCancel}>
+          <button
+            type="button"
+            className="cal-modal__btn cal-modal__btn--ghost"
+            onClick={onCancel}
+            disabled={saving}
+          >
             Cancel
           </button>
-          <button type="submit" className="cal-modal__btn cal-modal__btn--primary">
-            Save
+          <button
+            type="submit"
+            className="cal-modal__btn cal-modal__btn--primary"
+            disabled={saving}
+          >
+            {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </form>

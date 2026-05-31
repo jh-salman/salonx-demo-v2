@@ -14,6 +14,7 @@ import {
   isToday,
   startOfWeek,
   startOfMonth,
+  startOfDay,
   endOfMonth,
   endOfWeek,
 } from "date-fns";
@@ -32,6 +33,8 @@ import {
   persistToolbarToCalendarStorage,
   removeAppointmentFromSessionCache,
   setApiModeCalendarEventsMirror,
+  stripLegacyMockToolbarEntries,
+  toolbarHadLegacyMockEntries,
   upsertAppointmentInSessionCache,
 } from "../../data/calendarEventsStore.js";
 import {
@@ -118,58 +121,89 @@ function ArrowIcon({ dir = "left" }) {
   );
 }
 
-const initialToolbarEvents = [
-  { id: "pk-1", title: "Candy Smiles", isParked: true, color: "#FF7701" },
-  { id: "pk-2", title: "Joe Styles", isParked: true, color: "#FF7701" },
-  { id: "wl-1", title: "Liam Wright", waitlistAddedAt: new Date(2026, 3, 3, 21, 56), service: "Hair Cut", color: "#FA1BFE" },
-  { id: "wl-2", title: "Noah Davis", waitlistAddedAt: new Date(2026, 3, 4, 19, 56), service: "Color", color: "#FA1BFE" },
-  { id: "wl-3", title: "James Wilson", waitlistAddedAt: new Date(2026, 3, 5, 22, 56), service: "Blow Dry", color: "#FA1BFE" },
-  { id: "wl-4", title: "Olivia Patel", waitlistAddedAt: new Date(2026, 3, 6, 10, 12), service: "Highlights", color: "#FA1BFE" },
-  { id: "wl-5", title: "Mason Reyes", waitlistAddedAt: new Date(2026, 3, 6, 14, 25), service: "Beard Trim", color: "#FA1BFE" },
-  { id: "wl-6", title: "Zara Khan", waitlistAddedAt: new Date(2026, 3, 7, 9, 5), service: "Bridal Trial", color: "#FA1BFE" },
+// Seeded appointments repeat on every day in range so Calendar month/week/day
+// views stay populated in mock mode (and demo-api fallback when DB is empty).
+const MOCK_APPT_DAY_TEMPLATES = [
+  {
+    idSuffix: "1",
+    clientName: "Cristi Curls",
+    service: "Extension Install",
+    startH: 10,
+    startM: 0,
+    endH: 11,
+    endM: 0,
+    color: "pink",
+  },
+  {
+    idSuffix: "2",
+    clientName: "Jon Klein",
+    service: "Full lived-in colour",
+    startH: 10,
+    startM: 30,
+    endH: 11,
+    endM: 15,
+    color: "blue",
+  },
+  {
+    idSuffix: "3",
+    clientName: "Joe Styles",
+    service: "Men's haircut & color",
+    startH: 12,
+    startM: 45,
+    endH: 13,
+    endM: 45,
+    color: "gray",
+  },
+  {
+    idSuffix: "4",
+    clientName: "Nita Haredoo",
+    service: "Extensions and colour",
+    startH: 15,
+    startM: 30,
+    endH: 16,
+    endM: 0,
+    color: "green",
+  },
 ];
 
-// Seeded appointments are anchored to *today* so first-time users immediately
-// see the Calendar and Stylist screens populated with example data. Existing
-// users keep their persisted events untouched (this seed only runs when no
-// localStorage state exists yet).
+function shouldUseMockAppointmentFallback() {
+  return (
+    String(import.meta.env.VITE_DEV_USE_DEMO_API || "").toLowerCase() === "true"
+  );
+}
+
+function mockAppointmentFetchRange() {
+  const anchor = new Date();
+  return {
+    from: addDays(anchor, -120),
+    to: addDays(anchor, 240),
+  };
+}
+
+function buildMockAppointmentsForRange(fromDate, toDate) {
+  const events = [];
+  let day = startOfDay(fromDate);
+  const end = startOfDay(toDate);
+  while (day.getTime() <= end.getTime()) {
+    const dayKey = format(day, "yyyy-MM-dd");
+    for (const t of MOCK_APPT_DAY_TEMPLATES) {
+      events.push({
+        id: `mock-${dayKey}-${t.idSuffix}`,
+        clientName: t.clientName,
+        service: t.service,
+        start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), t.startH, t.startM),
+        end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), t.endH, t.endM),
+        color: t.color,
+      });
+    }
+    day = addDays(day, 1);
+  }
+  return events;
+}
+
 function buildInitialMockAppointments() {
-  const t = new Date();
-  const at = (h, m) => new Date(t.getFullYear(), t.getMonth(), t.getDate(), h, m);
-  return [
-    {
-      id: "ev-1",
-      clientName: "Cristi Curls",
-      service: "Extension Install",
-      start: at(10, 0),
-      end: at(11, 0),
-      color: "pink",
-    },
-    {
-      id: "ev-2",
-      clientName: "Jon Klein",
-      service: "Full lived-in colour",
-      start: at(10, 30),
-      end: at(11, 15),
-      color: "blue",
-    },
-    {
-      id: "ev-3",
-      clientName: "Joe Styles",
-      service: "Men's haircut & color",
-      start: at(12, 45),
-      end: at(13, 45),
-      color: "gray",
-    },
-    {
-      id: "ev-4",
-      clientName: "Nita Haredoo",
-      service: "Extensions and colour",
-      start: at(15, 30),
-      end: at(16, 0),
-      color: "green",
-    },
-  ];
+  const { from, to } = mockAppointmentFetchRange();
+  return buildMockAppointmentsForRange(from, to);
 }
 
 function minutesSinceStart(d) {
@@ -437,7 +471,27 @@ function reviveCalendarSlices(data) {
       ...(p.waitlistAddedAt ? { waitlistAddedAt: ensureDate(p.waitlistAddedAt) } : {}),
     }));
   }
+  const cleaned = stripLegacyMockToolbarEntries(data.parkedFromDrag, data.toolbarEvents);
+  data.parkedFromDrag = cleaned.parkedFromDrag;
+  data.toolbarEvents = cleaned.toolbarEvents;
   return data;
+}
+
+function mergeParkedToolbarRows(serverParked, localParked) {
+  const server = Array.isArray(serverParked) ? serverParked : [];
+  const local = Array.isArray(localParked) ? localParked : [];
+  const serverIds = new Set(server.map((p) => String(p?.id)));
+  const pending = local.filter(
+    (p) => p?.id != null && !serverIds.has(String(p.id)),
+  );
+  return [...server, ...pending];
+}
+
+function mergeRebookParkItem(list, item) {
+  if (!item || typeof item !== "object") return Array.isArray(list) ? list : [];
+  const base = Array.isArray(list) ? list : [];
+  if (base.some((p) => String(p.id) === String(item.id))) return base;
+  return [...base, item];
 }
 
 function loadPersistedCalendar() {
@@ -454,6 +508,12 @@ function loadPersistedCalendar() {
 
 function persistCalendar(state, options = {}) {
   const { skipEvents = false } = options;
+  if (isAppointmentsApiAvailable()) {
+    if (skipEvents) {
+      persistToolbarToCalendarStorage(state.parkedFromDrag, state.toolbarEvents);
+    }
+    return;
+  }
   const slice = skipEvents
     ? {
         clients: state.clients,
@@ -605,12 +665,14 @@ export default function CalendarScreenWeb() {
             parkedFromDrag: err.payload.parkedFromDrag,
             toolbarEvents: err.payload.toolbarEvents,
           });
-          setParkedFromDrag(
-            Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : [],
-          );
-          setToolbarEvents(
-            Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : [],
-          );
+          const serverParked = Array.isArray(revived.parkedFromDrag)
+            ? revived.parkedFromDrag
+            : [];
+          const serverToolbar = Array.isArray(revived.toolbarEvents)
+            ? revived.toolbarEvents
+            : [];
+          setParkedFromDrag((prev) => mergeParkedToolbarRows(serverParked, prev));
+          setToolbarEvents(serverToolbar);
           if (err.payload.updatedAt) {
             toolbarUpdatedAtRef.current = err.payload.updatedAt;
           }
@@ -629,11 +691,7 @@ export default function CalendarScreenWeb() {
   const initialCalendarView = initialCalendarViewRef.current;
 
   const [viewMode, setViewMode] = useState(() => initialCalendarView?.viewMode || "day");
-  const [currentDate, setCurrentDate] = useState(() => {
-    if (initialCalendarView?.currentDate) return initialCalendarView.currentDate;
-    const t = new Date();
-    return new Date(t.getFullYear(), t.getMonth(), t.getDate());
-  });
+  const [currentDate, setCurrentDate] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState(() => {
     if (isAppointmentsApiAvailable()) {
       if (isBrowserReloadNavigation()) return [];
@@ -694,6 +752,29 @@ export default function CalendarScreenWeb() {
     setViewMode("month");
   }, [bookFutureCtx.active, rebookToParkCtx.active]);
 
+  // Opening Calendar (toolbar / S1 / Climax) lands on today — not last session date.
+  useEffect(() => {
+    if (isBrowserReloadNavigation()) return;
+
+    const persistedNav = readPersistedCalendarBack();
+    const hasRebookIntent =
+      (location?.state?.rebookToPark &&
+        typeof location.state.rebookToPark === "object") ||
+      (persistedNav?.rebookToPark && typeof persistedNav.rebookToPark === "object");
+    if (hasRebookIntent) return;
+    if (bookFutureCtx.active) return;
+    if (typeof location?.state?.goToDate === "string") return;
+
+    setCurrentDate(startOfDay(new Date()));
+    setViewMode("day");
+    setMonthSheetDate(null);
+  }, [
+    location.key,
+    bookFutureCtx.active,
+    location?.state?.rebookToPark,
+    location?.state?.goToDate,
+  ]);
+
   const handleExitCalendar = useCallback(() => {
     setNewApptInit(null);
     setEditingApt(null);
@@ -734,53 +815,63 @@ export default function CalendarScreenWeb() {
   }, []);
 
   // ---------- Phase 3: drag + resize + park + overlap guard ----------
-  const [parkedFromDrag, setParkedFromDrag] = useState(
-    () => persisted?.parkedFromDrag || [],
-  ); // appointments dragged to toolbar
-  const [toolbarEvents, setToolbarEvents] = useState(
-    () => persisted?.toolbarEvents || initialToolbarEvents,
-  );
+  const [parkedFromDrag, setParkedFromDrag] = useState(() => {
+    if (isAppointmentsApiAvailable()) return [];
+    return Array.isArray(persisted?.parkedFromDrag) ? persisted.parkedFromDrag : [];
+  }); // appointments dragged to toolbar — API mode hydrates from DB
+  const [toolbarEvents, setToolbarEvents] = useState(() => {
+    if (isAppointmentsApiAvailable()) return [];
+    return Array.isArray(persisted?.toolbarEvents) ? persisted.toolbarEvents : [];
+  });
+  /** Park toolbar ids — grid must hide these even after server refetch. */
+  const parkedAppointmentIdsRef = useRef(new Set());
+  /** Set after refetch helper — S2/calendar park source purge. */
+  const purgeSourceForParkRef = useRef(null);
 
-  // S2 rebook → MOVE TO PARK: one-shot via React Router state only (never on reload).
+  // S2 rebook → MOVE TO PARK (offline only — API mode merges in toolbar hydrate).
   useEffect(() => {
     if (isBrowserReloadNavigation()) return;
-    const fromState = location?.state?.rebookToPark;
-    if (!fromState || typeof fromState !== "object") return;
+    if (isAppointmentsApiAvailable()) return;
+    const persistedNav = readPersistedCalendarBack();
+    const fromState =
+      location?.state?.rebookToPark &&
+      typeof location.state.rebookToPark === "object"
+        ? location.state.rebookToPark
+        : persistedNav?.rebookToPark && typeof persistedNav.rebookToPark === "object"
+          ? persistedNav.rebookToPark
+          : null;
+    if (!fromState) return;
     if (rebookParkHandledRef.current) return;
-    if (isAppointmentsApiAvailable() && !calendarToolbarRemoteReady) return;
 
     rebookParkHandledRef.current = true;
     const item = fromState;
-    const goToDateRaw =
-      typeof location?.state?.goToDate === "string"
-        ? location.state.goToDate
-        : typeof fromState.targetStart === "string"
-          ? fromState.targetStart
-          : null;
-    const goDate = goToDateRaw ? new Date(goToDateRaw) : new Date();
 
     setViewMode("day");
-    setCurrentDate(goDate);
+    setCurrentDate(startOfDay(new Date()));
     setMonthSheetDate(null);
     setNewApptInit(null);
     setNewApptSeedClient(null);
     setEmptySlotInfo(null);
 
+    if (item.sourceAppointmentId) {
+      purgeSourceForParkRef.current?.(item.sourceAppointmentId, {
+        parkItemId: item.id,
+      });
+    }
+
     setParkedFromDrag((prev) => {
-      if (prev.some((p) => String(p.id) === String(item.id))) return prev;
-      return [...prev, item];
+      const next = mergeRebookParkItem(prev, item);
+      if (item?.id != null) parkedAppointmentIdsRef.current.add(String(item.id));
+      return next;
     });
 
     writePersistedCalendarBack(calendarBackTarget);
     clearPersistedCalendarNavIntents();
-    pauseServerPersist(500);
   }, [
     location.key,
     location?.state?.rebookToPark,
     location?.state?.goToDate,
-    calendarToolbarRemoteReady,
     calendarBackTarget,
-    pauseServerPersist,
   ]);
 
   const [overlapAlert, setOverlapAlert] = useState(null); // { message }
@@ -1274,10 +1365,12 @@ export default function CalendarScreenWeb() {
         fromMove: true,
         durationMinutes,
       };
-      setEvents((prev) => prev.filter((ev) => ev.id !== apt.id));
+      setEvents((prev) => prev.filter((ev) => String(ev.id) !== String(apt.id)));
       let nextParked;
       setParkedFromDrag((prev) => {
         nextParked = [...prev, parkedItem];
+        persistToolbarToCalendarStorage(nextParked, toolbarEvents);
+        parkedAppointmentIdsRef.current.add(String(apt.id));
         return nextParked;
       });
       setToolbarEvents((tb) => {
@@ -1296,7 +1389,7 @@ export default function CalendarScreenWeb() {
           })
           .catch((err) => {
           console.warn("[Calendar] park: API delete failed", err);
-          setParkedFromDrag((prev) => prev.filter((p) => p.id !== apt.id));
+          setParkedFromDrag((prev) => prev.filter((p) => String(p.id) !== String(apt.id)));
           setEvents((prev) =>
             [...prev, aptSnapshot].sort((a, b) => a.start.getTime() - b.start.getTime()),
           );
@@ -1324,7 +1417,7 @@ export default function CalendarScreenWeb() {
     if (clientName) {
       setNotifyConfirm({ clientName, action });
     }
-  }, [moveConfirm, clearTimer, pushToolbarToServer]);
+  }, [moveConfirm, clearTimer, pushToolbarToServer, toolbarEvents]);
 
   const handleMoveConfirmNo = useCallback(() => {
     // No state mutation happened during drag for any of move/resize/park,
@@ -1668,11 +1761,6 @@ export default function CalendarScreenWeb() {
       const gridProbe = document.querySelector(".cal-day__grid");
       if (!gridProbe) return;
       waitlistPointerCaptureElRef.current = e.currentTarget;
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch (_) {
-        /* noop */
-      }
       waitlistDragRef.current = {
         itemId: item.id,
         pointerId: e.pointerId,
@@ -1692,6 +1780,15 @@ export default function CalendarScreenWeb() {
         }
         waitlistDragRef.current.activated = true;
         waitlistDragRef.current.dayGridRect = grid.getBoundingClientRect();
+        const captureEl = waitlistPointerCaptureElRef.current;
+        const capturePid = waitlistDragRef.current.pointerId;
+        if (captureEl && capturePid != null) {
+          try {
+            captureEl.setPointerCapture(capturePid);
+          } catch (_) {
+            /* noop */
+          }
+        }
         setWaitlistDrag({
           item,
           x: waitlistDragRef.current.startX,
@@ -1833,11 +1930,6 @@ export default function CalendarScreenWeb() {
       const gridProbe = document.querySelector(".cal-day__grid");
       if (!gridProbe) return;
       parkedPointerCaptureElRef.current = e.currentTarget;
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch (_) {
-        /* noop */
-      }
       parkedDragRef.current = {
         itemId: item.id,
         pointerId: e.pointerId,
@@ -1857,6 +1949,15 @@ export default function CalendarScreenWeb() {
         }
         parkedDragRef.current.activated = true;
         parkedDragRef.current.dayGridRect = grid.getBoundingClientRect();
+        const captureEl = parkedPointerCaptureElRef.current;
+        const capturePid = parkedDragRef.current.pointerId;
+        if (captureEl && capturePid != null) {
+          try {
+            captureEl.setPointerCapture(capturePid);
+          } catch (_) {
+            /* noop */
+          }
+        }
         setParkedDrag({
           item,
           x: parkedDragRef.current.startX,
@@ -2080,7 +2181,7 @@ export default function CalendarScreenWeb() {
     return () => clearTimeout(timer);
   }, [events, clients, serviceCatalog, parkedFromDrag, toolbarEvents]);
 
-  // Load parked + waitlist from backend when a row exists (`stored: true`).
+  // Load parked + waitlist from backend (`/api/calendar-toolbar` → DB).
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
     let cancelled = false;
@@ -2088,16 +2189,100 @@ export default function CalendarScreenWeb() {
       try {
         const data = await fetchCalendarToolbar();
         if (cancelled) return;
+        pauseServerPersist();
+
+        const persistedNav = readPersistedCalendarBack();
+        const rebookIntent =
+          location?.state?.rebookToPark &&
+          typeof location.state.rebookToPark === "object"
+            ? {
+                item: location.state.rebookToPark,
+                goToDate:
+                  typeof location?.state?.goToDate === "string"
+                    ? location.state.goToDate
+                    : null,
+              }
+            : persistedNav?.rebookToPark && typeof persistedNav.rebookToPark === "object"
+              ? {
+                  item: persistedNav.rebookToPark,
+                  goToDate:
+                    typeof persistedNav.goToDate === "string"
+                      ? persistedNav.goToDate
+                      : null,
+                }
+              : null;
+
+        let nextParked = [];
+        let nextToolbar = [];
+        let hadMocks = false;
+
         if (data?.stored) {
-          pauseServerPersist();
           const revived = reviveCalendarSlices({
             parkedFromDrag: data.parkedFromDrag,
             toolbarEvents: data.toolbarEvents,
           });
-          setParkedFromDrag(Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : []);
-          setToolbarEvents(Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : []);
+          nextParked = Array.isArray(revived.parkedFromDrag)
+            ? revived.parkedFromDrag
+            : [];
+          nextToolbar = Array.isArray(revived.toolbarEvents)
+            ? revived.toolbarEvents
+            : [];
+          hadMocks = toolbarHadLegacyMockEntries(
+            data.parkedFromDrag,
+            data.toolbarEvents,
+          );
+          if (data.updatedAt) toolbarUpdatedAtRef.current = data.updatedAt;
         }
-        if (data?.updatedAt) toolbarUpdatedAtRef.current = data.updatedAt;
+
+        let shouldPushToolbar = hadMocks;
+        if (rebookIntent?.item && !rebookParkHandledRef.current) {
+          rebookParkHandledRef.current = true;
+          const beforeLen = nextParked.length;
+          nextParked = mergeRebookParkItem(nextParked, rebookIntent.item);
+          shouldPushToolbar = shouldPushToolbar || nextParked.length > beforeLen;
+
+          setViewMode("day");
+          setCurrentDate(startOfDay(new Date()));
+          setMonthSheetDate(null);
+          setNewApptInit(null);
+          setNewApptSeedClient(null);
+          setEmptySlotInfo(null);
+
+          if (rebookIntent.item.sourceAppointmentId) {
+            purgeSourceForParkRef.current?.(rebookIntent.item.sourceAppointmentId, {
+              parkItemId: rebookIntent.item.id,
+            });
+          }
+          if (rebookIntent.item?.id != null) {
+            parkedAppointmentIdsRef.current.add(String(rebookIntent.item.id));
+          }
+
+          writePersistedCalendarBack(calendarBackTarget);
+          clearPersistedCalendarNavIntents();
+        }
+
+        setParkedFromDrag(nextParked);
+        setToolbarEvents(nextToolbar);
+        persistToolbarToCalendarStorage(nextParked, nextToolbar);
+
+        if (shouldPushToolbar) {
+          pauseServerPersist(800);
+          queueMicrotask(() => {
+            void saveCalendarToolbarRemote({
+              parkedFromDrag: nextParked,
+              toolbarEvents: nextToolbar,
+              ...(toolbarUpdatedAtRef.current
+                ? { expectedUpdatedAt: toolbarUpdatedAtRef.current }
+                : {}),
+            })
+              .then((saved) => {
+                if (saved?.updatedAt) toolbarUpdatedAtRef.current = saved.updatedAt;
+              })
+              .catch((err) => {
+                console.warn("[Calendar] toolbar hydrate push failed", err);
+              });
+          });
+        }
       } catch (err) {
         console.warn("[Calendar] toolbar load from API failed", err);
       } finally {
@@ -2107,7 +2292,13 @@ export default function CalendarScreenWeb() {
     return () => {
       cancelled = true;
     };
-  }, [pauseServerPersist]);
+  }, [
+    pauseServerPersist,
+    calendarBackTarget,
+    location.key,
+    location?.state?.rebookToPark,
+    location?.state?.goToDate,
+  ]);
 
   // Load clients + service catalog from backend.
   useEffect(() => {
@@ -2146,14 +2337,20 @@ export default function CalendarScreenWeb() {
   }, [pauseServerPersist]);
 
   const mergeServerAppointmentRows = useCallback((serverRows, prev) => {
-    const server = serverRows.map(appointmentDtoToEvent);
-    const serverIds = new Set(server.map((e) => e.id));
-    const extras = prev.filter((e) => !serverIds.has(e.id));
+    const parkedIds = parkedAppointmentIdsRef.current;
+    const server = serverRows
+      .map(appointmentDtoToEvent)
+      .filter((e) => !parkedIds.has(String(e.id)));
+    const serverIds = new Set(server.map((e) => String(e.id)));
+    const extras = prev.filter(
+      (e) => !serverIds.has(String(e.id)) && !parkedIds.has(String(e.id)),
+    );
     return [...server, ...extras].sort((a, b) => a.start.getTime() - b.start.getTime());
   }, []);
 
   const refetchAppointmentsFromServer = useCallback(async (opts = {}) => {
     const { replace = false, background = false } = opts;
+    const { from, to } = mockAppointmentFetchRange();
     if (!isAppointmentsApiAvailable()) return;
     if (!background) {
       appointmentsFetchAbortRef.current?.abort();
@@ -2163,27 +2360,43 @@ export default function CalendarScreenWeb() {
       appointmentsFetchAbortRef.current = ac;
     }
     const myToken = ++appointmentsListFetchTokenRef.current;
+
+    const applyMockFallback = () => {
+      if (!shouldUseMockAppointmentFallback()) return false;
+      const mockEvents = buildMockAppointmentsForRange(from, to);
+      setEvents(mockEvents);
+      queueMicrotask(() => {
+        appointmentsInitialFetchDoneRef.current = true;
+        writeApiAppointmentsSessionCache(mockEvents);
+      });
+      return true;
+    };
+
     try {
-      const from = addDays(new Date(), -120);
-      const to = addDays(new Date(), 240);
       const rows = await fetchAppointmentsRange(from, to, { signal: ac.signal });
       if (ac.signal.aborted) return;
       if (myToken !== appointmentsListFetchTokenRef.current) return;
+      if (!rows.length && applyMockFallback()) return;
       setEvents((prev) => {
+        const parkedIds = parkedAppointmentIdsRef.current;
+        const filterParked = (list) =>
+          list.filter((e) => !parkedIds.has(String(e.id)));
         const next = replace
-          ? rows
-              .map(appointmentDtoToEvent)
-              .sort((a, b) => a.start.getTime() - b.start.getTime())
+          ? filterParked(rows.map(appointmentDtoToEvent)).sort(
+              (a, b) => a.start.getTime() - b.start.getTime(),
+            )
           : mergeServerAppointmentRows(rows, prev);
         queueMicrotask(() => {
           appointmentsInitialFetchDoneRef.current = true;
-          writeApiAppointmentsSessionCache(next);
+          writeApiAppointmentsSessionCache(filterParked(next));
         });
         return next;
       });
     } catch (err) {
       if (err?.name === "AbortError" || err?.code === 20) return;
       console.warn("[Calendar] appointments API load failed", err);
+      if (myToken !== appointmentsListFetchTokenRef.current) return;
+      applyMockFallback();
     } finally {
       appointmentsInitialFetchDoneRef.current = true;
     }
@@ -2191,6 +2404,31 @@ export default function CalendarScreenWeb() {
 
   refreshAppointmentsRef.current = () =>
     refetchAppointmentsFromServer({ replace: false, background: true });
+
+  const purgeSourceAppointmentForPark = useCallback(
+    (sourceId, { parkItemId } = {}) => {
+      if (!sourceId) return;
+      const id = String(sourceId);
+      parkedAppointmentIdsRef.current.add(id);
+      setEvents((prev) => prev.filter((e) => String(e.id) !== id));
+      removeAppointmentFromSessionCache(id);
+      notifyCalendarUpdated();
+      clearTimer(id);
+      if (!isAppointmentsApiAvailable()) return;
+      void deleteAppointmentRemote(id)
+        .then(() => refreshAppointmentsRef.current())
+        .catch((err) => {
+          console.warn("[Calendar] park source delete failed", err);
+          if (parkItemId) {
+            setParkedFromDrag((prev) =>
+              prev.filter((p) => String(p.id) !== String(parkItemId)),
+            );
+          }
+        });
+    },
+    [clearTimer],
+  );
+  purgeSourceForParkRef.current = purgeSourceAppointmentForPark;
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
@@ -2211,11 +2449,18 @@ export default function CalendarScreenWeb() {
         parkedFromDrag: payload.parkedFromDrag,
         toolbarEvents: payload.toolbarEvents,
       });
-      const nextParked = Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : [];
-      const nextToolbar = Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : [];
-      setParkedFromDrag(nextParked);
+      const nextParkedFromServer = Array.isArray(revived.parkedFromDrag)
+        ? revived.parkedFromDrag
+        : [];
+      const nextToolbar = Array.isArray(revived.toolbarEvents)
+        ? revived.toolbarEvents
+        : [];
+      setParkedFromDrag((prev) => {
+        const merged = mergeParkedToolbarRows(nextParkedFromServer, prev);
+        persistToolbarToCalendarStorage(merged, nextToolbar);
+        return merged;
+      });
       setToolbarEvents(nextToolbar);
-      persistToolbarToCalendarStorage(nextParked, nextToolbar);
       if (payload.updatedAt) toolbarUpdatedAtRef.current = payload.updatedAt;
     },
     [pauseServerPersist],
@@ -2235,8 +2480,9 @@ export default function CalendarScreenWeb() {
     if (!dto || typeof dto !== "object") return;
     const ev = appointmentDtoToEvent(dto);
     if (!(ev.start instanceof Date) || !(ev.end instanceof Date)) return;
+    if (parkedAppointmentIdsRef.current.has(String(ev.id))) return;
     setEvents((prev) =>
-      [...prev.filter((e) => e.id !== ev.id), ev].sort(
+      [...prev.filter((e) => String(e.id) !== String(ev.id)), ev].sort(
         (a, b) => a.start.getTime() - b.start.getTime(),
       ),
     );
@@ -2297,13 +2543,18 @@ export default function CalendarScreenWeb() {
   const parkedAppointmentIds = useMemo(() => {
     const ids = new Set();
     for (const p of parkedFromDrag) {
-      if (p?.id) ids.add(String(p.id));
+      if (p?.id != null) ids.add(String(p.id));
+      if (p?.sourceAppointmentId != null) ids.add(String(p.sourceAppointmentId));
     }
+    for (const t of toolbarEvents) {
+      if (t?.isParked === true && t?.id != null) ids.add(String(t.id));
+    }
+    parkedAppointmentIdsRef.current = ids;
     return ids;
-  }, [parkedFromDrag]);
+  }, [parkedFromDrag, toolbarEvents]);
 
   const calendarEvents = useMemo(
-    () => events.filter((e) => !parkedAppointmentIds.has(e.id)),
+    () => events.filter((e) => !parkedAppointmentIds.has(String(e.id))),
     [events, parkedAppointmentIds],
   );
 
@@ -2485,6 +2736,7 @@ export default function CalendarScreenWeb() {
 
   const goToDayForScheduling = useCallback(
     (d) => {
+      resetSwipeNav();
       setCurrentDate(d);
       setMonthSheetDate(null);
       setViewMode("day");
@@ -2508,25 +2760,90 @@ export default function CalendarScreenWeb() {
     setNewApptInit(base);
   }, [currentDate]);
 
+  const monthScrollElRef = useRef(null);
+
+  const scrollMonthScrollToToday = useCallback((el) => {
+    if (!el) return;
+    const today = new Date();
+    const targetIso = startOfMonth(today).toISOString();
+    const block = el.querySelector(`[data-month="${targetIso}"]`);
+    if (!block) return;
+    const blockRect = block.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    el.scrollTop = el.scrollTop + (blockRect.top - elRect.top);
+  }, []);
+
   // Swipe "slider" animation for Day / 5-Day views
   const [swipeAnim, setSwipeAnim] = useState(
     /** @type {null | { dir: 'prev' | 'next'; from: Date; to: Date; translatePct: number }} */ (null)
   );
+  const swipeCompleteTimeoutRef = useRef(null);
+  const swipeAnimRef = useRef(null);
+  /** Synchronous guard: pointerup + touchend can fire same tick before swipe state commits. */
+  const swipeNavPendingRef = useRef(false);
+
+  const finishSwipeNav = useCallback(() => {
+    const anim = swipeAnimRef.current;
+    if (!anim) return;
+    swipeNavPendingRef.current = false;
+    if (swipeCompleteTimeoutRef.current != null) {
+      clearTimeout(swipeCompleteTimeoutRef.current);
+      swipeCompleteTimeoutRef.current = null;
+    }
+    setCurrentDate(anim.to);
+    setSwipeAnim(null);
+  }, []);
+
+  const resetSwipeNav = useCallback(() => {
+    swipeNavPendingRef.current = false;
+    if (swipeCompleteTimeoutRef.current != null) {
+      clearTimeout(swipeCompleteTimeoutRef.current);
+      swipeCompleteTimeoutRef.current = null;
+    }
+    setSwipeAnim(null);
+  }, []);
+
+  const scheduleSwipeCompleteFallback = useCallback(() => {
+    if (swipeCompleteTimeoutRef.current != null) {
+      clearTimeout(swipeCompleteTimeoutRef.current);
+    }
+    swipeCompleteTimeoutRef.current = window.setTimeout(() => {
+      swipeCompleteTimeoutRef.current = null;
+      finishSwipeNav();
+    }, 400);
+  }, [finishSwipeNav]);
+
+  const handleSwipeTransitionEnd = useCallback((e) => {
+    if (e.propertyName !== "transform") return;
+    if (e.target !== e.currentTarget) return;
+    finishSwipeNav();
+  }, [finishSwipeNav]);
+
+  useEffect(
+    () => () => {
+      if (swipeCompleteTimeoutRef.current != null) {
+        clearTimeout(swipeCompleteTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  const handleGoToToday = useCallback(() => {
+    resetSwipeNav();
+    const t = new Date();
+    const today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+    setCurrentDate(today);
+    setMonthSheetDate(null);
+    setViewMode("day");
+    requestAnimationFrame(() => {
+      scrollMonthScrollToToday(monthScrollElRef.current);
+      requestAnimationFrame(() => scrollMonthScrollToToday(monthScrollElRef.current));
+    });
+  }, [resetSwipeNav, scrollMonthScrollToToday]);
 
   useEffect(() => {
-    if (!swipeAnim) return;
-    // Kick off the CSS transition on the next frame.
-    const id = requestAnimationFrame(() => {
-      setSwipeAnim((prev) => {
-        if (!prev) return prev;
-        return { ...prev, translatePct: prev.dir === "next" ? -100 : 0 };
-      });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [swipeAnim]);
-
-  /** Synchronous guard: pointerup + touchend can fire same tick before `swipeAnim` re-renders. */
-  const swipeNavPendingRef = useRef(false);
+    resetSwipeNav();
+  }, [viewMode, resetSwipeNav]);
 
   const beginSwipeNav = useCallback(
     (dir) => {
@@ -2537,7 +2854,7 @@ export default function CalendarScreenWeb() {
         setMonthSheetDate(null);
         return;
       }
-      if (swipeAnim) return;
+      if (swipeAnimRef.current) return;
       if (swipeNavPendingRef.current) return;
       swipeNavPendingRef.current = true;
       const from = currentDate;
@@ -2550,16 +2867,30 @@ export default function CalendarScreenWeb() {
             ? -1
             : 1;
       const to = addDays(from, delta);
+      const targetPct = dir === "next" ? -100 : 0;
       setSwipeAnim({
         dir,
         from,
         to,
-        // For "prev", panes are [to, from] so start at -100%.
-        // For "next", panes are [from, to] so start at 0%.
         translatePct: dir === "next" ? 0 : -100,
       });
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setSwipeAnim((prev) => {
+            if (
+              !prev ||
+              prev.to.getTime() !== to.getTime() ||
+              prev.from.getTime() !== from.getTime()
+            ) {
+              return prev;
+            }
+            return { ...prev, translatePct: targetPct };
+          });
+          scheduleSwipeCompleteFallback();
+        });
+      });
     },
-    [currentDate, swipeAnim, viewMode],
+    [currentDate, scheduleSwipeCompleteFallback, viewMode],
   );
 
   // Pointer-based swipe → prev/next day on Day + 5-Day view (works for mouse,
@@ -2577,7 +2908,6 @@ export default function CalendarScreenWeb() {
   });
   const daySwipeSurfaceRef = useRef(null);
   const monthSwipeSurfaceRef = useRef(null);
-  const swipeAnimRef = useRef(null);
   const swipeTouchStartRef = useRef(null);
 
   /**
@@ -2608,6 +2938,7 @@ export default function CalendarScreenWeb() {
     monthScrollInitSetRef.current = new WeakSet();
   }
   const setupMonthScrollRef = useCallback((el) => {
+    monthScrollElRef.current = el;
     if (!el) return;
     const seen = monthScrollInitSetRef.current;
     if (seen.has(el)) return;
@@ -2641,7 +2972,7 @@ export default function CalendarScreenWeb() {
 
   const handleSwipePointerDown = useCallback(
     (e) => {
-      if (swipeAnim) return;
+      if (swipeAnimRef.current) return;
       // Only accept primary mouse / touch / pen — ignore secondary buttons
       if (e.pointerType === "mouse" && e.button !== 0) return;
       if (
@@ -2666,7 +2997,7 @@ export default function CalendarScreenWeb() {
         captureEl: e.currentTarget || null,
       };
     },
-    [swipeAnim],
+    [],
   );
 
   // PointerMove: once horizontal intent is clear, capture the pointer so the
@@ -2677,7 +3008,7 @@ export default function CalendarScreenWeb() {
   const handleSwipePointerMove = useCallback(
     (e) => {
       const ref = swipeRef.current;
-      if (!ref.active || swipeAnim) return;
+      if (!ref.active || swipeAnimRef.current) return;
       if (ref.pointerId != null && e.pointerId !== ref.pointerId) return;
       // Only attach pointer capture for fine pointers (mouse). On touch/pen,
       // capture routes all subsequent events to `.cal-day` instead of nested
@@ -2710,14 +3041,14 @@ export default function CalendarScreenWeb() {
         }
       }
     },
-    [swipeAnim],
+    [],
   );
 
   const handleSwipePointerUp = useCallback(
     (e) => {
       const ref = swipeRef.current;
       if (!ref.active) return;
-      if (swipeAnim) return;
+      if (swipeAnimRef.current) return;
       if (
         ref.pointerId != null &&
         e.pointerId != null &&
@@ -2746,7 +3077,7 @@ export default function CalendarScreenWeb() {
       swipeConsumedThisGestureRef.current = true;
       beginSwipeNav(dx > 0 ? "prev" : "next");
     },
-    [beginSwipeNav, swipeAnim],
+    [beginSwipeNav],
   );
 
   const handleSwipePointerCancel = useCallback((e) => {
@@ -3124,7 +3455,7 @@ export default function CalendarScreenWeb() {
 
   return (
     <div className="cal-root">
-      <CalendarDecorations />
+      <CalendarDecorations onGoToToday={handleGoToToday} />
       <div className="cal-header">
         {viewMode !== "month" ? (
           <h1 className="cal-header__monthTitle">{format(currentDate, "MMMM yyyy")}</h1>
@@ -3140,15 +3471,28 @@ export default function CalendarScreenWeb() {
           </button>
           <div className="cal-header__tabsCell">
             <div className="cal-tabs" role="tablist" aria-label="Calendar view">
-              <button className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`} onClick={() => setViewMode("day")}>
+              <button
+                className={`cal-tab ${viewMode === "day" ? "is-active" : ""}`}
+                onClick={() => {
+                  resetSwipeNav();
+                  setViewMode("day");
+                }}
+              >
                 Day
               </button>
-              <button className={`cal-tab ${viewMode === "week" ? "is-active" : ""}`} onClick={() => setViewMode("week")}>
+              <button
+                className={`cal-tab ${viewMode === "week" ? "is-active" : ""}`}
+                onClick={() => {
+                  resetSwipeNav();
+                  setViewMode("week");
+                }}
+              >
                 5 Day
               </button>
               <button
                 className={`cal-tab ${viewMode === "month" ? "is-active" : ""}`}
                 onClick={() => {
+                  resetSwipeNav();
                   setViewMode("month");
                   setMonthSheetDate(null);
                 }}
@@ -3160,7 +3504,12 @@ export default function CalendarScreenWeb() {
               <span className="cal-tabIndicator" data-mode={viewMode} />
             </div>
           </div>
-          <span className="cal-header__trailing" aria-hidden="true" />
+          <button
+            type="button"
+            className="cal-header__trailing cal-header__todayHit"
+            onClick={handleGoToToday}
+            aria-label="Go to today"
+          />
         </div>
       </div>
 
@@ -3173,7 +3522,10 @@ export default function CalendarScreenWeb() {
               <button
                 key={d.toISOString()}
                 className={`cal-daychip ${selected ? "is-selected" : ""} ${today ? "is-today" : ""}`}
-                onClick={() => setCurrentDate(d)}
+                onClick={() => {
+                  resetSwipeNav();
+                  setCurrentDate(d);
+                }}
               >
                 <div className="cal-daychip__dow">{format(d, "EEEEE")}</div>
                 <div className="cal-daychip__num">{format(d, "d")}</div>
@@ -3563,13 +3915,6 @@ export default function CalendarScreenWeb() {
             );
           };
 
-          const handleSwipeTransitionEnd = () => {
-            if (!swipeAnim) return;
-            swipeNavPendingRef.current = false;
-            setCurrentDate(swipeAnim.to);
-            setSwipeAnim(null);
-          };
-
           return (
             <div
               ref={daySwipeSurfaceRef}
@@ -3585,7 +3930,9 @@ export default function CalendarScreenWeb() {
                 <div className="cal-swipeViewport">
                   <div
                     className="cal-swipeTrack"
-                    style={{ transform: `translateX(${swipeAnim.translatePct}%)` }}
+                    style={{
+                      transform: `translate3d(${swipeAnim.translatePct}%, 0, 0)`,
+                    }}
                     onTransitionEnd={handleSwipeTransitionEnd}
                   >
                     {swipeAnim.dir === "next" ? (
@@ -3845,7 +4192,6 @@ export default function CalendarScreenWeb() {
                   <div
                     key={item.id}
                     className="cal-waitlist__card"
-                    style={viewMode === "day" ? { touchAction: "none" } : undefined}
                     onPointerDown={viewMode === "day" ? (e) => handleWaitlistPointerDown(e, item) : undefined}
                     onPointerMove={viewMode === "day" ? (e) => handleWaitlistPointerMove(e, item) : undefined}
                     onPointerUp={viewMode === "day" ? (e) => handleWaitlistPointerUp(e, item) : undefined}
@@ -3982,7 +4328,6 @@ export default function CalendarScreenWeb() {
                   <div
                     key={item.id}
                     className={`cal-waitlist__card cal-parkedCard${item.fromMove ? " is-fromMove" : ""}`}
-                    style={viewMode === "day" ? { touchAction: "none" } : undefined}
                     onPointerDown={viewMode === "day" ? (e) => handleParkedPointerDown(e, item) : undefined}
                     onPointerMove={viewMode === "day" ? (e) => handleParkedPointerMove(e, item) : undefined}
                     onPointerUp={viewMode === "day" ? (e) => handleParkedPointerUp(e, item) : undefined}
@@ -4580,9 +4925,8 @@ function ConflictResolverModal({ item, onPick, onSkip, onCancelAll }) {
 // ---------- Phase 4 — Decorative right-side date stamp + soft accents ----------
 
 // The right-side date stamp is fixed to *today's* actual date — it does not
-// follow the navigated date in the calendar header. Acts as a permanent
-// "today" reference regardless of what the user is browsing.
-function CalendarDecorations() {
+// follow the navigated date in the calendar header. Tap it to jump back to today.
+function CalendarDecorations({ onGoToToday }) {
   const today = new Date();
   return (
     <>
@@ -4603,10 +4947,15 @@ function CalendarDecorations() {
           />
         </svg>
       </div>
-      <div className="cal-deco cal-deco--rightStamp" aria-hidden>
+      <button
+        type="button"
+        className="cal-deco cal-deco--rightStamp"
+        onClick={onGoToToday}
+        aria-label="Go to today"
+      >
         <div className="cal-deco__stampDow">{format(today, "EEE").toUpperCase()}</div>
         <div className="cal-deco__stampNum">{format(today, "d")}</div>
-      </div>
+      </button>
     </>
   );
 }

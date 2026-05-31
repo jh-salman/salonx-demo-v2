@@ -1,8 +1,8 @@
 import { io } from 'socket.io-client'
 import { getV2AdminBase } from './v2AdminBootstrap.js'
 
-const DEBOUNCE_MS = 450
-const POLL_FALLBACK_MS = 12_000
+const DEBOUNCE_MS = 250
+const POLL_FALLBACK_MS = 5000
 
 /**
  * Socket.IO endpoint for demo-api (REST base may be a Vite proxy path).
@@ -105,7 +105,6 @@ export function startCalendarRealtimeSync(handlers) {
 
   const pollId = setInterval(() => {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-    if (socket?.connected) return
     debounce(() => handlers.onPoll?.())
   }, POLL_FALLBACK_MS)
 

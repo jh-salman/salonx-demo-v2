@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, MagnifyingGlass, CaretRight, CaretLeft, X } from 'phosphor-react';
+import { Plus, MagnifyingGlass, CaretRight, CaretLeft } from 'phosphor-react';
+import { NewCustomerScreen } from '../../component/calendar/CalendarOverlays.jsx';
 import { MOCK_CLIENTS } from '../../data/mockClients';
 import {
   CLIENT_AVATAR_DB_UPDATED,
@@ -8,6 +9,7 @@ import {
 } from '../../data/clientAvatarDb';
 import {
   CLIENTS_CATALOG_UPDATED,
+  addClientToCatalog,
   refreshClientsCatalogCache,
 } from '../../data/clientProfileAvatar';
 import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
@@ -76,8 +78,8 @@ export default function Clients() {
   const [catalogClients, setCatalogClients] = useState([]);
   const [query, setQuery] = useState('');
   const [newClientOpen, setNewClientOpen] = useState(false);
-  const [newClientName, setNewClientName] = useState('');
-  const newClientInputRef = useRef(null);
+  const [newClientSaving, setNewClientSaving] = useState(false);
+  const [newClientError, setNewClientError] = useState('');
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
@@ -211,7 +213,12 @@ export default function Clients() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return allClients;
-    return allClients.filter((c) => (c.name || '').toLowerCase().includes(q));
+    return allClients.filter((c) => {
+      const name = (c.name || '').toLowerCase();
+      const phone = (c.phone || '').toLowerCase();
+      const email = (c.email || '').toLowerCase();
+      return name.includes(q) || phone.includes(q) || email.includes(q);
+    });
   }, [allClients, query]);
 
   const openClient = useCallback(
@@ -226,76 +233,75 @@ export default function Clients() {
         start: null,
         end: null,
       };
-      writePersistedScreen2Apt(apt, '/clients');
+      writePersistedScreen2Apt(apt, '/clients', client.phone || '');
       navigate('/screen2', { state: { apt, from: '/clients' } });
     },
     [navigate],
   );
 
   const closeNewClientModal = useCallback(() => {
+    if (newClientSaving) return;
     setNewClientOpen(false);
-    setNewClientName('');
-  }, []);
+    setNewClientError('');
+  }, [newClientSaving]);
 
-  useEffect(() => {
-    if (!newClientOpen) return undefined;
-    const id = window.requestAnimationFrame(() => {
-      newClientInputRef.current?.focus();
-    });
-    const onKey = (e) => {
-      if (e.key === 'Escape') closeNewClientModal();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.cancelAnimationFrame(id);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [newClientOpen, closeNewClientModal]);
+  const handleClientCreated = useCallback(
+    async (draft) => {
+      const name = String(draft?.name || '').trim();
+      if (!name || newClientSaving) return;
 
-  const commitNewClient = useCallback(
-    (nameRaw) => {
-      const name = (nameRaw || '').trim();
-      if (!name) return;
-      const exists = allClients.some(
+      const existing = allClients.find(
         (c) => clientKey(c.name) === clientKey(name),
       );
-      if (exists) {
-        const existing = allClients.find(
-          (c) => clientKey(c.name) === clientKey(name),
-        );
-        if (existing) {
-          closeNewClientModal();
-          openClient(existing);
-        }
+      if (existing) {
+        closeNewClientModal();
+        openClient(existing);
         return;
       }
+
+      setNewClientSaving(true);
+      setNewClientError('');
+
       const newClient = {
-        id: `c-extra-${Date.now().toString(36)}`,
+        id: draft?.id || `c-${Date.now().toString(36)}`,
         name,
-        phone: '',
-        email: '',
-        notes: '',
+        phone: String(draft?.phone || '').trim(),
+        email: String(draft?.email || '').trim(),
+        notes: String(draft?.notes || '').trim(),
       };
-      const next = [...extraClients, newClient];
-      setExtraClients(next);
-      saveExtraClients(next);
-      closeNewClientModal();
-      openClient(newClient);
+
+      try {
+        if (isAppointmentsApiAvailable()) {
+          const saved = await addClientToCatalog(newClient);
+          if (saved) {
+            const list = await refreshClientsCatalogCache();
+            if (list) setCatalogClients(list);
+            closeNewClientModal();
+            openClient(saved);
+            return;
+          }
+        }
+
+        const next = [...extraClients, newClient];
+        setExtraClients(next);
+        saveExtraClients(next);
+        closeNewClientModal();
+        openClient(newClient);
+      } catch (e) {
+        setNewClientError(
+          e instanceof Error ? e.message : 'Could not save client',
+        );
+      } finally {
+        setNewClientSaving(false);
+      }
     },
     [
       allClients,
-      extraClients,
-      openClient,
       closeNewClientModal,
+      extraClients,
+      newClientSaving,
+      openClient,
     ],
-  );
-
-  const handleSubmitNewClient = useCallback(
-    (e) => {
-      e.preventDefault();
-      commitNewClient(newClientName);
-    },
-    [commitNewClient, newClientName],
   );
 
   const handleBack = useCallback(() => {
@@ -333,7 +339,7 @@ export default function Clients() {
           <input
             className="clients-search__input"
             type="search"
-            placeholder="Search by name…"
+            placeholder="Search by name, phone, or email…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Search clients"
@@ -348,7 +354,7 @@ export default function Clients() {
             type="button"
             className="clients-row clients-row--new"
             onClick={() => {
-              setNewClientName('');
+              setNewClientError('');
               setNewClientOpen(true);
             }}
             role="listitem"
@@ -390,6 +396,11 @@ export default function Clients() {
                 </span>
                 <div className="clients-row__body">
                   <div className="clients-row__name">{client.name || 'Unnamed'}</div>
+                  {client.phone || client.email ? (
+                    <div className="clients-row__meta">
+                      {[client.phone, client.email].filter(Boolean).join(' · ')}
+                    </div>
+                  ) : null}
                 </div>
                 <CaretRight size={18} weight="regular" className="clients-row__chevron" aria-hidden />
               </button>
@@ -405,46 +416,14 @@ export default function Clients() {
       </div>
 
       {newClientOpen ? (
-        <div className="cal-modal cal-modal--full clients-newModal" role="dialog" aria-modal="true" aria-labelledby="clients-new-modal-title">
-          <button type="button" className="cal-modal__backdrop" onClick={closeNewClientModal} aria-label="Close" />
-          <form className="cal-modal__card cal-modal__card--form" onSubmit={handleSubmitNewClient}>
-            <div className="cal-modal__formHead">
-              <div id="clients-new-modal-title" className="cal-modal__title">
-                New client
-              </div>
-              <button
-                type="button"
-                className="cal-modal__iconBtn"
-                aria-label="Close"
-                onClick={closeNewClientModal}
-              >
-                <X size={16} weight="bold" aria-hidden />
-              </button>
-            </div>
-            <div className="cal-modal__subtitle">
-              Saves locally and opens their stage — same flow as Calendar&apos;s glass forms.
-            </div>
-            <label className="cal-field">
-              <span className="cal-field__label">Name</span>
-              <input
-                ref={newClientInputRef}
-                type="text"
-                className="cal-field__input"
-                autoComplete="off"
-                autoCapitalize="words"
-                placeholder="Jane Smith"
-                value={newClientName}
-                onChange={(e) => setNewClientName(e.target.value)}
-              />
-            </label>
-            <button type="submit" className="cal-modal__btn cal-modal__btn--primary">
-              Create &amp; open
-            </button>
-            <button type="button" className="cal-modal__close" onClick={closeNewClientModal}>
-              Cancel
-            </button>
-          </form>
-        </div>
+        <NewCustomerScreen
+          onCancel={closeNewClientModal}
+          onSave={(client) => {
+            void handleClientCreated(client);
+          }}
+          saving={newClientSaving}
+          error={newClientError}
+        />
       ) : null}
     </div>
   );

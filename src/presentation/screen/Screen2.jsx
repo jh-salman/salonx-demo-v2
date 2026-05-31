@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowsOut,
-  Butterfly,
   Camera,
   Clock,
   CaretRight,
@@ -28,6 +27,10 @@ import {
   normalizeServiceCatalogEntry,
 } from '../../data/s2Catalog';
 import {
+  mapServiceLibraryToCatalogEntry,
+  S2_SERVICE_LIBRARY,
+} from '../../data/s2ServiceLibrary';
+import {
   deleteClientAvatar,
   getClientAvatar,
   putClientAvatar,
@@ -40,8 +43,13 @@ import {
   refreshClientsCatalogCache,
   uploadClientProfileImage,
 } from '../../data/clientProfileAvatar';
-import { isAppointmentsApiAvailable, createAppointmentRemote } from '../../data/v2AppointmentsApi';
-import { upsertAppointmentInSessionCache } from '../../data/calendarEventsStore';
+import { isAppointmentsApiAvailable, createAppointmentRemote, deleteAppointmentRemote } from '../../data/v2AppointmentsApi';
+import { readRampAppointmentToken } from '../../data/rampAppointmentLink';
+import {
+  notifyCalendarUpdated,
+  removeAppointmentFromSessionCache,
+  upsertAppointmentInSessionCache,
+} from '../../data/calendarEventsStore';
 import {
   apptStateFromVisitPayload,
   loadConsultStore,
@@ -75,6 +83,7 @@ import {
   writeScreen2WorkflowForApt,
 } from '../../data/appointmentStateStore';
 import { useScreen1CalendarNav } from '../../hooks/useScreen1CalendarNav';
+import { syncSalonxShellHeight } from '../../layout/viewportShellSync.js';
 import { useTimers } from '../../context/TimersContext';
 import { startCalendarRealtimeSync } from '../../sync/calendarRealtimeSync';
 import TimerModal from '../../component/TimerModal';
@@ -101,6 +110,8 @@ function formatS2HeaderTimer(state) {
   if (!state) return '0:00';
   if (state.kind === 'timerRunning') return fmtCountdown(state.remainingMs);
   if (state.kind === 'stopwatchRunning') return fmtElapsed(state.elapsedMs);
+  if (state.kind === 'completed') return 'DONE';
+  if (state.kind === 'completed') return 'DONE';
   return '0:00';
 }
 
@@ -562,6 +573,17 @@ export default function Screen2() {
     if (activeAptFromNav) writePersistedScreen2Apt(activeAptFromNav, fromFromNav);
   }, [activeAptFromNav, fromFromNav]);
 
+  useEffect(() => {
+    syncSalonxShellHeight();
+    const onRotate = () => syncSalonxShellHeight();
+    window.addEventListener('orientationchange', onRotate);
+    window.visualViewport?.addEventListener('resize', onRotate);
+    return () => {
+      window.removeEventListener('orientationchange', onRotate);
+      window.visualViewport?.removeEventListener('resize', onRotate);
+    };
+  }, []);
+
   const activeClientName = useMemo(() => {
     const fromNav = activeApt?.clientName;
     return (fromNav && String(fromNav).trim()) || CLIENT.name;
@@ -815,10 +837,6 @@ export default function Screen2() {
   const [noteDraft, setNoteDraft] = useState('');
   const noteDraftRef = useRef('');
   const noteEditOpenRef = useRef(null);
-  // Step-through: some progress markers are decided by actions that happen
-  // earlier in the file than the workflow state is declared (hook order).
-  // We bridge via a ref so "Update note" can light CONSULT.
-  const s2WorkflowMarkRef = useRef({ consult: () => {} });
   useEffect(() => {
     noteDraftRef.current = noteDraft;
   }, [noteDraft]);
@@ -974,10 +992,6 @@ export default function Screen2() {
         return next;
       });
     }
-    // A real interaction occurred (added/updated a note) — now light CONSULT.
-    s2WorkflowMarkRef.current.consult?.();
-    stopVoice();
-    setNoteDraft('');
     setNoteEditOpen(null);
   }, [stopVoice]);
 
@@ -1522,6 +1536,7 @@ export default function Screen2() {
 
   const markS2ConsultVisited = useCallback(() => {
     setS2Workflow((w) => (w.consult ? w : { ...w, consult: true }));
+  // Step-through: CONSULT completes when the consultation brief (S2S) opens.
   }, []);
 
   const markS2ServicesVisited = useCallback(() => {
@@ -1533,7 +1548,6 @@ export default function Screen2() {
   const markS2BookingVisited = useCallback(() => {
     setS2Workflow((w) => (w.booking ? w : { ...w, booking: true }));
   }, []);
-  s2WorkflowMarkRef.current.consult = markS2ConsultVisited;
 
   const dismissRateEdit = useCallback(() => {
     if (rateEditOpen === 'hourly' && hourlyRate !== rateEditBaselineRef.current.hourly) {
@@ -1586,11 +1600,20 @@ export default function Screen2() {
       rebookTarget,
       activeClientName,
     );
-    const goToDate = rebookTarget.start.toISOString();
-    writePersistedCalendarBack('/screen2', { rebookToPark, goToDate });
+    const sourceId = activeApt?.id;
+    if (sourceId) {
+      removeAppointmentFromSessionCache(String(sourceId));
+      notifyCalendarUpdated();
+      if (isAppointmentsApiAvailable()) {
+        void deleteAppointmentRemote(sourceId).catch((err) => {
+          console.warn('[Screen2] rebook park: source delete failed', err);
+        });
+      }
+    }
+    writePersistedCalendarBack('/screen2', { rebookToPark });
     setRebookModalOpen(false);
     navigate('/calendar', {
-      state: { from: '/screen2', rebookToPark, goToDate },
+      state: { from: '/screen2', rebookToPark },
     });
   }, [navigate, rebookTarget, activeApt, activeClientName, markS2BookingVisited]);
 
@@ -1697,6 +1720,8 @@ export default function Screen2() {
       setTimer(timerKey, { kind: 'completed' });
     }
   }, [liveTimer, timers, timerKey, setTimer]);
+  const timerCompleted = liveTimer?.kind === 'completed';
+
 
   const [timerModalOpen, setTimerModalOpen] = useState(false);
   const handleTimerStart = useCallback(
@@ -1799,35 +1824,28 @@ export default function Screen2() {
     setAddServicesOpen(true);
   }, []);
 
-  const hourlySvc = useMemo(
-    () => ({ ...SVC_HOURLY_BASE, price: hourlyRate, kind: 'hourly' }),
-    [hourlyRate],
-  );
-  const consultSvc = useMemo(
-    () => ({ ...SVC_CONSULT_BASE, price: consultRate, kind: 'consult' }),
-    [consultRate],
-  );
-  const svcPickerList = useMemo(() => {
-    const rest = serviceCatalogList.filter(
-      (s) => s.id !== 'SVC-HOURLY' && s.id !== 'SVC-CONSULT',
+  /** Bright 5×5 service grid — package tiles (reference ADD SERVICE). */
+  const brightSvcGridList = useMemo(() => {
+    const base = S2_SERVICE_LIBRARY.map(mapServiceLibraryToCatalogEntry).filter(Boolean);
+    if (!servicePickerCategory) return base;
+    const filtered = base.filter(
+      (s) => inferSvcCreatePillCategory(s.name) === servicePickerCategory,
     );
-    return [hourlySvc, consultSvc, ...rest];
-  }, [hourlySvc, consultSvc, serviceCatalogList]);
-
-  const filteredSvcPickerList = useMemo(() => {
-    if (!servicePickerCategory) return svcPickerList;
-    return svcPickerList.filter((s) => {
-      if (s.id === 'SVC-HOURLY' || s.id === 'SVC-CONSULT') return false;
-      return inferSvcCreatePillCategory(s.name) === servicePickerCategory;
-    });
-  }, [svcPickerList, servicePickerCategory]);
-
-  const catalogServices = useMemo(
-    () => serviceCatalogList.filter(isCatalogPickerService),
-    [serviceCatalogList],
-  );
+    return filtered.length > 0 ? filtered : base;
+  }, [servicePickerCategory]);
 
   const finishRowProducts = useMemo(() => (productQueue || []).slice(0, 4), [productQueue]);
+  const rampStationProducts = useMemo(
+    () =>
+      (productQueue || [])
+        .map((p) => {
+          const name = p.shortName || p.name || '';
+          return p.brand ? `${p.brand} ${name}`.trim() : String(name).trim();
+        })
+        .filter(Boolean),
+    [productQueue],
+  );
+
 
   useEffect(() => {
     setSvcQueue((prev) =>
@@ -1965,10 +1983,9 @@ export default function Screen2() {
           </div>
           <div className="s2-identityRight">
             <button
-              type="button"
-              className="s2-headerTimer"
+              className={`s2-headerTimer${timerCompleted ? ' s2-headerTimer--completed' : ''}`}
               onClick={() => setTimerModalOpen(true)}
-              aria-label="Open timer"
+              aria-label={timerCompleted ? 'Timer completed' : 'Open timer'}
             >
               <span className="s2-headerTimer__row">
                 <Clock size={16} weight="bold" aria-hidden />
@@ -2027,8 +2044,11 @@ export default function Screen2() {
             <button
               type="button"
               className="s2-consultCardHit"
-              onClick={() => setConsultOpen(true)}
               aria-label="Open consultation"
+              onClick={() => {
+                markS2ConsultVisited();
+                setConsultOpen(true);
+              }}
             >
             <div
               className={`s2-consultTitle${s2Workflow.consult ? ' s2-consultTitle--complete' : ''}`}
@@ -2217,12 +2237,29 @@ export default function Screen2() {
                 type="button"
                 className={`s2-cta is-checkout${bookingStepNotify ? ' is-notify' : ''}`}
                 onClick={() => {
-                  markS2BookingVisited();
-                  navigate('/climax', {
+                  // RAMP post already designed for this appointment → skip the
+                  // RAMP station and go straight to Climax with the live status.
+                  const linkedRampToken = readRampAppointmentToken(activeApt?.id);
+                  if (linkedRampToken) {
+                    navigate('/climax', {
+                      state: {
+                        from: '/screen2',
+                        rampSkipped: false,
+                        rampToken: linkedRampToken,
+                        apt: activeApt,
+                        clientPhone: activeClient.phone || '',
+                      },
+                    });
+                    return;
+                  }
+                  navigate('/ramp', {
                     state: {
-                      apt: activeApt,
                       from: '/screen2',
+                      fromParent: backTarget,
+                      apt: activeApt,
+                      clientName: activeClient.name,
                       clientPhone: activeClient.phone || '',
+                      products: rampStationProducts,
                     },
                   });
                 }}
@@ -2275,10 +2312,9 @@ export default function Screen2() {
                 </div>
                 <div className="s2-identityRight">
                   <button
-                    type="button"
-                    className="s2-headerTimer"
+                    className={`s2-headerTimer${timerCompleted ? ' s2-headerTimer--completed' : ''}`}
                     onClick={() => setTimerModalOpen(true)}
-                    aria-label="Open timer"
+                    aria-label={timerCompleted ? 'Timer completed' : 'Open timer'}
                   >
                     <span className="s2-headerTimer__row">
                       <Clock size={16} weight="bold" aria-hidden />
@@ -2758,109 +2794,99 @@ export default function Screen2() {
       ) : null}
 
       {addServicesOpen ? (
-        <div className="s2-addProdOverlay" role="dialog" aria-modal="true" aria-label="Add services">
+        <div
+          className="s2-addProdOverlay s2-addProdOverlay--serviceGrid"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add services"
+        >
           <button
             type="button"
             className="s2-addProdBackdrop"
             aria-label="Close"
             onClick={() => setAddServicesOpen(false)}
           />
-          <div className="s2-addProdSheet">
-            <header className="s2-addProdHeader">
-              <button
-                type="button"
-                className="s2-addProdClose"
-                onClick={() => setAddServicesOpen(false)}
-                aria-label="Close"
-              >
-                <X size={18} weight="regular" aria-hidden />
-              </button>
-              <div className="s2-svcPickBrand" aria-hidden>
-                <Butterfly className="s2-svcPickButterfly" size={26} weight="fill" />
-                <div className="s2-svcPickSalon">THE BUTTERFLY LOFT</div>
-                <div className="s2-svcPickPowered">POWERED BY DANGER JONES</div>
+          <div className="s2-addProdSheet s2-addProdSheet--serviceGrid">
+            <header className="s2-svcPickHeader">
+              <div className="s2-svcPickHeader__row">
+                <div className="s2-svcPickHeader__titles">
+                  <button
+                    type="button"
+                    className="s2-svcPickHeader__kicker"
+                    onClick={() => setAddServicesOpen(false)}
+                  >
+                    ← S2 - CREATE
+                  </button>
+                  <h2 className="s2-svcPickHeader__title">ADD SERVICE</h2>
+                </div>
+                <p
+                  className={`s2-svcPickHeader__hint${
+                    createSectionServices.length > 0 ? ' is-active' : ''
+                  }`}
+                >
+                  {createSectionServices.length > 0
+                    ? `${createSectionServices.length} ADDED`
+                    : 'INDEX TO ADD'}
+                </p>
               </div>
             </header>
-            <div className="s2-addProdScroll">
-              <div className="s2-addProdGrid">
-                {catalogServices.length === 0 && !servicePickerCategory ? (
-                  <p className="s2-addProdEmpty">No services in catalog yet. Add a custom service below.</p>
-                ) : null}
-                {servicePickerCategory && filteredSvcPickerList.length === 0 ? (
-                  <p className="s2-addProdEmpty">No {servicePickerCategory} services in catalog yet.</p>
-                ) : null}
-                {filteredSvcPickerList.map((s, i) => {
+
+            <div className="s2-svcPickScroll">
+              <div className="s2-svcPickGrid">
+                {brightSvcGridList.map((s) => {
                   const inQueue = svcQueue.some((q) => q.id === s.id);
-                  const rowSvc =
-                    s.id === 'SVC-HOURLY' ? hourlySvc : s.id === 'SVC-CONSULT' ? consultSvc : s;
-                return (
-                  <button
+                  return (
+                    <button
                       key={s.id}
                       type="button"
-                      className={`s2-addProdCard s2-addProdCard--service${inQueue ? ' is-inQueue' : ''}`}
-            onClick={() => {
+                      className={`s2-svcPickTile${inQueue ? ' is-inQueue' : ''}`}
+                      aria-pressed={inQueue}
+                      aria-label={`Add ${s.name}`}
+                      onClick={() => {
                         setSvcQueue((prev) =>
                           prev.some((q) => q.id === s.id)
                             ? prev.filter((q) => q.id !== s.id)
-                            : [...prev, rowSvc],
+                            : [...prev, s],
                         );
                         markS2ServicesVisited();
                       }}
                     >
-                      <S2ProductPhoto
-                        imageUrl={serviceImageUrl(rowSvc)}
-                        fallbackBackground={svcGradientForIndex(i)}
-                        wrapClassName="s2-addProdCard__visual"
-                        imgClassName="s2-addProdCard__photo"
-                        decorative
+                      <img
+                        src={s.image}
+                        alt=""
+                        className="s2-svcPickTile__img"
+                        draggable={false}
                       />
-                      <div className="s2-addProdCard__meta">
-                        <div className="s2-addProdCard__name s2-addProdCard__name--service">{rowSvc.name}</div>
-                        <div className="s2-addProdCard__price">{queuePriceLabel(rowSvc)}</div>
-                      </div>
-          </button>
-                );
-              })}
-            </div>
-          </div>
-            <footer className="s2-svcPickQueue">
-              <div className="s2-svcPickQueue__label">S2 QUEUE</div>
-              <div className="s2-svcPickQueue__row">
-                {displaySvcQueue.map((s, qi) => (
-                  <div key={`${s.id}-${qi}`} className="s2-svcPickQueueCard">
-                    <button
-                      type="button"
-                      className="s2-svcPickQueueCard__rm"
-                      aria-label={`Remove ${s.name}`}
-                      onClick={() => openRemoveConfirm('svc', s.id, s.name)}
-                    >
-                      <X size={10} weight="bold" aria-hidden />
                     </button>
-                    <S2ProductPhoto
-                      imageUrl={serviceImageUrlResolved(s, svcPickerList)}
-                      fallbackBackground={svcGradientForPickerId(s.id, svcPickerList)}
-                      wrapClassName="s2-svcPickQueueCard__thumb"
-                      imgClassName="s2-svcPickQueueCard__photo"
-                      decorative
-                    />
-                    <div className="s2-svcPickQueueCard__meta">
-                      <div className="s2-svcPickQueueCard__name">{s.name}</div>
-                      <div className="s2-svcPickQueueCard__price">{queuePriceLabel(s)}</div>
-        </div>
+                  );
+                })}
+              </div>
             </div>
-                ))}
-                <button
-                  type="button"
-                  className="s2-svcPickQueueAdd"
-                  onClick={handleAddCustomService}
-                >
-                  <span className="s2-svcPickQueueAdd__plus" aria-hidden>
-                    +
-                        </span>
-                  <span className="s2-svcPickQueueAdd__text">ADD CUSTOM SERVICE</span>
+
+            <div className="s2-svcPickConfirm is-visible">
+              <button
+                type="button"
+                className="s2-svcPickConfirm__btn"
+                onClick={() => {
+                  markS2ServicesVisited();
+                  setAddServicesOpen(false);
+                }}
+              >
+                <span className="s2-svcPickConfirm__label">ADD TO S2</span>
+                <span className="s2-svcPickConfirm__count">
+                  {createSectionServices.length}{' '}
+                  {createSectionServices.length === 1 ? 'SERVICE' : 'SERVICES'} →
+                </span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="s2-svcPickCustomLink"
+              onClick={handleAddCustomService}
+            >
+              ADD CUSTOM SERVICE
             </button>
-                    </div>
-            </footer>
           </div>
         </div>
       ) : null}
@@ -2880,17 +2906,15 @@ export default function Screen2() {
           />
           <div className="s2-addProdSheet s2-addProdSheet--finishGrid">
             <header className="s2-finishPickHeader">
-              <button
-                type="button"
-                className="s2-addProdClose s2-finishPickHeader__close"
-                onClick={() => setAddProductsOpen(false)}
-                aria-label="Close"
-              >
-                <X size={18} weight="regular" aria-hidden />
-              </button>
               <div className="s2-finishPickHeader__row">
                 <div className="s2-finishPickHeader__titles">
-                  <p className="s2-finishPickHeader__kicker">← S2 · FINISH</p>
+                  <button
+                    type="button"
+                    className="s2-finishPickHeader__kicker"
+                    onClick={() => setAddProductsOpen(false)}
+                  >
+                    ← S2 - FINISH
+                  </button>
                   <h2 className="s2-finishPickHeader__title">ADD PRODUCT</h2>
                 </div>
                 <p
@@ -2900,22 +2924,9 @@ export default function Screen2() {
                 >
                   {productPickDraft.length > 0
                     ? `${productPickDraft.length} ADDED`
-                    : 'TOUCH TO ADD'}
+                    : 'INDEX TO ADD'}
                 </p>
               </div>
-              {productPickDraft.length > 0 ? (
-                <div className="s2-finishPickStrip" aria-label="Selected products">
-                  {productPickDraft.map((p, i) => (
-                    <div key={p.id} className="s2-finishPickStrip__chip">
-                      <span className="s2-finishPickStrip__order">{i + 1}</span>
-                      <span className="s2-finishPickStrip__label">
-                        {(p.shortName || p.name || '').replace(/\n/g, ' ')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <div className="s2-finishPickHeader__rule" aria-hidden />
             </header>
 
             <div className="s2-finishPickScroll">
@@ -2926,7 +2937,7 @@ export default function Screen2() {
                 {productCatalog.map((p) => {
                   const selected = productPickDraft.some((q) => q.id === p.id);
                   const order = productPickOrder(productPickDraft, p.id);
-                  const nameLines = productDisplayNameLines(p.shortName || p.name);
+                  const displayName = (p.shortName || p.name || '').replace(/\n/g, ' ').trim();
                   const flashing = productPickFlashId === p.id;
                   return (
                     <button
@@ -2954,13 +2965,7 @@ export default function Screen2() {
                       </div>
                       <div className="s2-finishPickCard__meta">
                         <div className="s2-finishPickCard__brand">{p.brand}</div>
-                        <div className="s2-finishPickCard__name">
-                          {nameLines.map((line, i) => (
-                            <span key={`${p.id}-line-${i}`} className="s2-finishPickCard__nameLine">
-                              {line}
-                            </span>
-                          ))}
-                        </div>
+                        <div className="s2-finishPickCard__name">{displayName}</div>
                       </div>
                     </button>
                   );
@@ -2968,11 +2973,7 @@ export default function Screen2() {
               </div>
             </div>
 
-            <div
-              className={`s2-finishPickConfirm${
-                productPickDraft.length > 0 ? ' is-visible' : ''
-              }`}
-            >
+            <div className="s2-finishPickConfirm is-visible">
               <button type="button" className="s2-finishPickConfirm__btn" onClick={confirmProductPick}>
                 <span className="s2-finishPickConfirm__label">ADD TO S2</span>
                 <span className="s2-finishPickConfirm__count">

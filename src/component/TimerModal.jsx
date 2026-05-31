@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { unlockTimerAudio } from '../lib/timerAlarm';
 import '../presentation/style/screen1.css';
 
 const fmt2 = (n) => String(n).padStart(2, '0');
@@ -160,6 +161,7 @@ function TimerModal({
   const showCompletedView = view === 'completed' && isExternalCompleted;
 
   const handleStart = () => {
+    unlockTimerAudio();
     if (mode === 'timer') {
       if (totalSec <= 0) return;
       onStartTimer && onStartTimer(totalSec);

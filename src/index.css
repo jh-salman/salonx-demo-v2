@@ -42,23 +42,77 @@ html.salonx-ios-pwa {
   --salonx-bottom-toolbar-row-h: 30px;
 }
 
-html.salonx-ios {
-  /* visualViewport sync in viewportShellSync.js drives --salonx-shell-height on iOS */
+html.salonx-ios,
+html.salonx-portrait-lock {
+  /* visualViewport sync in viewportShellSync.js drives shell size on mobile */
   height: var(--salonx-shell-height, 100dvh);
   min-height: var(--salonx-shell-height, 100dvh);
   max-height: var(--salonx-shell-height, 100dvh);
 }
 
-html.salonx-ios body {
+html.salonx-ios body,
+html.salonx-portrait-lock body {
+  width: 100%;
+  max-width: 100%;
   height: var(--salonx-shell-height, 100dvh);
   min-height: var(--salonx-shell-height, 100dvh);
   max-height: var(--salonx-shell-height, 100dvh);
 }
 
-html.salonx-ios #root {
+html.salonx-ios #root,
+html.salonx-portrait-lock #root {
+  width: 100%;
+  max-width: 100%;
   height: var(--salonx-shell-height, 100dvh);
   min-height: var(--salonx-shell-height, 100dvh);
   max-height: var(--salonx-shell-height, 100dvh);
+}
+
+/* Portrait-only phones — freeze shell width when sideways (S2 + all screens) */
+html.salonx-portrait-lock.salonx-is-landscape {
+  width: 100%;
+  max-width: none;
+}
+
+html.salonx-portrait-lock.salonx-is-landscape body,
+html.salonx-portrait-lock.salonx-is-landscape #root {
+  width: var(--salonx-shell-width, 100%);
+  max-width: var(--salonx-shell-width, 100%);
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+html.salonx-landscape-blocked #root {
+  pointer-events: none;
+  user-select: none;
+}
+
+#salonx-landscape-guard {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #0a0a0c;
+}
+
+#salonx-landscape-guard[hidden] {
+  display: none !important;
+}
+
+.salonx-landscape-guard__text {
+  max-width: min(280px, 80vw);
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
 }
 
 * {

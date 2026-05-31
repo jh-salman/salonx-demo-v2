@@ -173,6 +173,15 @@
   white-space: nowrap;
 }
 
+.clients-row__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .clients-row--new .clients-row__name {
   color: inherit;
 }
@@ -190,6 +199,6 @@
 }
 
 /* Glass modal (reuses Calendar .cal-modal* classes) — sit above global BottomToolbar */
-.clients-root .clients-newModal.cal-modal {
+.clients-root .cal-modal--sub {
   z-index: 1100;
 }
