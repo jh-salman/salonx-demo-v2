@@ -141,6 +141,17 @@ const cardInnerStyle = {
   boxSizing: 'border-box',
 };
 
+const clientNameStyle = {
+  fontSize: '14px',
+  fontWeight: 700,
+  color: '#f5f5f7',
+  margin: 0,
+  lineHeight: 1.15,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
 /**
  * RAMP queue cards get a big "RAMP" wordmark stamped in the brand baton color
  * across the center of the pill (boss spec) so a stylist instantly knows to
@@ -169,12 +180,6 @@ function rampStampStyle(accent) {
 }
 
 const rampNameStyle = {
-  ...clientNameStyle,
-  position: 'relative',
-  zIndex: 1,
-};
-
-const clientNameStyle = {
   fontSize: '14px',
   fontWeight: 700,
   color: '#f5f5f7',
@@ -183,6 +188,8 @@ const clientNameStyle = {
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
+  position: 'relative',
+  zIndex: 1,
 };
 
 function metaStyle(accent) {

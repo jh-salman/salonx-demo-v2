@@ -33,7 +33,7 @@ const EMPTY_CACHED_ASSETS = {
   backgroundPosterUrl: "",
   stylistStyleReferenceUrl: "",
   clientStyleReferenceUrl: "",
-  activeStylePath: "stylist",
+  activeStylePath: "client",
 };
 
 function normalizeActiveStylePath(value) {
@@ -86,23 +86,14 @@ const BACKGROUND_ASSET_SLOT = {
   id: "background",
   field: "backgroundPosterUrl",
   label: "Background",
-  hint: "Scene + text, no people — save once",
 };
 
 const STYLE_REF_SLOTS = [
-  {
-    id: "stylist",
-    path: "stylist",
-    field: "stylistStyleReferenceUrl",
-    label: "Stylist Style Ref",
-    hint: "2-person example — finish guide only",
-  },
   {
     id: "client",
     path: "client",
     field: "clientStyleReferenceUrl",
     label: "Client Style Ref",
-    hint: "1-person example — finish guide only",
   },
 ];
 
@@ -134,7 +125,6 @@ const CAPTURE_TYPES = [
   { id: "photo", label: "PHOTO" },
   { id: "upload", label: "UPLOAD" },
   { id: "selfie", label: "CLIENT SELFIE" },
-  { id: "reel", label: "REEL", note: true },
 ];
 
 const DEFAULT_TAGS = ["#DangerJones", "#PremiereOrlando", "#PremierHairShow"];
@@ -188,7 +178,6 @@ function RampBoltOverlayView({
   stylistName = "",
   products = [],
   accent,
-  autoCapture = false,
 }) {
   const [phase, setPhase] = useState("entry");
   const [cachedAssets, setCachedAssets] = useState(() => loadPersistedCachedAssets());
@@ -210,15 +199,12 @@ function RampBoltOverlayView({
   const [capturing, setCapturing] = useState(false);
   const uploadInputRef = useRef(null);
   const backgroundInputRef = useRef(null);
-  const stylistRefInputRef = useRef(null);
   const clientRefInputRef = useRef(null);
   const cachedInputRefs = {
     background: backgroundInputRef,
-    stylist: stylistRefInputRef,
     client: clientRefInputRef,
   };
   const captureFileRef = useRef(null);
-  const autoCaptureFiredRef = useRef(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const rampRootRef = useRef(null);
@@ -230,7 +216,6 @@ function RampBoltOverlayView({
 
   useEffect(() => {
     if (!open) return;
-    autoCaptureFiredRef.current = false;
     setPhase("entry");
     setCachedAssets(loadPersistedCachedAssets());
     setUploadingSlot("");
@@ -345,12 +330,15 @@ function RampBoltOverlayView({
     if (!root || !vv) return undefined;
 
     const syncOverlayViewport = () => {
-      const insetBottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      // Guard: a zero visualViewport height collapses the overlay to black.
+      const viewportHeight =
+        vv.height > 0 ? vv.height : window.innerHeight;
+      const insetBottom = Math.max(0, window.innerHeight - viewportHeight - vv.offsetTop);
       const keyboardOpen = insetBottom > 80;
       root.classList.toggle("is-keyboard-open", keyboardOpen);
       root.style.setProperty("--ramp-keyboard-inset", `${insetBottom}px`);
-      root.style.top = `${vv.offsetTop}px`;
-      root.style.height = `${vv.height}px`;
+      root.style.top = `${Math.max(0, vv.offsetTop)}px`;
+      root.style.height = `${viewportHeight}px`;
       root.style.bottom = "auto";
     };
 
@@ -381,10 +369,8 @@ function RampBoltOverlayView({
   const captureAssetsReady = useMemo(() => {
     if (!String(cachedAssets.backgroundPosterUrl || "").trim()) return false;
     if (captureType === "reel") return false;
-    const styleField =
-      activeStylePath === "client" ? "clientStyleReferenceUrl" : "stylistStyleReferenceUrl";
-    return Boolean(String(cachedAssets[styleField] || "").trim());
-  }, [activeStylePath, cachedAssets, captureType]);
+    return Boolean(String(cachedAssets.clientStyleReferenceUrl || "").trim());
+  }, [cachedAssets, captureType]);
 
   const setActiveStylePath = useCallback((path) => {
     const nextPath = normalizeActiveStylePath(path);
@@ -432,9 +418,7 @@ function RampBoltOverlayView({
       const url = await uploadRampMedia(file);
       setCachedAssets((prev) => {
         const next = { ...prev, [field]: url };
-        if (field === "stylistStyleReferenceUrl" && !prev.stylistStyleReferenceUrl) {
-          next.activeStylePath = "stylist";
-        } else if (field === "clientStyleReferenceUrl" && !prev.clientStyleReferenceUrl) {
+        if (field === "clientStyleReferenceUrl" && !prev.clientStyleReferenceUrl) {
           next.activeStylePath = "client";
         }
         persistCachedAssets(next);
@@ -476,11 +460,7 @@ function RampBoltOverlayView({
     }
     if (!ensureClientNameReady()) return;
     if (!captureAssetsReady) {
-      setSubmitError(
-        activeStylePath === "client"
-          ? "Upload background + client style ref, then tap USE on client ref."
-          : "Upload background + stylist style ref, then tap USE on stylist ref.",
-      );
+      setSubmitError("Upload background + client style ref, then tap USE on client ref.");
       return;
     }
     setSubmitError("");
@@ -501,30 +481,6 @@ function RampBoltOverlayView({
     }
     setPhase("capture");
   }, [activeStylePath, captureAssetsReady, captureType, ensureClientNameReady, ensureRampSession]);
-
-  // RAMP as its own workstation: when launched fresh (not the embedded S2 flow),
-  // the very first thing is to take a picture. If the device is already
-  // configured (poster cache ready + client name known) we jump straight to the
-  // camera; otherwise we stay on the entry screen so the stylist can finish
-  // setup — no decisions are forced on them.
-  useEffect(() => {
-    if (!open || !autoCapture) return;
-    if (autoCaptureFiredRef.current) return;
-    if (phase !== "entry") return;
-    if (captureType !== "photo" || !captureAssetsReady) return;
-    if (requireClientName && !resolvedRecipientName) return;
-    autoCaptureFiredRef.current = true;
-    void openCapture();
-  }, [
-    open,
-    autoCapture,
-    phase,
-    captureType,
-    captureAssetsReady,
-    requireClientName,
-    resolvedRecipientName,
-    openCapture,
-  ]);
 
   const applyCaptureFile = useCallback((file) => {
     if (!file) return;
@@ -617,6 +573,19 @@ function RampBoltOverlayView({
       stopCamera();
     };
   }, [cameraFacing, open, phase, startCamera, stopCamera]);
+
+  // Desktop / denied camera: stay on a black viewfinder with no way forward.
+  // Fall back to entry so the stylist can use Upload or finish setup.
+  useEffect(() => {
+    if (!open || phase !== "capture" || cameraLive) return undefined;
+    if (!cameraError) return undefined;
+    const timer = window.setTimeout(() => {
+      setPhase("entry");
+      setSubmitError(cameraError);
+      setCaptureError("");
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [open, phase, cameraLive, cameraError]);
 
   const handleShutter = useCallback(async () => {
     if (capturing || !cameraLive) return;
@@ -831,7 +800,9 @@ function RampBoltOverlayView({
               </button>
             ) : null}
           </div>
-          <p className="ramp-bolt__refSlotHint">{slot.hint}</p>
+          {slot.hint ? (
+            <p className="ramp-bolt__refSlotHint">{slot.hint}</p>
+          ) : null}
           <input
             ref={cachedInputRefs[slot.id]}
             type="file"
@@ -1050,32 +1021,17 @@ function RampBoltOverlayView({
             ) : null}
 
             <section className="ramp-bolt__block" aria-label="Poster cache">
-              <div className="ramp-bolt__blockTitle">
-                Poster Cache <span className="ramp-bolt__req">(save once)</span>
-              </div>
-              <p className="ramp-bolt__refHint">
-                Upload once — stored on this device. Only the live capture changes each post.
-              </p>
+              <div className="ramp-bolt__blockTitle">Poster Cache</div>
               {renderCachedAssetSlot(BACKGROUND_ASSET_SLOT, { required: true })}
               <div className="ramp-bolt__refDivider" aria-hidden />
               <div className="ramp-bolt__refSectionTitle">
                 Style Reference <span className="ramp-bolt__req">(pick one)</span>
               </div>
-              <p className="ramp-bolt__refHint">
-                Load both references once. Tap USE on stylist or client — only one active per post.
-              </p>
               <div className="ramp-bolt__refGrid ramp-bolt__refGrid--style">
                 {STYLE_REF_SLOTS.map((slot) =>
                   renderCachedAssetSlot(slot, { showUseToggle: true }),
                 )}
               </div>
-              {!captureAssetsReady ? (
-                <p className="ramp-bolt__clientPhone ramp-bolt__clientPhone--warn">
-                  {activeStylePath === "client"
-                    ? "Background + client style ref required — tap USE on client ref"
-                    : "Background + stylist style ref required — tap USE on stylist ref"}
-                </p>
-              ) : null}
             </section>
 
             <section className="ramp-bolt__block" aria-label="Direction">
@@ -1125,33 +1081,6 @@ function RampBoltOverlayView({
               </div>
             </section>
 
-            <section className="ramp-bolt__block" aria-label="Tags">
-              <div className="ramp-bolt__blockTitle">Tags</div>
-              <div className="ramp-bolt__tagRow">
-                {DEFAULT_TAGS.map((tag) => (
-                  <span key={tag} className="ramp-bolt__tag">
-                    <span className="ramp-bolt__tagDot" aria-hidden />
-                    {tag}
-                  </span>
-                ))}
-                <button type="button" className="ramp-bolt__tagAdd" hidden aria-hidden>
-                  + add tag
-                </button>
-              </div>
-            </section>
-
-            <section className="ramp-bolt__block" aria-label="Links">
-              <div className="ramp-bolt__blockTitle">Links</div>
-              <div className="ramp-bolt__linkRow">
-                <span className="ramp-bolt__linkChip">
-                  {DEFAULT_LINK}
-                  <span className="ramp-bolt__linkMeta">INHERITED</span>
-                </span>
-                <button type="button" className="ramp-bolt__linkAdd" hidden aria-hidden>
-                  + add link
-                </button>
-              </div>
-            </section>
           </div>
 
           <div className="ramp-bolt__dock">

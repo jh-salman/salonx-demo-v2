@@ -1,6 +1,8 @@
 .ramp-bolt {
   position: fixed;
   inset: 0;
+  min-height: 100dvh;
+  min-height: 100vh;
   /* Above BottomToolbar (1000) — full-screen RAMP must cover the nav strip. */
   z-index: 1100;
   background: #000;
@@ -575,66 +577,12 @@
   line-height: 1;
 }
 
-.ramp-bolt__tagRow,
-.ramp-bolt__linkRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.ramp-bolt__tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .ramp-bolt__tagDot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
   background: var(--ramp-bolt-accent);
   flex: 0 0 auto;
-}
-
-.ramp-bolt__tagAdd,
-.ramp-bolt__linkAdd {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.56);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.ramp-bolt__linkChip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.ramp-bolt__linkMeta {
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.4);
 }
 
 .ramp-bolt__dock {
