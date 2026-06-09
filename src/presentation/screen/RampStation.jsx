@@ -112,6 +112,7 @@ export default function RampStation() {
         stylistName={RAMP_DEMO_STYLIST_NAME}
         products={rampContext.products}
         accent={primaryHex}
+        autoCapture
       />
     </div>
   );

@@ -141,6 +141,39 @@ const cardInnerStyle = {
   boxSizing: 'border-box',
 };
 
+/**
+ * RAMP queue cards get a big "RAMP" wordmark stamped in the brand baton color
+ * across the center of the pill (boss spec) so a stylist instantly knows to
+ * come back and finish that post.
+ */
+function rampStampStyle(accent) {
+  return {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+    color: accent,
+    fontSize: '30px',
+    fontWeight: 900,
+    letterSpacing: '0.18em',
+    textTransform: 'uppercase',
+    lineHeight: 1,
+    opacity: 0.85,
+    textShadow: `0 0 12px ${accent}55`,
+  };
+}
+
+const rampNameStyle = {
+  ...clientNameStyle,
+  position: 'relative',
+  zIndex: 1,
+};
+
 const clientNameStyle = {
   fontSize: '14px',
   fontWeight: 700,
@@ -381,8 +414,22 @@ function SwipeableQueueCard({ row, cardGradient, accent, onPress, onDismiss }) {
         }
       >
         <div style={cardInnerStyle}>
-          <span style={clientNameStyle}>{row.name}</span>
-          <span style={metaStyle(accent)}>{row.meta}</span>
+          {row.kind === 'ramp' ? (
+            <>
+              <span style={rampStampStyle(accent)} aria-hidden>
+                RAMP
+              </span>
+              <span style={rampNameStyle}>{row.name}</span>
+              <span style={{ ...metaStyle(accent), position: 'relative', zIndex: 1 }}>
+                {row.meta}
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={clientNameStyle}>{row.name}</span>
+              <span style={metaStyle(accent)}>{row.meta}</span>
+            </>
+          )}
         </div>
       </div>
     </div>

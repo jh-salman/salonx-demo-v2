@@ -25,26 +25,41 @@ import { syncSalonxShellHeight } from "../../layout/viewportShellSync.js";
 import "../style/ramp-bolt.css";
 
 const CLIENTS_EXTRA_KEY = "@salonx/clientsExtra/v1";
-const RAMP_CACHED_ASSETS_KEY = "@salonx/ramp/cached-assets/v1";
+const RAMP_CACHED_ASSETS_KEY = "@salonx/ramp/cached-assets/v2";
+const RAMP_CACHED_ASSETS_KEY_V1 = "@salonx/ramp/cached-assets/v1";
 const LEGACY_RAMP_REFERENCE_KEY = "@salonx/ramp/reference-poster/v1";
 
 const EMPTY_CACHED_ASSETS = {
   backgroundPosterUrl: "",
   stylistStyleReferenceUrl: "",
   clientStyleReferenceUrl: "",
+  activeStylePath: "stylist",
 };
+
+function normalizeActiveStylePath(value) {
+  return value === "client" ? "client" : "stylist";
+}
+
+function parseCachedAssetsRecord(parsed) {
+  return {
+    backgroundPosterUrl: String(parsed?.backgroundPosterUrl || "").trim(),
+    stylistStyleReferenceUrl: String(parsed?.stylistStyleReferenceUrl || "").trim(),
+    clientStyleReferenceUrl: String(parsed?.clientStyleReferenceUrl || "").trim(),
+    activeStylePath: normalizeActiveStylePath(parsed?.activeStylePath),
+  };
+}
 
 function loadPersistedCachedAssets() {
   if (typeof window === "undefined") return { ...EMPTY_CACHED_ASSETS };
   try {
-    const raw = window.localStorage.getItem(RAMP_CACHED_ASSETS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        backgroundPosterUrl: String(parsed?.backgroundPosterUrl || "").trim(),
-        stylistStyleReferenceUrl: String(parsed?.stylistStyleReferenceUrl || "").trim(),
-        clientStyleReferenceUrl: String(parsed?.clientStyleReferenceUrl || "").trim(),
-      };
+    for (const key of [RAMP_CACHED_ASSETS_KEY, RAMP_CACHED_ASSETS_KEY_V1]) {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const assets = parseCachedAssetsRecord(JSON.parse(raw));
+      if (key !== RAMP_CACHED_ASSETS_KEY) {
+        window.localStorage.setItem(RAMP_CACHED_ASSETS_KEY, JSON.stringify(assets));
+      }
+      return assets;
     }
     const legacy = String(window.localStorage.getItem(LEGACY_RAMP_REFERENCE_KEY) || "").trim();
     if (legacy) {
@@ -67,21 +82,24 @@ function persistCachedAssets(assets) {
   }
 }
 
-const CACHED_ASSET_SLOTS = [
-  {
-    id: "background",
-    field: "backgroundPosterUrl",
-    label: "Background",
-    hint: "Scene + text, no people — save once",
-  },
+const BACKGROUND_ASSET_SLOT = {
+  id: "background",
+  field: "backgroundPosterUrl",
+  label: "Background",
+  hint: "Scene + text, no people — save once",
+};
+
+const STYLE_REF_SLOTS = [
   {
     id: "stylist",
+    path: "stylist",
     field: "stylistStyleReferenceUrl",
     label: "Stylist Style Ref",
     hint: "2-person example — finish guide only",
   },
   {
     id: "client",
+    path: "client",
     field: "clientStyleReferenceUrl",
     label: "Client Style Ref",
     hint: "1-person example — finish guide only",
@@ -170,6 +188,7 @@ function RampBoltOverlayView({
   stylistName = "",
   products = [],
   accent,
+  autoCapture = false,
 }) {
   const [phase, setPhase] = useState("entry");
   const [cachedAssets, setCachedAssets] = useState(() => loadPersistedCachedAssets());
@@ -199,6 +218,7 @@ function RampBoltOverlayView({
     client: clientRefInputRef,
   };
   const captureFileRef = useRef(null);
+  const autoCaptureFiredRef = useRef(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const rampRootRef = useRef(null);
@@ -210,6 +230,7 @@ function RampBoltOverlayView({
 
   useEffect(() => {
     if (!open) return;
+    autoCaptureFiredRef.current = false;
     setPhase("entry");
     setCachedAssets(loadPersistedCachedAssets());
     setUploadingSlot("");
@@ -355,21 +376,31 @@ function RampBoltOverlayView({
     captureFileRef.current = null;
   }, [previewUrl]);
 
+  const activeStylePath = normalizeActiveStylePath(cachedAssets.activeStylePath);
+
   const captureAssetsReady = useMemo(() => {
     if (!String(cachedAssets.backgroundPosterUrl || "").trim()) return false;
-    if (captureType === "selfie") {
-      return Boolean(String(cachedAssets.clientStyleReferenceUrl || "").trim());
-    }
     if (captureType === "reel") return false;
-    return Boolean(String(cachedAssets.stylistStyleReferenceUrl || "").trim());
-  }, [cachedAssets, captureType]);
+    const styleField =
+      activeStylePath === "client" ? "clientStyleReferenceUrl" : "stylistStyleReferenceUrl";
+    return Boolean(String(cachedAssets[styleField] || "").trim());
+  }, [activeStylePath, cachedAssets, captureType]);
+
+  const setActiveStylePath = useCallback((path) => {
+    const nextPath = normalizeActiveStylePath(path);
+    setCachedAssets((prev) => {
+      const next = { ...prev, activeStylePath: nextPath };
+      persistCachedAssets(next);
+      return next;
+    });
+  }, []);
 
   const buildStartPayload = useCallback(
     () => ({
       backgroundPosterUrl: String(cachedAssets.backgroundPosterUrl || "").trim(),
       stylistStyleReferenceUrl: String(cachedAssets.stylistStyleReferenceUrl || "").trim(),
       clientStyleReferenceUrl: String(cachedAssets.clientStyleReferenceUrl || "").trim(),
-      capturePath: captureType === "selfie" ? "client_path" : "stylist_path",
+      capturePath: activeStylePath === "client" ? "client_path" : "stylist_path",
       recipientName: resolvedRecipientName || String(clientName || "").trim(),
       recipientPhone: resolvedClientPhone,
       appointmentId: appointmentId ?? null,
@@ -380,6 +411,7 @@ function RampBoltOverlayView({
       captureType,
     }),
     [
+      activeStylePath,
       appointmentId,
       captureType,
       cachedAssets,
@@ -400,6 +432,11 @@ function RampBoltOverlayView({
       const url = await uploadRampMedia(file);
       setCachedAssets((prev) => {
         const next = { ...prev, [field]: url };
+        if (field === "stylistStyleReferenceUrl" && !prev.stylistStyleReferenceUrl) {
+          next.activeStylePath = "stylist";
+        } else if (field === "clientStyleReferenceUrl" && !prev.clientStyleReferenceUrl) {
+          next.activeStylePath = "client";
+        }
         persistCachedAssets(next);
         return next;
       });
@@ -440,9 +477,9 @@ function RampBoltOverlayView({
     if (!ensureClientNameReady()) return;
     if (!captureAssetsReady) {
       setSubmitError(
-        captureType === "selfie"
-          ? "Upload background + client style ref before capture."
-          : "Upload background + stylist style ref before capture.",
+        activeStylePath === "client"
+          ? "Upload background + client style ref, then tap USE on client ref."
+          : "Upload background + stylist style ref, then tap USE on stylist ref.",
       );
       return;
     }
@@ -463,7 +500,31 @@ function RampBoltOverlayView({
       return;
     }
     setPhase("capture");
-  }, [captureAssetsReady, captureType, ensureClientNameReady, ensureRampSession]);
+  }, [activeStylePath, captureAssetsReady, captureType, ensureClientNameReady, ensureRampSession]);
+
+  // RAMP as its own workstation: when launched fresh (not the embedded S2 flow),
+  // the very first thing is to take a picture. If the device is already
+  // configured (poster cache ready + client name known) we jump straight to the
+  // camera; otherwise we stay on the entry screen so the stylist can finish
+  // setup — no decisions are forced on them.
+  useEffect(() => {
+    if (!open || !autoCapture) return;
+    if (autoCaptureFiredRef.current) return;
+    if (phase !== "entry") return;
+    if (captureType !== "photo" || !captureAssetsReady) return;
+    if (requireClientName && !resolvedRecipientName) return;
+    autoCaptureFiredRef.current = true;
+    void openCapture();
+  }, [
+    open,
+    autoCapture,
+    phase,
+    captureType,
+    captureAssetsReady,
+    requireClientName,
+    resolvedRecipientName,
+    openCapture,
+  ]);
 
   const applyCaptureFile = useCallback((file) => {
     if (!file) return;
@@ -739,6 +800,101 @@ function RampBoltOverlayView({
     [applyCaptureFile],
   );
 
+  const renderCachedAssetSlot = useCallback(
+    (slot, { showUseToggle = false, required = false } = {}) => {
+      const url = String(cachedAssets[slot.field] || "").trim();
+      const slotUploading = uploadingSlot === slot.id;
+      const isActive = showUseToggle && activeStylePath === slot.path;
+      return (
+        <div
+          key={slot.id}
+          className={`ramp-bolt__refSlot${isActive ? " is-active" : ""}`}
+        >
+          <div className="ramp-bolt__refSlotHead">
+            <div className="ramp-bolt__refSlotTitle">
+              {slot.label}
+              {required ? (
+                <span className="ramp-bolt__req"> (required)</span>
+              ) : (
+                <span className="ramp-bolt__opt"> (optional)</span>
+              )}
+            </div>
+            {showUseToggle ? (
+              <button
+                type="button"
+                className={`ramp-bolt__refUse${isActive ? " is-on" : ""}`}
+                disabled={!url || Boolean(uploadingSlot)}
+                aria-pressed={isActive}
+                onClick={() => setActiveStylePath(slot.path)}
+              >
+                {isActive ? "IN USE" : "USE"}
+              </button>
+            ) : null}
+          </div>
+          <p className="ramp-bolt__refSlotHint">{slot.hint}</p>
+          <input
+            ref={cachedInputRefs[slot.id]}
+            type="file"
+            accept="image/*"
+            className="ramp-bolt__fileInput"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void handleCachedAssetFile(slot.id, slot.field, file);
+            }}
+          />
+          {url ? (
+            <div className="ramp-bolt__refPreviewWrap">
+              <div className="ramp-bolt__refPreview ramp-bolt__refPreview--slot">
+                <img src={url} alt={`${slot.label} preview`} />
+              </div>
+              <div className="ramp-bolt__refActions">
+                <button
+                  type="button"
+                  className="ramp-bolt__refBtn"
+                  disabled={Boolean(uploadingSlot)}
+                  onClick={() => cachedInputRefs[slot.id]?.current?.click()}
+                >
+                  {slotUploading ? "UPLOADING…" : "REPLACE"}
+                </button>
+                <button
+                  type="button"
+                  className="ramp-bolt__refBtn ramp-bolt__refBtn--ghost"
+                  disabled={Boolean(uploadingSlot)}
+                  onClick={() => {
+                    setCachedAssets((prev) => {
+                      const next = { ...prev, [slot.field]: "" };
+                      persistCachedAssets(next);
+                      return next;
+                    });
+                  }}
+                >
+                  REMOVE
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="ramp-bolt__refUpload ramp-bolt__refUpload--slot"
+              disabled={Boolean(uploadingSlot)}
+              onClick={() => cachedInputRefs[slot.id]?.current?.click()}
+            >
+              {slotUploading ? "UPLOADING…" : `UPLOAD ${slot.label.toUpperCase()}`}
+            </button>
+          )}
+        </div>
+      );
+    },
+    [
+      activeStylePath,
+      cachedAssets,
+      handleCachedAssetFile,
+      setActiveStylePath,
+      uploadingSlot,
+    ],
+  );
+
   const activeAlert = phase === "preview" ? submitError : phase === "capture" ? captureError : "";
 
   if (!open) return null;
@@ -898,87 +1054,26 @@ function RampBoltOverlayView({
                 Poster Cache <span className="ramp-bolt__req">(save once)</span>
               </div>
               <p className="ramp-bolt__refHint">
-                Upload once on this device — reuse every visit. Only the live selfie changes per capture.
+                Upload once — stored on this device. Only the live capture changes each post.
               </p>
-              <div className="ramp-bolt__refGrid">
-                {CACHED_ASSET_SLOTS.map((slot) => {
-                  const url = String(cachedAssets[slot.field] || "").trim();
-                  const slotUploading = uploadingSlot === slot.id;
-                  const isRequired =
-                    slot.id === "background" ||
-                    (slot.id === "stylist" && captureType !== "selfie" && captureType !== "reel") ||
-                    (slot.id === "client" && captureType === "selfie");
-                  return (
-                    <div key={slot.id} className="ramp-bolt__refSlot">
-                      <div className="ramp-bolt__refSlotTitle">
-                        {slot.label}
-                        {isRequired ? (
-                          <span className="ramp-bolt__req"> (required)</span>
-                        ) : (
-                          <span className="ramp-bolt__opt"> (optional)</span>
-                        )}
-                      </div>
-                      <p className="ramp-bolt__refSlotHint">{slot.hint}</p>
-                      <input
-                        ref={cachedInputRefs[slot.id]}
-                        type="file"
-                        accept="image/*"
-                        className="ramp-bolt__fileInput"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          e.target.value = "";
-                          if (file) void handleCachedAssetFile(slot.id, slot.field, file);
-                        }}
-                      />
-                      {url ? (
-                        <div className="ramp-bolt__refPreviewWrap">
-                          <div className="ramp-bolt__refPreview ramp-bolt__refPreview--slot">
-                            <img src={url} alt={`${slot.label} preview`} />
-                          </div>
-                          <div className="ramp-bolt__refActions">
-                            <button
-                              type="button"
-                              className="ramp-bolt__refBtn"
-                              disabled={Boolean(uploadingSlot)}
-                              onClick={() => cachedInputRefs[slot.id]?.current?.click()}
-                            >
-                              {slotUploading ? "UPLOADING…" : "REPLACE"}
-                            </button>
-                            <button
-                              type="button"
-                              className="ramp-bolt__refBtn ramp-bolt__refBtn--ghost"
-                              disabled={Boolean(uploadingSlot)}
-                              onClick={() => {
-                                setCachedAssets((prev) => {
-                                  const next = { ...prev, [slot.field]: "" };
-                                  persistCachedAssets(next);
-                                  return next;
-                                });
-                              }}
-                            >
-                              REMOVE
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="ramp-bolt__refUpload ramp-bolt__refUpload--slot"
-                          disabled={Boolean(uploadingSlot)}
-                          onClick={() => cachedInputRefs[slot.id]?.current?.click()}
-                        >
-                          {slotUploading ? "UPLOADING…" : `UPLOAD ${slot.label.toUpperCase()}`}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+              {renderCachedAssetSlot(BACKGROUND_ASSET_SLOT, { required: true })}
+              <div className="ramp-bolt__refDivider" aria-hidden />
+              <div className="ramp-bolt__refSectionTitle">
+                Style Reference <span className="ramp-bolt__req">(pick one)</span>
+              </div>
+              <p className="ramp-bolt__refHint">
+                Load both references once. Tap USE on stylist or client — only one active per post.
+              </p>
+              <div className="ramp-bolt__refGrid ramp-bolt__refGrid--style">
+                {STYLE_REF_SLOTS.map((slot) =>
+                  renderCachedAssetSlot(slot, { showUseToggle: true }),
+                )}
               </div>
               {!captureAssetsReady ? (
                 <p className="ramp-bolt__clientPhone ramp-bolt__clientPhone--warn">
-                  {captureType === "selfie"
-                    ? "Background + client style ref required before capture"
-                    : "Background + stylist style ref required before capture"}
+                  {activeStylePath === "client"
+                    ? "Background + client style ref required — tap USE on client ref"
+                    : "Background + stylist style ref required — tap USE on stylist ref"}
                 </p>
               ) : null}
             </section>

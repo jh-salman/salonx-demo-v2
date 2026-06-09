@@ -1403,15 +1403,47 @@ export default function CalendarScreenWeb() {
     } else if (moveConfirm.kind === "move" || moveConfirm.kind === "resize") {
       // Apply the change now — events were untouched during drag (transform/
       // height-delta only). On Yes commit; on No nothing to revert.
+      const targetId = moveConfirm.original.id;
+      const nextStart = moveConfirm.currentStart;
+      const nextEnd = moveConfirm.currentEnd;
+      const prevSnap = {
+        ...moveConfirm.original,
+        start: new Date(moveConfirm.original.start),
+        end: new Date(moveConfirm.original.end),
+      };
       setEvents((prev) =>
         prev.map((ev) =>
-          ev.id === moveConfirm.original.id
-            ? { ...ev, start: moveConfirm.currentStart, end: moveConfirm.currentEnd }
+          ev.id === targetId
+            ? { ...ev, start: nextStart, end: nextEnd }
             : ev,
         ),
       );
       clientName = moveConfirm.original.clientName || "";
       action = moveConfirm.kind === "resize" ? "resized" : "moved";
+      // Persist the new time to the backend (mirrors the edit-modal save).
+      if (isAppointmentsApiAvailable() && targetId) {
+        void updateAppointmentRemote(targetId, {
+          start: nextStart.toISOString(),
+          end: nextEnd.toISOString(),
+        })
+          .then(({ appointment }) => {
+            setEvents((prev) =>
+              prev.map((ev) =>
+                ev.id === targetId ? appointmentDtoToEvent(appointment) : ev,
+              ),
+            );
+            refreshAppointmentsRef.current();
+          })
+          .catch((err) => {
+            console.warn("[Calendar] move/resize: API save failed", err);
+            setEvents((prev) =>
+              prev.map((ev) => (ev.id === prevSnap.id ? prevSnap : ev)),
+            );
+            setOverlapAlert({
+              message: `Could not save on server (${err instanceof Error ? err.message : "error"}). Change reverted.`,
+            });
+          });
+      }
     }
     setMoveConfirm(null);
     if (clientName) {
@@ -1761,6 +1793,11 @@ export default function CalendarScreenWeb() {
       const gridProbe = document.querySelector(".cal-day__grid");
       if (!gridProbe) return;
       waitlistPointerCaptureElRef.current = e.currentTarget;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* noop */
+      }
       waitlistDragRef.current = {
         itemId: item.id,
         pointerId: e.pointerId,
@@ -1780,15 +1817,6 @@ export default function CalendarScreenWeb() {
         }
         waitlistDragRef.current.activated = true;
         waitlistDragRef.current.dayGridRect = grid.getBoundingClientRect();
-        const captureEl = waitlistPointerCaptureElRef.current;
-        const capturePid = waitlistDragRef.current.pointerId;
-        if (captureEl && capturePid != null) {
-          try {
-            captureEl.setPointerCapture(capturePid);
-          } catch (_) {
-            /* noop */
-          }
-        }
         setWaitlistDrag({
           item,
           x: waitlistDragRef.current.startX,
@@ -1930,6 +1958,11 @@ export default function CalendarScreenWeb() {
       const gridProbe = document.querySelector(".cal-day__grid");
       if (!gridProbe) return;
       parkedPointerCaptureElRef.current = e.currentTarget;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* noop */
+      }
       parkedDragRef.current = {
         itemId: item.id,
         pointerId: e.pointerId,
@@ -1949,15 +1982,6 @@ export default function CalendarScreenWeb() {
         }
         parkedDragRef.current.activated = true;
         parkedDragRef.current.dayGridRect = grid.getBoundingClientRect();
-        const captureEl = parkedPointerCaptureElRef.current;
-        const capturePid = parkedDragRef.current.pointerId;
-        if (captureEl && capturePid != null) {
-          try {
-            captureEl.setPointerCapture(capturePid);
-          } catch (_) {
-            /* noop */
-          }
-        }
         setParkedDrag({
           item,
           x: parkedDragRef.current.startX,
@@ -4192,6 +4216,7 @@ export default function CalendarScreenWeb() {
                   <div
                     key={item.id}
                     className="cal-waitlist__card"
+                    style={viewMode === "day" ? { touchAction: "none" } : undefined}
                     onPointerDown={viewMode === "day" ? (e) => handleWaitlistPointerDown(e, item) : undefined}
                     onPointerMove={viewMode === "day" ? (e) => handleWaitlistPointerMove(e, item) : undefined}
                     onPointerUp={viewMode === "day" ? (e) => handleWaitlistPointerUp(e, item) : undefined}
@@ -4328,6 +4353,7 @@ export default function CalendarScreenWeb() {
                   <div
                     key={item.id}
                     className={`cal-waitlist__card cal-parkedCard${item.fromMove ? " is-fromMove" : ""}`}
+                    style={viewMode === "day" ? { touchAction: "none" } : undefined}
                     onPointerDown={viewMode === "day" ? (e) => handleParkedPointerDown(e, item) : undefined}
                     onPointerMove={viewMode === "day" ? (e) => handleParkedPointerMove(e, item) : undefined}
                     onPointerUp={viewMode === "day" ? (e) => handleParkedPointerUp(e, item) : undefined}

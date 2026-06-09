@@ -198,7 +198,9 @@
 
 /* Compact glass chip — Welcome or single-row phone */
 .screen0-dock {
+  width: 100%;
   max-width: min(340px, calc(100vw - 28px));
+  box-sizing: border-box;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(12, 12, 18, 0.38);
@@ -577,11 +579,13 @@
 }
 
 .screen0-dockRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   padding: 6px 8px 6px 6px;
   min-height: 48px;
+  width: 100%;
   box-sizing: border-box;
 }
 
@@ -617,8 +621,9 @@
 
 .screen0-dockField {
   position: relative;
-  flex: 1 1 auto;
   min-width: 0;
+  width: 100%;
+  overflow: hidden;
   display: flex;
   align-items: center;
   border-radius: 14px;
@@ -704,6 +709,7 @@
   align-items: center;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   cursor: text;
 }
 
@@ -714,6 +720,8 @@
 
 .screen0-dockGo {
   flex-shrink: 0;
+  justify-self: end;
+  white-space: nowrap;
   margin: 0;
   padding: 0 14px;
   min-height: 40px;
