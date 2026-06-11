@@ -42,6 +42,12 @@ export async function saveClientsCatalogRemote(body) {
   return res.json()
 }
 
+export async function fetchStaffCatalog() {
+  const res = await apiFetch('/api/staff')
+  if (!res?.ok) return null
+  return res.json()
+}
+
 export async function fetchServiceCatalog() {
   const res = await apiFetch('/api/service-catalog')
   if (!res?.ok) return null

@@ -48,9 +48,15 @@ import {
 import {
   fetchClientsCatalog,
   fetchServiceCatalog,
+  fetchStaffCatalog,
   saveClientsCatalogRemote,
   saveServiceCatalogRemote,
 } from "../../data/calendarCatalogApi.js";
+import {
+  MOCK_STAFF,
+  MOCK_STAFF_BY_SUFFIX,
+  STAFF_UNASSIGNED_ID,
+} from "../../data/mockStaff.js";
 import {
   fetchCalendarToolbar,
   saveCalendarToolbarRemote,
@@ -187,6 +193,7 @@ function buildMockAppointmentsForRange(fromDate, toDate) {
   while (day.getTime() <= end.getTime()) {
     const dayKey = format(day, "yyyy-MM-dd");
     for (const t of MOCK_APPT_DAY_TEMPLATES) {
+      const staffId = MOCK_STAFF_BY_SUFFIX[t.idSuffix] || null;
       events.push({
         id: `mock-${dayKey}-${t.idSuffix}`,
         clientName: t.clientName,
@@ -194,6 +201,7 @@ function buildMockAppointmentsForRange(fromDate, toDate) {
         start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), t.startH, t.startM),
         end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), t.endH, t.endM),
         color: t.color,
+        ...(staffId ? { staffId } : {}),
       });
     }
     day = addDays(day, 1);
@@ -307,6 +315,39 @@ function snapMinutes(min, snap = SNAP_MINUTES) {
  * 3-way (or larger) overlap inside the candidate's time range. The "max 2
  * concurrent" rule mirrors the RN app's overbookCheck.
  */
+function staffIdFromColumn(columnId) {
+  if (!columnId || columnId === STAFF_UNASSIGNED_ID) return null;
+  return columnId;
+}
+
+function appointmentMatchesStaffColumn(apt, columnId) {
+  if (columnId === STAFF_UNASSIGNED_ID) return !apt.staffId;
+  return apt.staffId === columnId;
+}
+
+function resolveStaffColumnFromPointer(clientX, gridContainerEl) {
+  if (!gridContainerEl) return null;
+  const cols = gridContainerEl.querySelectorAll("[data-staff-column]");
+  for (const col of cols) {
+    const r = col.getBoundingClientRect();
+    if (clientX >= r.left && clientX < r.right) {
+      return col.getAttribute("data-staff-column");
+    }
+  }
+  const last = cols[cols.length - 1];
+  return last ? last.getAttribute("data-staff-column") : null;
+}
+
+function gridRectForStaffColumn(clientX, staffGridEl, fallbackRect) {
+  if (!staffGridEl) return fallbackRect;
+  const colId = resolveStaffColumnFromPointer(clientX, staffGridEl);
+  if (!colId) return fallbackRect;
+  const gridEl = staffGridEl.querySelector(
+    `[data-staff-column="${colId}"] .cal-day__grid`,
+  );
+  return gridEl ? gridEl.getBoundingClientRect() : fallbackRect;
+}
+
 function wouldCauseThirdOverlap(others, candidate) {
   const concurrent = others.filter((o) => overlaps(o, candidate));
   for (let i = 0; i < concurrent.length; i += 1) {
@@ -720,6 +761,22 @@ export default function CalendarScreenWeb() {
     }
     return persisted?.serviceCatalog || MOCK_SERVICES;
   });
+  const [staffRoster, setStaffRoster] = useState(() => {
+    if (isAppointmentsApiAvailable()) {
+      return Array.isArray(persisted?.staffRoster) && persisted.staffRoster.length > 0
+        ? persisted.staffRoster
+        : [];
+    }
+    return persisted?.staffRoster || MOCK_STAFF;
+  });
+
+  const staffColumns = useMemo(() => {
+    const roster = staffRoster.length > 0 ? staffRoster : MOCK_STAFF;
+    return [
+      ...roster.map((s) => ({ id: s.id, name: s.name })),
+      { id: STAFF_UNASSIGNED_ID, name: "Unassigned" },
+    ];
+  }, [staffRoster]);
 
   // Phase 1 modal/overlay state
   const [aptOptionsApt, setAptOptionsApt] = useState(null); // appointment object
@@ -727,6 +784,7 @@ export default function CalendarScreenWeb() {
   const [monthSheetDate, setMonthSheetDate] = useState(null);
   const [emptySlotInfo, setEmptySlotInfo] = useState(null); // { date, hour, minute }
   const [newApptInit, setNewApptInit] = useState(null); // initial start Date for NewAppt overlay
+  const [newApptStaffId, setNewApptStaffId] = useState(null);
   const [newApptSeedClient, setNewApptSeedClient] = useState(null);
   const [editingApt, setEditingApt] = useState(null); // appointment being modified
   const [confirmCancelApt, setConfirmCancelApt] = useState(null);
@@ -777,6 +835,7 @@ export default function CalendarScreenWeb() {
 
   const handleExitCalendar = useCallback(() => {
     setNewApptInit(null);
+    setNewApptStaffId(null);
     setEditingApt(null);
     setEmptySlotInfo(null);
     setMonthSheetDate(null);
@@ -944,6 +1003,9 @@ export default function CalendarScreenWeb() {
     toolbarRect: null,
     cancelled: false,
     pressYInGrid: 0,
+    anchorStaffId: STAFF_UNASSIGNED_ID,
+    targetStaffId: STAFF_UNASSIGNED_ID,
+    staffGridEl: null,
   });
 
   /** Coalesce drag paint to one React update per frame (Safari suffers on per-move setState). */
@@ -988,6 +1050,9 @@ export default function CalendarScreenWeb() {
       toolbarRect: null,
       cancelled: false,
       pressYInGrid: 0,
+      anchorStaffId: STAFF_UNASSIGNED_ID,
+      targetStaffId: STAFF_UNASSIGNED_ID,
+      staffGridEl: null,
     };
   }, [cancelDragPaintRaf]);
 
@@ -1039,8 +1104,10 @@ export default function CalendarScreenWeb() {
       }
       const grid = e.currentTarget.closest(".cal-day__grid");
       const gridRect = grid ? grid.getBoundingClientRect() : null;
+      const staffGridEl = grid?.closest(".cal-day__staffGrid") ?? null;
       const toolbarEl = document.querySelector(".cal-toolbar");
       const toolbarRect = toolbarEl ? toolbarEl.getBoundingClientRect() : null;
+      const anchorStaffId = apt.staffId || STAFF_UNASSIGNED_ID;
       dragRef.current = {
         ...dragRef.current,
         aptId: apt.id,
@@ -1056,6 +1123,9 @@ export default function CalendarScreenWeb() {
         original: { ...apt, start: new Date(apt.start), end: new Date(apt.end) },
         gridRect,
         toolbarRect,
+        staffGridEl,
+        anchorStaffId,
+        targetStaffId: anchorStaffId,
         cancelled: false,
       };
       dragRef.current.longPressTimer = setTimeout(() => {
@@ -1169,7 +1239,14 @@ export default function CalendarScreenWeb() {
         }
         const deltaX = clampedX - ref2.startX;
         if (ref2.mode === "move") {
-          const yInGridNow = grid ? clampedY - grid.top : 0;
+          if (ref2.staffGridEl) {
+            const colId = resolveStaffColumnFromPointer(clampedX, ref2.staffGridEl);
+            if (colId) ref2.targetStaffId = colId;
+            const colGrid = gridRectForStaffColumn(clampedX, ref2.staffGridEl, grid);
+            if (colGrid) ref2.gridRect = colGrid;
+          }
+          const activeGrid = ref2.gridRect;
+          const yInGridNow = activeGrid ? clampedY - activeGrid.top : 0;
           const pressYInGrid = ref2.pressYInGrid ?? 0;
           const cardOriginalTopPx = (ref2.anchorMin / 60) * SLOT_HEIGHT;
           const maxStartPx =
@@ -1279,7 +1356,14 @@ export default function CalendarScreenWeb() {
       // For 'move' the card was visually transformed but state not yet mutated.
       // Compute the target time from the released (clamped) pointer Y.
       if (ref.mode === "move") {
-        const yInGridNow = grid ? clampedY - grid.top : 0;
+        if (ref.staffGridEl) {
+          const colId = resolveStaffColumnFromPointer(clampedX, ref.staffGridEl);
+          if (colId) ref.targetStaffId = colId;
+          const colGrid = gridRectForStaffColumn(clampedX, ref.staffGridEl, grid);
+          if (colGrid) ref.gridRect = colGrid;
+        }
+        const activeGrid = ref.gridRect;
+        const yInGridNow = activeGrid ? clampedY - activeGrid.top : 0;
         const pressYInGrid = ref.pressYInGrid ?? 0;
         const cardOriginalTopPx = (ref.anchorMin / 60) * SLOT_HEIGHT;
         const maxStartPx =
@@ -1288,8 +1372,9 @@ export default function CalendarScreenWeb() {
         newCardTopPx = clamp(newCardTopPx, 0, maxStartPx);
         const newMin = (newCardTopPx / SLOT_HEIGHT) * 60;
         const snapped = snapMinutes(newMin);
-        if (snapped === ref.anchorMin) {
-          // No real change — just finish silently
+        const targetStaffId = ref.targetStaffId ?? ref.anchorStaffId;
+        const staffChanged = targetStaffId !== ref.anchorStaffId;
+        if (snapped === ref.anchorMin && !staffChanged) {
           finishDrag();
           return;
         }
@@ -1298,7 +1383,10 @@ export default function CalendarScreenWeb() {
         newStart.setMinutes(snapped);
         const newEnd = addMinutes(newStart, ref.anchorDur);
         const candidate = { id: apt.id, start: newStart, end: newEnd };
-        const others = events.filter((ev) => ev.id !== apt.id);
+        const others = events.filter(
+          (ev) =>
+            ev.id !== apt.id && appointmentMatchesStaffColumn(ev, targetStaffId),
+        );
         if (wouldCauseThirdOverlap(others, candidate)) {
           setOverlapAlert({
             message: "Cannot overbook. Maximum two appointments can overlap.",
@@ -1311,6 +1399,7 @@ export default function CalendarScreenWeb() {
           original,
           currentStart: newStart,
           currentEnd: newEnd,
+          currentStaffId: staffIdFromColumn(targetStaffId),
         });
         finishDrag();
         return;
@@ -1324,7 +1413,11 @@ export default function CalendarScreenWeb() {
       }
       const newEnd = addMinutes(original.start, snapped);
       const candidate = { id: apt.id, start: original.start, end: newEnd };
-      const othersResize = events.filter((ev) => ev.id !== apt.id);
+      const resizeStaffKey = original.staffId || STAFF_UNASSIGNED_ID;
+      const othersResize = events.filter(
+        (ev) =>
+          ev.id !== apt.id && appointmentMatchesStaffColumn(ev, resizeStaffKey),
+      );
       if (wouldCauseThirdOverlap(othersResize, candidate)) {
         setOverlapAlert({
           message: "Cannot overbook. Maximum two appointments can overlap.",
@@ -1411,10 +1504,21 @@ export default function CalendarScreenWeb() {
         start: new Date(moveConfirm.original.start),
         end: new Date(moveConfirm.original.end),
       };
+      const nextStaffId =
+        moveConfirm.kind === "move" && moveConfirm.currentStaffId !== undefined
+          ? moveConfirm.currentStaffId
+          : moveConfirm.original.staffId ?? null;
       setEvents((prev) =>
         prev.map((ev) =>
           ev.id === targetId
-            ? { ...ev, start: nextStart, end: nextEnd }
+            ? {
+                ...ev,
+                start: nextStart,
+                end: nextEnd,
+                ...(moveConfirm.kind === "move"
+                  ? { staffId: nextStaffId || undefined }
+                  : {}),
+              }
             : ev,
         ),
       );
@@ -1422,10 +1526,14 @@ export default function CalendarScreenWeb() {
       action = moveConfirm.kind === "resize" ? "resized" : "moved";
       // Persist the new time to the backend (mirrors the edit-modal save).
       if (isAppointmentsApiAvailable() && targetId) {
-        void updateAppointmentRemote(targetId, {
+        const patch = {
           start: nextStart.toISOString(),
           end: nextEnd.toISOString(),
-        })
+        };
+        if (moveConfirm.kind === "move" && moveConfirm.currentStaffId !== undefined) {
+          patch.staffId = moveConfirm.currentStaffId;
+        }
+        void updateAppointmentRemote(targetId, patch)
           .then(({ appointment }) => {
             setEvents((prev) =>
               prev.map((ev) =>
@@ -1637,7 +1745,7 @@ export default function CalendarScreenWeb() {
   // ---------- Book-from-list confirm handlers ----------
   const handleBookConfirmYes = useCallback(() => {
     if (!bookConfirm) return;
-    const { kind, item, start, end } = bookConfirm;
+    const { kind, item, start, end, staffId } = bookConfirm;
     const dropId = item?.id != null ? String(item.id) : null;
 
     if (kind === "waitlist") {
@@ -1652,6 +1760,7 @@ export default function CalendarScreenWeb() {
               color: "#9DE684",
               price: 0,
               notes: "",
+              ...(staffId ? { staffId } : {}),
             });
             setEvents((prev) => [...prev, appointmentDtoToEvent(appointment)]);
             setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
@@ -1677,6 +1786,7 @@ export default function CalendarScreenWeb() {
             fromWaitlist: true,
             start,
             end,
+            ...(staffId ? { staffId } : {}),
           },
         ]);
         setToolbarEvents((prev) => prev.filter((t) => t.id !== item.id));
@@ -1710,6 +1820,7 @@ export default function CalendarScreenWeb() {
         notes: "",
         start,
         end,
+        ...(staffId ? { staffId } : {}),
       };
 
       setEvents((prev) => [...prev, localEvent]);
@@ -1724,6 +1835,7 @@ export default function CalendarScreenWeb() {
               color: localEvent.color,
               price: 0,
               notes: "",
+              ...(staffId ? { staffId } : {}),
             });
             const saved = appointmentDtoToEvent(appointment);
             setEvents((prev) => [
@@ -1869,11 +1981,17 @@ export default function CalendarScreenWeb() {
         finishWaitlistDrag();
         return;
       }
-      const grid = ref.dayGridRect;
+      const staffGridEl = document.querySelector(".cal-day__staffGrid");
+      const grid =
+        gridRectForStaffColumn(e.clientX, staffGridEl, ref.dayGridRect) ||
+        ref.dayGridRect;
       if (!grid) {
         finishWaitlistDrag();
         return;
       }
+      const staffColumnId =
+        resolveStaffColumnFromPointer(e.clientX, staffGridEl) ||
+        STAFF_UNASSIGNED_ID;
       // Drop ANYWHERE — clamp the pointer Y into the grid range so we always
       // produce a valid time slot, even if user released above/below/outside.
       const clampedY = clamp(e.clientY, grid.top, grid.bottom);
@@ -1886,7 +2004,10 @@ export default function CalendarScreenWeb() {
       start.setMinutes(snapped);
       const end = addMinutes(start, 60);
       const candidate = { start, end };
-      if (wouldCauseThirdOverlap(events, candidate)) {
+      const scopedEvents = events.filter((ev) =>
+        appointmentMatchesStaffColumn(ev, staffColumnId),
+      );
+      if (wouldCauseThirdOverlap(scopedEvents, candidate)) {
         setOverlapAlert({
           message: "Cannot overbook. Maximum two appointments can overlap.",
         });
@@ -1899,6 +2020,7 @@ export default function CalendarScreenWeb() {
         item,
         start,
         end,
+        staffId: staffIdFromColumn(staffColumnId),
       });
       finishWaitlistDrag();
     },
@@ -2030,7 +2152,10 @@ export default function CalendarScreenWeb() {
         finishParkedDrag();
         return;
       }
-      const grid = ref.dayGridRect;
+      const staffGridEl = document.querySelector(".cal-day__staffGrid");
+      const grid =
+        gridRectForStaffColumn(e.clientX, staffGridEl, ref.dayGridRect) ||
+        ref.dayGridRect;
       if (!grid) {
         finishParkedDrag();
         return;
@@ -2044,6 +2169,9 @@ export default function CalendarScreenWeb() {
         finishParkedDrag();
         return;
       }
+      const staffColumnId =
+        resolveStaffColumnFromPointer(e.clientX, staffGridEl) ||
+        STAFF_UNASSIGNED_ID;
       const yInGrid = e.clientY - grid.top;
       const durationMinutes = Math.max(5, Number(item.durationMinutes) || 60);
       // Parked drop duration varies — ensure the *end* never goes past 10:00 PM.
@@ -2054,7 +2182,10 @@ export default function CalendarScreenWeb() {
       start.setMinutes(snapped);
       const end = addMinutes(start, durationMinutes);
       const candidate = { start, end };
-      if (wouldCauseThirdOverlap(events, candidate)) {
+      const scopedEvents = events.filter((ev) =>
+        appointmentMatchesStaffColumn(ev, staffColumnId),
+      );
+      if (wouldCauseThirdOverlap(scopedEvents, candidate)) {
         setOverlapAlert({
           message: "Cannot overbook. Maximum two appointments can overlap.",
         });
@@ -2067,6 +2198,7 @@ export default function CalendarScreenWeb() {
         item,
         start,
         end,
+        staffId: staffIdFromColumn(staffColumnId),
       });
       finishParkedDrag();
     },
@@ -2330,9 +2462,10 @@ export default function CalendarScreenWeb() {
     let cancelled = false;
     void (async () => {
       try {
-        const [clientsData, servicesData] = await Promise.all([
+        const [clientsData, servicesData, staffData] = await Promise.all([
           fetchClientsCatalog(),
           fetchServiceCatalog(),
+          fetchStaffCatalog(),
         ]);
         if (cancelled) return;
         if (clientsData?.stored && Array.isArray(clientsData.clients)) {
@@ -2348,6 +2481,10 @@ export default function CalendarScreenWeb() {
           if (servicesData.updatedAt) {
             serviceCatalogUpdatedAtRef.current = servicesData.updatedAt;
           }
+        }
+        if (staffData?.stored && Array.isArray(staffData.staff)) {
+          pauseServerPersist();
+          setStaffRoster(staffData.staff);
         }
       } catch (err) {
         console.warn("[Calendar] catalog load from API failed", err);
@@ -2729,7 +2866,7 @@ export default function CalendarScreenWeb() {
   // Click empty slot in grid → action modal. Day param is optional and lets
   // the 5-day grid pass the column's specific date.
   const handleGridClick = useCallback(
-    (e, day) => {
+    (e, day, staffColumnId = null) => {
       // 5-day view: tap any slot → jump to Day view for that date (no creation here)
       if (viewMode === "week") {
         if (day) setCurrentDate(day);
@@ -2745,16 +2882,22 @@ export default function CalendarScreenWeb() {
       const snapped = snapMinutes(totalMinutes);
       const hour = DAY_START_HOUR + Math.floor(snapped / 60);
       const minute = snapped % 60;
-      setEmptySlotInfo({ date: day || currentDate, hour, minute });
+      setEmptySlotInfo({
+        date: day || currentDate,
+        hour,
+        minute,
+        staffColumnId: staffColumnId ?? STAFF_UNASSIGNED_ID,
+      });
     },
     [currentDate, viewMode]
   );
 
-  const openNewAppointmentAt = useCallback((date, hour, minute) => {
+  const openNewAppointmentAt = useCallback((date, hour, minute, staffColumnId = null) => {
     const start = new Date(date);
     start.setHours(hour, minute, 0, 0);
     setEmptySlotInfo(null);
     setEditingApt(null);
+    setNewApptStaffId(staffIdFromColumn(staffColumnId));
     setNewApptInit(start);
   }, []);
 
@@ -3202,6 +3345,7 @@ export default function CalendarScreenWeb() {
       color,
       price,
       notes,
+      staffId,
       repeat, // { enabled, interval: 'day'|'week'|'month', count }
     }) => {
       const trimmedClient = (clientName || "").trim();
@@ -3213,6 +3357,7 @@ export default function CalendarScreenWeb() {
         color,
         price: typeof price === "number" ? price : 0,
         notes: (notes || "").trim().slice(0, 500),
+        ...(staffId ? { staffId } : {}),
       };
 
       const buildOccurrences = () => {
@@ -3236,6 +3381,7 @@ export default function CalendarScreenWeb() {
       if (isAppointmentsApiAvailable()) {
         const finish = () => {
           setNewApptInit(null);
+          setNewApptStaffId(null);
           setEditingApt(null);
         };
 
@@ -3282,6 +3428,7 @@ export default function CalendarScreenWeb() {
                     price: baseExtras.price,
                     notes: baseExtras.notes,
                     ...(seriesIdForMulti ? { seriesId: seriesIdForMulti } : {}),
+                    ...(staffId ? { staffId } : {}),
                   });
                   created.push(appointmentDtoToEvent(appointment));
                 }
@@ -3299,6 +3446,7 @@ export default function CalendarScreenWeb() {
                   color: baseExtras.color,
                   price: baseExtras.price,
                   notes: baseExtras.notes,
+                  staffId: staffId || null,
                 };
                 if (editingApt.seriesId) patch.seriesId = editingApt.seriesId;
                 const prevSnap = {
@@ -3351,6 +3499,7 @@ export default function CalendarScreenWeb() {
                     price: baseExtras.price,
                     notes: baseExtras.notes,
                     ...(seriesIdForMulti ? { seriesId: seriesIdForMulti } : {}),
+                    ...(staffId ? { staffId } : {}),
                   });
                   created.push(appointmentDtoToEvent(appointment));
                 }
@@ -3436,6 +3585,7 @@ export default function CalendarScreenWeb() {
         setEvents((prev) => [...prev, ...newEvents]);
       }
       setNewApptInit(null);
+      setNewApptStaffId(null);
       setEditingApt(null);
       setNewApptSeedClient(null);
     },
@@ -3766,18 +3916,34 @@ export default function CalendarScreenWeb() {
               ? Array.from({ length: 5 }, (_, i) => addDays(baseDate, i))
               : [baseDate];
 
-          const renderColumnContent = (baseDate, day, includeColumnHead) => {
-            const dayEvents = calendarEvents.filter((a) => isSameDay(a.start, day));
+          const renderColumnContent = (baseDate, day, includeColumnHead, staffColumn) => {
+            const dayEvents = calendarEvents.filter((a) => {
+              if (!isSameDay(a.start, day)) return false;
+              if (staffColumn) {
+                return appointmentMatchesStaffColumn(a, staffColumn.id);
+              }
+              return true;
+            });
             const dayPositioned = layoutDayAppointments(dayEvents);
             const showLiveLine = isToday(day) && liveTimeLineMin !== null;
             return (
               <div
-                key={day.toISOString()}
-                className={`cal-day__col${includeColumnHead ? " cal-day__col--week" : ""}`}
+                key={staffColumn ? staffColumn.id : day.toISOString()}
+                className={`cal-day__col${includeColumnHead ? " cal-day__col--week" : ""}${
+                  staffColumn ? " cal-day__col--staff" : ""
+                }`}
+                data-staff-column={staffColumn ? staffColumn.id : undefined}
               >
+                {staffColumn ? (
+                  <div className="cal-day__colHead cal-day__colHead--staff">
+                    <span className="cal-day__colHeadDow">{staffColumn.name}</span>
+                  </div>
+                ) : null}
                 <div
                   className="cal-day__grid"
-                  onClick={(e) => handleGridClick(e, day)}
+                  onClick={(e) =>
+                    handleGridClick(e, day, staffColumn ? staffColumn.id : null)
+                  }
                 >
                   {hours.map((h) => (
                     <div
@@ -3913,27 +4079,35 @@ export default function CalendarScreenWeb() {
 
           const renderDayWeekBody = (baseDate) => {
             const columns = getColumnsFor(baseDate);
+            const axisRows = hours.map((h) => (
+              <div
+                key={h}
+                className="cal-axis__row"
+                style={{ height: SLOT_HEIGHT }}
+              >
+                <span className="cal-axis__label">
+                  {format(new Date(0, 0, 0, h), "h a")}
+                </span>
+              </div>
+            ));
             return (
               <div className="cal-day__scroll" ref={setupDayScrollRef}>
                 <div className="cal-day__axis" style={{ width: TIME_AXIS_WIDTH }}>
-                  {hours.map((h) => (
-                    <div
-                      key={h}
-                      className="cal-axis__row"
-                      style={{ height: SLOT_HEIGHT }}
-                    >
-                      <span className="cal-axis__label">
-                        {format(new Date(0, 0, 0, h), "h a")}
-                      </span>
-                    </div>
-                  ))}
+                  {viewMode === "day" ? (
+                    <div className="cal-day__axisHeadSpacer" aria-hidden />
+                  ) : null}
+                  {axisRows}
                 </div>
                 {viewMode === "week" ? (
                   <div className="cal-day__weekGrid">
-                    {columns.map((d) => renderColumnContent(baseDate, d, true))}
+                    {columns.map((d) => renderColumnContent(baseDate, d, true, null))}
                   </div>
                 ) : (
-                  renderColumnContent(baseDate, baseDate, false)
+                  <div className="cal-day__staffGrid">
+                    {staffColumns.map((staff) =>
+                      renderColumnContent(baseDate, baseDate, true, staff),
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -3943,8 +4117,8 @@ export default function CalendarScreenWeb() {
             <div
               ref={daySwipeSurfaceRef}
               className={`cal-day${viewMode === "week" ? " cal-day--week" : ""}${
-                swipeAnim ? " is-swiping" : ""
-              }`}
+                viewMode === "day" ? " cal-day--staff" : ""
+              }${swipeAnim ? " is-swiping" : ""}`}
               onPointerDown={handleSwipePointerDown}
               onPointerMove={handleSwipePointerMove}
               onPointerUp={handleSwipePointerUp}
@@ -4089,7 +4263,12 @@ export default function CalendarScreenWeb() {
                     type="button"
                     className="cal-emptyOption"
                     onClick={() =>
-                      openNewAppointmentAt(slotDate, emptySlotInfo.hour, emptySlotInfo.minute)
+                      openNewAppointmentAt(
+                        slotDate,
+                        emptySlotInfo.hour,
+                        emptySlotInfo.minute,
+                        emptySlotInfo.staffColumnId,
+                      )
                     }
                   >
                     <span className="cal-emptyOption__icon is-newAppt" aria-hidden>
@@ -4488,12 +4667,15 @@ export default function CalendarScreenWeb() {
           initialStart={newApptInit}
           editing={editingApt}
           seedClientName={newApptSeedClient || undefined}
+          initialStaffId={newApptStaffId}
+          staffRoster={staffRoster}
           clients={clients}
           services={serviceCatalog}
           onAddClient={handleAddClient}
           onAddService={handleAddService}
           onCancel={() => {
             setNewApptInit(null);
+            setNewApptStaffId(null);
             setEditingApt(null);
             setNewApptSeedClient(null);
           }}
@@ -4514,6 +4696,8 @@ function NewAppointmentOverlay({
   initialStart,
   editing,
   seedClientName,
+  initialStaffId,
+  staffRoster,
   clients,
   services,
   onAddClient,
@@ -4547,6 +4731,10 @@ function NewAppointmentOverlay({
   const [color, setColor] = useState(editing?.color || "blue");
   const [price, setPrice] = useState(editing?.price ?? "");
   const [notes, setNotes] = useState(editing?.notes || "");
+  const roster = staffRoster?.length > 0 ? staffRoster : MOCK_STAFF;
+  const [selectedStaffId, setSelectedStaffId] = useState(
+    editing?.staffId || initialStaffId || "",
+  );
 
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [repeatInterval, setRepeatInterval] = useState("week");
@@ -4590,6 +4778,7 @@ function NewAppointmentOverlay({
       color,
       price: typeof price === "number" ? price : Number(price) || 0,
       notes,
+      staffId: selectedStaffId || null,
       repeat: {
         enabled: repeatEnabled,
         interval: repeatInterval,
@@ -4635,6 +4824,22 @@ function NewAppointmentOverlay({
               onClick={() => setSubOverlay("pickService")}
             />
           </div>
+
+          <label className="cal-field">
+            <span className="cal-field__label">Staff</span>
+            <select
+              className="cal-field__input"
+              value={selectedStaffId}
+              onChange={(e) => setSelectedStaffId(e.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {roster.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <div className="cal-fieldRow">
             <label className="cal-field">

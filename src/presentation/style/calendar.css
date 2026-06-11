@@ -400,6 +400,43 @@
 .cal-day--week {
   align-items: stretch;
 }
+.cal-day--staff {
+  align-items: stretch;
+}
+.cal-day__staffGrid {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  align-items: stretch;
+  overflow-x: auto;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+.cal-day__col--staff {
+  flex: 0 0 148px;
+  min-width: 148px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+.cal-day__col--staff:first-child {
+  border-left: none;
+}
+.cal-day__colHead--staff {
+  cursor: default;
+  padding: 4px 8px;
+}
+.cal-day__colHead--staff .cal-day__colHeadDow {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.cal-day--staff .cal-day__axis {
+  padding-top: 0;
+}
 .cal-day__weekGrid {
   flex: 1 1 auto;
   display: flex;

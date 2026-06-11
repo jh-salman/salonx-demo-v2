@@ -11,6 +11,7 @@ import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
  * @property {number} price
  * @property {string} notes
  * @property {string | null} [seriesId]
+ * @property {string | null} [staffId]
  */
 
 /** @param {AppointmentDto} dto */
@@ -27,6 +28,7 @@ export function appointmentDtoToEvent(dto) {
     price: typeof dto.price === 'number' ? dto.price : 0,
     notes: dto.notes || '',
     ...(dto.seriesId ? { seriesId: dto.seriesId } : {}),
+    ...(dto.staffId ? { staffId: dto.staffId } : {}),
   }
 }
 
