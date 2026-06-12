@@ -348,6 +348,42 @@ function gridRectForStaffColumn(clientX, staffGridEl, fallbackRect) {
   return gridEl ? gridEl.getBoundingClientRect() : fallbackRect;
 }
 
+/** Day-view staff columns horizontal scroller (`.cal-day__staffGrid`). */
+function resolveStaffGridScroller(containerEl, target) {
+  const fromTarget = target?.closest?.(".cal-day__staffGrid");
+  if (fromTarget) return fromTarget;
+  return containerEl?.querySelector?.(".cal-day__staffGrid") ?? null;
+}
+
+const STAFF_H_SCROLL_EDGE_EPS = 4;
+
+function staffGridHasHorizontalOverflow(el) {
+  if (!el) return false;
+  return el.scrollWidth > el.clientWidth + STAFF_H_SCROLL_EDGE_EPS;
+}
+
+function staffGridAtHorizontalEdge(el, edge) {
+  if (!el) return true;
+  if (edge === "left") return el.scrollLeft <= STAFF_H_SCROLL_EDGE_EPS;
+  return (
+    el.scrollLeft + el.clientWidth >= el.scrollWidth - STAFF_H_SCROLL_EDGE_EPS
+  );
+}
+
+/** Day swipe only when staff horizontal scroll is exhausted in that direction. */
+function canNavigateDayPastStaffGrid(staffGrid, dx, startScrollLeft) {
+  if (!staffGrid || !staffGridHasHorizontalOverflow(staffGrid)) return true;
+  if (
+    startScrollLeft != null &&
+    Math.abs(staffGrid.scrollLeft - startScrollLeft) > STAFF_H_SCROLL_EDGE_EPS
+  ) {
+    return false;
+  }
+  if (dx > 0) return staffGridAtHorizontalEdge(staffGrid, "left");
+  if (dx < 0) return staffGridAtHorizontalEdge(staffGrid, "right");
+  return false;
+}
+
 function wouldCauseThirdOverlap(others, candidate) {
   const concurrent = others.filter((o) => overlaps(o, candidate));
   for (let i = 0; i < concurrent.length; i += 1) {
@@ -443,13 +479,17 @@ function readPersistedCalendarView() {
     if (!currentDate || Number.isNaN(currentDate.getTime())) return null;
     const vm = o.viewMode;
     const viewMode = vm === "week" || vm === "month" ? vm : "day";
-    return { currentDate, viewMode };
+    const focusedStaffId =
+      typeof o.focusedStaffId === "string" && o.focusedStaffId.length > 0
+        ? o.focusedStaffId
+        : null;
+    return { currentDate, viewMode, focusedStaffId };
   } catch {
     return null;
   }
 }
 
-function writePersistedCalendarView(currentDate, viewMode) {
+function writePersistedCalendarView(currentDate, viewMode, focusedStaffId) {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.setItem(
@@ -457,6 +497,7 @@ function writePersistedCalendarView(currentDate, viewMode) {
       JSON.stringify({
         dateKey: format(currentDate, "yyyy-MM-dd"),
         viewMode,
+        focusedStaffId: focusedStaffId || null,
       }),
     );
   } catch {
@@ -732,6 +773,10 @@ export default function CalendarScreenWeb() {
   const initialCalendarView = initialCalendarViewRef.current;
 
   const [viewMode, setViewMode] = useState(() => initialCalendarView?.viewMode || "day");
+  /** Day view: null = all-staff columns; id = single stylist full-width day. */
+  const [focusedStaffId, setFocusedStaffId] = useState(
+    () => initialCalendarView?.focusedStaffId ?? null,
+  );
   const [currentDate, setCurrentDate] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState(() => {
     if (isAppointmentsApiAvailable()) {
@@ -795,8 +840,15 @@ export default function CalendarScreenWeb() {
   const refreshAppointmentsRef = useRef(async () => {});
 
   useEffect(() => {
-    writePersistedCalendarView(currentDate, viewMode);
-  }, [currentDate, viewMode]);
+    writePersistedCalendarView(currentDate, viewMode, focusedStaffId);
+  }, [currentDate, viewMode, focusedStaffId]);
+
+  useEffect(() => {
+    if (!focusedStaffId) return;
+    if (!staffColumns.some((s) => s.id === focusedStaffId)) {
+      setFocusedStaffId(null);
+    }
+  }, [staffColumns, focusedStaffId]);
 
   useEffect(() => {
     if (!isBrowserReloadNavigation()) return;
@@ -3072,6 +3124,7 @@ export default function CalendarScreenWeb() {
     captured: false,
     pointerType: null,
     captureEl: null,
+    staffScrollLeftAtStart: null,
   });
   const daySwipeSurfaceRef = useRef(null);
   const monthSwipeSurfaceRef = useRef(null);
@@ -3148,11 +3201,16 @@ export default function CalendarScreenWeb() {
         (e.target.closest(".cal-apt") ||
           e.target.closest(".cal-modal") ||
           e.target.closest(".cal-toolbar") ||
+          e.target.closest(".cal-staffBar") ||
           e.target.closest(".cal-monthDaySheet"))
       ) {
         return;
       }
       swipeConsumedThisGestureRef.current = false;
+      const staffGrid =
+        viewMode === "day" && !focusedStaffId
+          ? resolveStaffGridScroller(e.currentTarget, e.target)
+          : null;
       swipeRef.current = {
         x: e.clientX,
         y: e.clientY,
@@ -3162,9 +3220,10 @@ export default function CalendarScreenWeb() {
         captured: false,
         pointerType: e.pointerType || "mouse",
         captureEl: e.currentTarget || null,
+        staffScrollLeftAtStart: staffGrid ? staffGrid.scrollLeft : null,
       };
     },
-    [],
+    [focusedStaffId, viewMode],
   );
 
   // PointerMove: once horizontal intent is clear, capture the pointer so the
@@ -3190,6 +3249,13 @@ export default function CalendarScreenWeb() {
       const captureThreshold = 12;
       const dxDominance =
         Math.abs(dy) < 0.5 ? Infinity : Math.abs(dx) / Math.abs(dy);
+      const staffGrid = resolveStaffGridScroller(ref.captureEl, null);
+      if (
+        staffGrid &&
+        !canNavigateDayPastStaffGrid(staffGrid, dx, ref.staffScrollLeftAtStart)
+      ) {
+        return;
+      }
       // Require clearer horizontal intent before stealing the stream from mice
       // that jitter across scrollbar / grid borders.
       if (
@@ -3241,6 +3307,12 @@ export default function CalendarScreenWeb() {
       // Require horizontal dominance (dx more than 1.4× dy) so vertical scroll
       // intents don't accidentally trigger a day change.
       if (Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      const staffGrid = resolveStaffGridScroller(ref.captureEl, null);
+      if (
+        !canNavigateDayPastStaffGrid(staffGrid, dx, ref.staffScrollLeftAtStart)
+      ) {
+        return;
+      }
       swipeConsumedThisGestureRef.current = true;
       beginSwipeNav(dx > 0 ? "prev" : "next");
     },
@@ -3265,6 +3337,7 @@ export default function CalendarScreenWeb() {
       captured: false,
       pointerType: null,
       captureEl: null,
+      staffScrollLeftAtStart: null,
     };
   }, []);
 
@@ -3284,6 +3357,7 @@ export default function CalendarScreenWeb() {
         (target.closest(".cal-apt") ||
           target.closest(".cal-modal") ||
           target.closest(".cal-toolbar") ||
+          target.closest(".cal-staffBar") ||
           target.closest(".cal-monthDaySheet"))
       ) {
         return false;
@@ -3297,10 +3371,15 @@ export default function CalendarScreenWeb() {
       if (!swipeTargetFilter(e.target)) return;
       swipeConsumedThisGestureRef.current = false;
       const t = e.touches[0];
+      const staffGrid =
+        viewMode === "day" && !focusedStaffId
+          ? resolveStaffGridScroller(el, e.target)
+          : null;
       swipeTouchStartRef.current = {
         x: t.clientX,
         y: t.clientY,
         ts: Date.now(),
+        staffScrollLeftAtStart: staffGrid ? staffGrid.scrollLeft : null,
       };
     };
 
@@ -3317,6 +3396,19 @@ export default function CalendarScreenWeb() {
       const dt = Date.now() - start.ts;
       if (Math.abs(dx) < 40 || Math.abs(dy) > 90 || dt > 1200) return;
       if (Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      const staffGrid =
+        viewMode === "day" && !focusedStaffId
+          ? resolveStaffGridScroller(el, null)
+          : null;
+      if (
+        !canNavigateDayPastStaffGrid(
+          staffGrid,
+          dx,
+          start.staffScrollLeftAtStart,
+        )
+      ) {
+        return;
+      }
       swipeConsumedThisGestureRef.current = true;
       beginSwipeNav(dx > 0 ? "prev" : "next");
     };
@@ -3333,7 +3425,7 @@ export default function CalendarScreenWeb() {
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchCancel);
     };
-  }, [viewMode, beginSwipeNav]);
+  }, [focusedStaffId, viewMode, beginSwipeNav]);
 
   // Save handler from NewAppt overlay
   const handleSaveAppointment = useCallback(
@@ -3709,6 +3801,33 @@ export default function CalendarScreenWeb() {
         </div>
       ) : null}
 
+      {viewMode === "day" && staffColumns.length > 0 ? (
+        <div className="cal-staffBar" role="toolbar" aria-label="Staff day view">
+          {focusedStaffId ? (
+            <button
+              type="button"
+              className="cal-staffBar__chip cal-staffBar__chip--all"
+              onClick={() => setFocusedStaffId(null)}
+            >
+              All team
+            </button>
+          ) : null}
+          {staffColumns.map((staff) => (
+            <button
+              key={staff.id}
+              type="button"
+              className={`cal-staffBar__chip${
+                focusedStaffId === staff.id ? " is-active" : ""
+              }`}
+              onClick={() => setFocusedStaffId(staff.id)}
+              aria-pressed={focusedStaffId === staff.id}
+            >
+              {staff.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {viewMode !== "month" ? (
         <div
           className={`cal-toolbar${
@@ -3930,14 +4049,29 @@ export default function CalendarScreenWeb() {
               <div
                 key={staffColumn ? staffColumn.id : day.toISOString()}
                 className={`cal-day__col${includeColumnHead ? " cal-day__col--week" : ""}${
-                  staffColumn ? " cal-day__col--staff" : ""
+                  staffColumn
+                    ? focusedStaffId
+                      ? " cal-day__col--solo"
+                      : " cal-day__col--staff"
+                    : ""
                 }`}
                 data-staff-column={staffColumn ? staffColumn.id : undefined}
               >
                 {staffColumn ? (
-                  <div className="cal-day__colHead cal-day__colHead--staff">
-                    <span className="cal-day__colHeadDow">{staffColumn.name}</span>
-                  </div>
+                  focusedStaffId ? (
+                    <div className="cal-day__colHead cal-day__colHead--staff cal-day__colHead--solo">
+                      <span className="cal-day__colHeadDow">{staffColumn.name}</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="cal-day__colHead cal-day__colHead--staff"
+                      onClick={() => setFocusedStaffId(staffColumn.id)}
+                      aria-label={`Open ${staffColumn.name} day calendar`}
+                    >
+                      <span className="cal-day__colHeadDow">{staffColumn.name}</span>
+                    </button>
+                  )
                 ) : null}
                 <div
                   className="cal-day__grid"
@@ -4102,6 +4236,15 @@ export default function CalendarScreenWeb() {
                   <div className="cal-day__weekGrid">
                     {columns.map((d) => renderColumnContent(baseDate, d, true, null))}
                   </div>
+                ) : focusedStaffId ? (
+                  <div className="cal-day__soloWrap">
+                    {(() => {
+                      const staff =
+                        staffColumns.find((s) => s.id === focusedStaffId) ??
+                        staffColumns[0];
+                      return renderColumnContent(baseDate, baseDate, true, staff);
+                    })()}
+                  </div>
                 ) : (
                   <div className="cal-day__staffGrid">
                     {staffColumns.map((staff) =>
@@ -4117,7 +4260,11 @@ export default function CalendarScreenWeb() {
             <div
               ref={daySwipeSurfaceRef}
               className={`cal-day${viewMode === "week" ? " cal-day--week" : ""}${
-                viewMode === "day" ? " cal-day--staff" : ""
+                viewMode === "day"
+                  ? focusedStaffId
+                    ? " cal-day--staffFocus"
+                    : " cal-day--staff"
+                  : ""
               }${swipeAnim ? " is-swiping" : ""}`}
               onPointerDown={handleSwipePointerDown}
               onPointerMove={handleSwipePointerMove}

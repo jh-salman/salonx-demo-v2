@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "../../context/ThemeContext";
 import {
@@ -7,6 +7,8 @@ import {
 } from "../../data/appointmentStateStore";
 import { writeRampAppointmentLink } from "../../data/rampAppointmentLink";
 import RampBoltOverlay from "./RampBoltOverlay.jsx";
+import RampControlPopup from "../../component/RampControlPopup.jsx";
+import RampSmartField from "../../component/RampSmartField.jsx";
 import "../style/ramp-station.css";
 
 const RAMP_DEMO_STYLIST_NAME = "Joe Stylzz";
@@ -97,17 +99,81 @@ export default function RampStation() {
 
   const isFromScreen2 = rampContext.from === "/screen2";
 
+  // In-chair (S2) bolt captures silently — client inherited, no chooser.
+  // Off a non-client screen the bolt opens the RAMP Control Pop-Up first.
+  const [mode, setMode] = useState(() => (isFromScreen2 ? "capture" : "control"));
+  // Resolved free-build client from the RAMP Station smart field.
+  const [stationClient, setStationClient] = useState(null);
+
+  const handleStationBuild = useCallback(({ name = "", phone = "", generic = false } = {}) => {
+    setStationClient({
+      name: generic ? "" : String(name || "").trim(),
+      phone: generic ? "" : String(phone || "").trim(),
+      generic,
+    });
+    setMode("capture");
+  }, []);
+
+  if (mode === "control") {
+    return (
+      <div className="ramp-station" aria-label="RAMP station">
+        <RampControlPopup
+          open
+          accent={primaryHex}
+          onTakePhoto={() => setMode("capture")}
+          onOpenStation={() => setMode("station")}
+          onClose={handleClose}
+        />
+      </div>
+    );
+  }
+
+  if (mode === "station") {
+    return (
+      <div className="ramp-station" aria-label="RAMP station">
+        <RampSmartField
+          accent={primaryHex}
+          onBuild={handleStationBuild}
+          onClose={() => setMode("control")}
+        />
+      </div>
+    );
+  }
+
+  // Capture mode. A resolved smart-field client (existing/new) is pre-filled and
+  // locked; a generic free-build runs with no client (client NULL = valid).
+  const fromStation = stationClient != null;
+  const capturedClientName = fromStation ? stationClient.name : rampContext.clientName;
+  const capturedClientPhone = fromStation ? stationClient.phone : rampContext.clientPhone;
+  const captureRequiresClient = fromStation
+    ? false
+    : !isFromScreen2;
+  const captureHideClientInput = isFromScreen2 || (fromStation && !stationClient.generic);
+
+  const handleCaptureClose = () => {
+    if (isFromScreen2) {
+      handleClose();
+      return;
+    }
+    if (fromStation) {
+      setStationClient(null);
+      setMode("station");
+      return;
+    }
+    setMode("control");
+  };
+
   return (
     <div className="ramp-station" aria-label="RAMP station">
       <RampBoltOverlay
         open
-        onClose={handleClose}
+        onClose={handleCaptureClose}
         onBypass={isFromScreen2 ? handleBypass : undefined}
         onGenerationQueued={handleGenerationQueued}
-        clientName={rampContext.clientName}
-        clientPhone={rampContext.clientPhone}
-        hideClientNameInput={isFromScreen2}
-        requireClientName={!isFromScreen2}
+        clientName={capturedClientName}
+        clientPhone={capturedClientPhone}
+        hideClientNameInput={captureHideClientInput}
+        requireClientName={captureRequiresClient}
         appointmentId={rampContext.apt?.id ?? null}
         stylistName={RAMP_DEMO_STYLIST_NAME}
         products={rampContext.products}

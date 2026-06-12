@@ -7,6 +7,7 @@ import {
   useCalendarWaitlist,
 } from '../data/calendarEventsStore';
 import { removeRampQueueItem, useRampQueue, rampStatusLabel } from '../data/rampQueueStore';
+import { useRampPostMetaMap } from '../data/rampPostMetaStore';
 import { removeRampAppointmentLinkByToken } from '../data/rampAppointmentLink';
 import { useTheme } from '../context/ThemeContext';
 import { accentCardGradientCss } from '../theme/primaryTheme';
@@ -179,6 +180,39 @@ function rampStampStyle(accent) {
   };
 }
 
+/** Small pre-armed smart-send indicator stamped top-right of a RAMP card. */
+function armedChipStyle(accent) {
+  return {
+    position: 'absolute',
+    top: '5px',
+    right: '8px',
+    zIndex: 2,
+    fontSize: '8px',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    lineHeight: 1,
+    padding: '3px 6px',
+    borderRadius: '999px',
+    color: accent,
+    border: `1px solid ${accent}66`,
+    background: 'rgba(0, 0, 0, 0.45)',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+  };
+}
+
+function rampStateGlyph(status) {
+  switch (String(status || '').trim()) {
+    case 'ready':
+      return '⚡';
+    case 'pending_pick':
+      return '📸';
+    default:
+      return '';
+  }
+}
+
 const rampNameStyle = {
   fontSize: '14px',
   fontWeight: 700,
@@ -241,9 +275,26 @@ function indicatorDotStyle(accent) {
   };
 }
 
-function UnifiedQueueHeader({ labels, accent, totalCount }) {
+function UnifiedQueueHeader({ labels, accent, totalCount, onOpenMaster }) {
+  const interactive = typeof onOpenMaster === 'function';
   return (
-    <div style={headerStyle}>
+    <div
+      style={{ ...headerStyle, cursor: interactive ? 'pointer' : 'default' }}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? 'Open RAMP Master Queue' : undefined}
+      onClick={interactive ? onOpenMaster : undefined}
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpenMaster();
+              }
+            }
+          : undefined
+      }
+    >
       <div style={innerFlexStyle}>
         <div style={indicatorDotStyle(accent)} aria-hidden />
         {labels.map((label, index) => (
@@ -258,7 +309,7 @@ function UnifiedQueueHeader({ labels, accent, totalCount }) {
         ))}
       </div>
       <span style={headerCountStyle} aria-label={`${totalCount} entries`}>
-        {totalCount}
+        {interactive ? `${totalCount} ›` : totalCount}
       </span>
     </div>
   );
@@ -423,6 +474,11 @@ function SwipeableQueueCard({ row, cardGradient, accent, onPress, onDismiss }) {
         <div style={cardInnerStyle}>
           {row.kind === 'ramp' ? (
             <>
+              {row.armed ? (
+                <span style={armedChipStyle(accent)}>
+                  ⚡ {row.postTypeLabel ? `${row.postTypeLabel} armed` : 'Armed'}
+                </span>
+              ) : null}
               <span style={rampStampStyle(accent)} aria-hidden>
                 RAMP
               </span>
@@ -454,18 +510,27 @@ function WaitingList() {
   const parked = useCalendarParked();
   const waitlist = useCalendarWaitlist();
   const rampItems = useRampQueue();
+  const rampMetaMap = useRampPostMetaMap();
 
   const rampRows = useMemo(
     () =>
-      rampItems.map((row) => ({
-        key: `ramp-${row.token || row.id}`,
-        id: String(row.token || row.id || ''),
-        token: row.token || row.id,
-        name: row.title || 'Client',
-        meta: rampStatusLabel(row.status),
-        kind: 'ramp',
-      })),
-    [rampItems],
+      rampItems.map((row) => {
+        const token = row.token || row.id;
+        const meta = rampMetaMap[String(token || '')] || null;
+        const glyph = rampStateGlyph(row.status);
+        const label = rampStatusLabel(row.status);
+        return {
+          key: `ramp-${token}`,
+          id: String(token || ''),
+          token,
+          name: row.title || 'Client',
+          meta: glyph ? `${glyph} ${label}` : label,
+          armed: Boolean(meta?.armed),
+          postTypeLabel: meta?.postType === 'Before / After' ? 'Before/After' : '',
+          kind: 'ramp',
+        };
+      }),
+    [rampItems, rampMetaMap],
   );
 
   const waitlistRows = useMemo(
@@ -522,6 +587,9 @@ function WaitingList() {
         labels={SECTION_LABELS}
         accent={primaryHex}
         totalCount={allRows.length}
+        onOpenMaster={
+          rampRows.length ? () => navigate('/ramp/queue') : undefined
+        }
       />
       <div style={rowsStyle}>
         {allRows.map((row) => (

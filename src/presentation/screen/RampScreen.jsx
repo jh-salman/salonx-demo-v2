@@ -5,16 +5,21 @@ import BottomToolbar from '../../component/BottomToolbar.jsx';
 import RampRecipientField from '../../component/RampRecipientField.jsx';
 import RampS5LoadingPanel from '../../component/RampS5LoadingPanel.jsx';
 import RampS5ReadyHero from '../../component/RampS5ReadyHero.jsx';
+import RampEditLayer from '../../component/RampEditLayer.jsx';
 import {
+  fetchRampCandidates,
   fetchRampStatus,
   isRampApiAvailable,
   regenerateRampPost,
   sendRampSms,
+  submitRampCapture,
   trackRampCopy,
   updateRampRecipient,
+  uploadRampMedia,
 } from '../../data/rampApi.js';
 import { isRampTokenLinkedToAppointment } from '../../data/rampAppointmentLink.js';
 import { upsertRampQueueItem, loadRampQueue } from '../../data/rampQueueStore.js';
+import { writeRampPostMeta } from '../../data/rampPostMetaStore.js';
 import {
   clearRampS5GenerationSession,
   ensureRampS5GenerationSession,
@@ -67,6 +72,56 @@ function queueHintForToken(token) {
   return loadRampQueue().find((row) => row.token === key || row.id === key) || null;
 }
 
+const RAMP_POST_TYPE_DIRECTIVES = {
+  Professional: 'Editorial / professional tone — clean studio framing, salon-pro polish.',
+  'Hype / Event': 'High-energy hype/event vibe — bold headline, vibrant accent, movement.',
+  'Before / After': 'Before / after reveal layout — split or sequence showing transformation.',
+};
+
+function buildEditDraft(post) {
+  const landing = String(post?.landingUrl || '').trim();
+  const caption = String(post?.caption || '').trim();
+  const tags = Array.isArray(post?.tags)
+    ? post.tags
+        .map((t) => String(t || '').trim())
+        .filter(Boolean)
+        .map((label) => ({ label, on: true }))
+    : [];
+  const links = [];
+  if (landing) links.push({ url: landing, inherited: true });
+  if (Array.isArray(post?.links)) {
+    post.links
+      .map((l) => String(l || '').trim())
+      .filter((u) => u && u !== landing)
+      .forEach((url) => links.push({ url, inherited: false }));
+  }
+  return {
+    caption,
+    aiCaptionDraft: caption,
+    tags,
+    links,
+    postType: 'Curiosity',
+    backgrounds: [{ label: 'Saved default', url: String(post?.backgroundPosterUrl || '').trim() }],
+    backgroundIndex: 0,
+    heroUrl: String(post?.careCardUrl || '').trim(),
+  };
+}
+
+function composeOutboundCaption(draft) {
+  if (!draft) return '';
+  const parts = [String(draft.caption || '').trim()];
+  const tagLine = (draft.tags || [])
+    .filter((t) => t.on)
+    .map((t) => t.label)
+    .join(' ')
+    .trim();
+  if (tagLine) parts.push(tagLine);
+  const linkLines = (draft.links || [])
+    .map((l) => String(l.url || '').trim())
+    .filter(Boolean);
+  return [...parts, ...linkLines].filter(Boolean).join('\n\n');
+}
+
 function initialRampS5State(token) {
   const cached = token ? readRampS5ReadyCache(token) : null;
   if (cached?.compositeUrl) {
@@ -107,8 +162,14 @@ export default function RampScreen() {
   const [sendNote, setSendNote] = useState('');
   const [editOpen, setEditOpen] = useState(false);
   const [editNote, setEditNote] = useState('');
+  const [editLayerOpen, setEditLayerOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState(null);
+  const draftSeededTokenRef = useRef(null);
   const [regenerating, setRegenerating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [candidates, setCandidates] = useState([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [pickBusy, setPickBusy] = useState('');
   const [activeSendOption, setActiveSendOption] = useState(null);
   const artifactImgRef = useRef(null);
   const artifactFileRef = useRef(null);
@@ -165,6 +226,9 @@ export default function RampScreen() {
     setError('');
     setSendNote('');
     setEditOpen(false);
+    setEditLayerOpen(false);
+    setEditDraft(null);
+    draftSeededTokenRef.current = null;
     setArtifactFileReady(false);
   }, [token]);
 
@@ -216,6 +280,13 @@ export default function RampScreen() {
           clearRampS5GenerationSession(token);
           clearRampS5ReadyCache(token);
           setPhase('failed');
+          return;
+        }
+        if (status === 'pending_pick') {
+          terminal = true;
+          clearRampS5GenerationSession(token);
+          clearRampS5ReadyCache(token);
+          setPhase('pick');
           return;
         }
         if (status === 'ready' && row.compositeUrl) {
@@ -276,6 +347,25 @@ export default function RampScreen() {
   }, [post?.compositeUrl]);
 
   const landingUrl = String(post?.landingUrl || '').trim();
+
+  useEffect(() => {
+    if (phase !== 'ready' || !post?.compositeUrl) return;
+    if (draftSeededTokenRef.current === token) return;
+    draftSeededTokenRef.current = token;
+    setEditDraft(buildEditDraft(post));
+  }, [phase, post, token]);
+
+  const outboundCaption = useMemo(
+    () => (editDraft ? composeOutboundCaption(editDraft) : String(post?.caption || '')),
+    [editDraft, post?.caption],
+  );
+
+  const previewCaption = editDraft ? String(editDraft.caption || '') : String(post?.caption || '');
+
+  useEffect(() => {
+    if (!token || !editDraft?.postType) return;
+    writeRampPostMeta(token, { postType: editDraft.postType });
+  }, [token, editDraft?.postType]);
 
   useEffect(() => {
     const phone = String(post?.recipientPhone || '').trim();
@@ -372,7 +462,7 @@ export default function RampScreen() {
       if (post?.compositeUrl) {
         const result = await openMessagesWithRampArtifact({
           phoneDigits10: phone,
-          caption: post?.caption || '',
+          caption: outboundCaption,
           landingUrl,
           imageUrl: post.compositeUrl,
           imageElement: artifactPreloadRef.current || artifactImgRef.current,
@@ -382,7 +472,7 @@ export default function RampScreen() {
         setSendNote(result.note || 'Messages ready — tap Send manually');
       } else {
         const body = buildRampSmsTextBody({
-          caption: post?.caption || '',
+          caption: outboundCaption,
           landingUrl,
         });
         openSmsComposer(phone, body);
@@ -398,7 +488,7 @@ export default function RampScreen() {
   }, [
     ensureRecipientBeforeSend,
     landingUrl,
-    post?.caption,
+    outboundCaption,
     post?.compositeUrl,
     markQueueSentLocally,
     sending,
@@ -415,7 +505,7 @@ export default function RampScreen() {
       const phone = await ensureRecipientBeforeSend();
       const result = await openMessagesWithRampArtifact({
         phoneDigits10: phone,
-        caption: post?.caption || '',
+        caption: outboundCaption,
         landingUrl,
         imageUrl: post.compositeUrl,
         imageElement: artifactPreloadRef.current || artifactImgRef.current,
@@ -430,7 +520,7 @@ export default function RampScreen() {
     } finally {
       setSending(false);
     }
-  }, [landingUrl, post?.caption, post?.compositeUrl, ensureRecipientBeforeSend, markQueueSentLocally, sending]);
+  }, [landingUrl, outboundCaption, post?.compositeUrl, ensureRecipientBeforeSend, markQueueSentLocally, sending]);
 
   const handleShareSalesmsg = useCallback(async () => {
     if (!token || sending) return;
@@ -459,7 +549,7 @@ export default function RampScreen() {
     setActiveSendOption('copy');
     try {
       const result = await copyRampPostToClipboard({
-        caption: post?.caption || '',
+        caption: outboundCaption,
         landingUrl,
         imageUrl: post?.compositeUrl || '',
         imageElement: artifactPreloadRef.current || artifactImgRef.current,
@@ -471,7 +561,7 @@ export default function RampScreen() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Copy failed');
     }
-  }, [landingUrl, post?.caption, post?.compositeUrl, token]);
+  }, [landingUrl, outboundCaption, post?.compositeUrl, token]);
 
   const handleDownload = useCallback(async () => {
     if (!post?.compositeUrl) return;
@@ -519,11 +609,104 @@ export default function RampScreen() {
     }
   }, [editNote, post?.careCardUrl, regenerating, token]);
 
-  const handleEditToggle = useCallback(() => {
-    if (regenerating) return;
-    setEditOpen((open) => !open);
+  const enterRegeneratingPhase = useCallback(() => {
+    clearRampS5ReadyCache(token);
+    ensureRampS5GenerationSession(token);
+    setPost((prev) => (prev ? { ...prev, status: 'generating', compositeUrl: null } : prev));
+    upsertRampQueueItem({
+      id: token,
+      token,
+      title: post?.recipientName || post?.recipientPhone || 'RAMP post',
+      status: 'generating',
+    });
+    setPhase('generating');
+    setReloadKey((k) => k + 1);
+  }, [post?.recipientName, post?.recipientPhone, token]);
+
+  useEffect(() => {
+    if (phase !== 'pick' || !token) return undefined;
+    let cancelled = false;
+    setCandidatesLoading(true);
+    fetchRampCandidates(token)
+      .then((res) => {
+        if (!cancelled) setCandidates(Array.isArray(res?.candidates) ? res.candidates : []);
+      })
+      .catch(() => {
+        if (!cancelled) setCandidates([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCandidatesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, token]);
+
+  const handlePickCandidate = useCallback(
+    async (mediaUrl) => {
+      const url = String(mediaUrl || '').trim();
+      if (!token || pickBusy || !url) return;
+      setPickBusy(url);
+      setError('');
+      try {
+        await submitRampCapture({ token, mediaUrl: url, source: 'pending_pick_hero' });
+        enterRegeneratingPhase();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not pick that photo');
+      } finally {
+        setPickBusy('');
+      }
+    },
+    [enterRegeneratingPhase, pickBusy, token],
+  );
+
+  const handleRegenerateFromEdit = useCallback(async () => {
+    if (!token || regenerating || !editDraft) return;
+    setRegenerating(true);
     setError('');
-  }, [regenerating]);
+    setSendNote('');
+    try {
+      const mediaUrl = String(editDraft.heroUrl || post?.careCardUrl || '').trim();
+      if (!mediaUrl) {
+        throw new Error('No source photo saved — re-capture from RAMP first.');
+      }
+      const directives = [];
+      const typeNote = RAMP_POST_TYPE_DIRECTIVES[editDraft.postType];
+      if (typeNote) directives.push(typeNote);
+      const bg = (editDraft.backgrounds || [])[editDraft.backgroundIndex ?? 0];
+      if (bg?.label && bg.label !== 'Saved default') {
+        directives.push(`Background reference: ${bg.label}.`);
+      }
+      await regenerateRampPost(token, {
+        note: directives.join(' ') || undefined,
+        mediaUrl,
+      });
+      setEditLayerOpen(false);
+      enterRegeneratingPhase();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Regenerate failed');
+    } finally {
+      setRegenerating(false);
+    }
+  }, [editDraft, enterRegeneratingPhase, post?.careCardUrl, regenerating, token]);
+
+  const handleUploadHero = useCallback(async (file) => {
+    if (!token || regenerating || !file) return;
+    setRegenerating(true);
+    setError('');
+    setSendNote('');
+    try {
+      const mediaUrl = await uploadRampMedia(file);
+      setEditDraft((prev) => (prev ? { ...prev, heroUrl: mediaUrl } : prev));
+      await submitRampCapture({ token, mediaUrl, source: 'hero-swap' });
+      setEditLayerOpen(false);
+      enterRegeneratingPhase();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Photo import failed');
+    } finally {
+      setRegenerating(false);
+    }
+  }, [enterRegeneratingPhase, regenerating, token]);
 
   const handleBack = useCallback(() => {
     navigate('/screen1');
@@ -679,8 +862,15 @@ export default function RampScreen() {
                 </div>
               </RampS5ReadyHero>
             ) : null}
-            {post?.caption ? (
-              <pre className="ramp-post-it__caption">{post.caption}</pre>
+            {previewCaption ? (
+              <pre className="ramp-post-it__caption">{previewCaption}</pre>
+            ) : null}
+            {editDraft && (editDraft.tags || []).some((t) => t.on) ? (
+              <div className="ramp-post-it__chipRow">
+                {editDraft.tags.filter((t) => t.on).map((t, i) => (
+                  <span key={`${t.label}-${i}`} className="ramp-post-it__chip">{t.label}</span>
+                ))}
+              </div>
             ) : null}
             {showRecipientField ? (
               <RampRecipientField
@@ -743,38 +933,50 @@ export default function RampScreen() {
               <button
                 type="button"
                 className="ramp-post-it__cta ramp-post-it__cta--ghost"
-                disabled={regenerating}
-                onClick={handleEditToggle}
-                aria-expanded={editOpen}
+                disabled={regenerating || !editDraft}
+                onClick={() => { setEditLayerOpen(true); setError(''); }}
               >
-                EDIT · REGENERATE
+                ✎ EDIT THIS POST
               </button>
-              {editOpen ? (
-                <div className="ramp-post-it__editBlock">
-                  <label className="ramp-post-it__editLabel" htmlFor="ramp-edit-note">
-                    Not perfect? Tell the AI what to change (optional)
-                  </label>
-                  <textarea
-                    id="ramp-edit-note"
-                    className="ramp-post-it__editInput"
-                    rows={3}
-                    maxLength={400}
-                    value={editNote}
-                    disabled={regenerating}
-                    placeholder="e.g. brighter green hair, bigger headline, darker background, keep the faces"
-                    onChange={(e) => setEditNote(e.target.value)}
-                  />
+            </div>
+            <button type="button" className="ramp-post-it__cta ramp-post-it__cta--ghost" onClick={handleBack}>
+              Back to queue
+            </button>
+          </div>
+        ) : null}
+
+        {phase === 'pick' ? (
+          <div className="ramp-post-it__panel ramp-post-it__panel--wide">
+            <div className="ramp-post-it__eyebrow">Salon X · S5</div>
+            <div className="ramp-post-it__title">Pick a photo</div>
+            <p className="ramp-post-it__copy">
+              You parked these at checkout. Tap the winner to build the post.
+            </p>
+            {error ? <p className="ramp-post-it__error">{error}</p> : null}
+            {candidatesLoading ? (
+              <p className="ramp-post-it__copy ramp-post-it__copy--center">Loading shots…</p>
+            ) : candidates.length === 0 ? (
+              <p className="ramp-post-it__copy ramp-post-it__copy--center">
+                No parked shots found — recapture from RAMP.
+              </p>
+            ) : (
+              <div className="ramp-post-it__pickGrid">
+                {candidates.map((c, i) => (
                   <button
                     type="button"
-                    className="ramp-post-it__cta"
-                    disabled={regenerating}
-                    onClick={() => void handleRegenerate()}
+                    key={`${c.mediaUrl}-${i}`}
+                    className="ramp-post-it__pickCell"
+                    disabled={Boolean(pickBusy)}
+                    onClick={() => void handlePickCandidate(c.mediaUrl)}
                   >
-                    {regenerating ? 'Regenerating…' : 'REGENERATE POSTER'}
+                    <img src={c.mediaUrl} alt="" loading="lazy" />
+                    <span className="ramp-post-it__pickLabel">
+                      {pickBusy === c.mediaUrl ? 'Building…' : 'Use this'}
+                    </span>
                   </button>
-                </div>
-              ) : null}
-            </div>
+                ))}
+              </div>
+            )}
             <button type="button" className="ramp-post-it__cta ramp-post-it__cta--ghost" onClick={handleBack}>
               Back to queue
             </button>
@@ -795,6 +997,18 @@ export default function RampScreen() {
               Back to queue
             </button>
           </div>
+        ) : null}
+
+        {phase === 'ready' && editLayerOpen && editDraft ? (
+          <RampEditLayer
+            post={post}
+            draft={editDraft}
+            onDraftChange={setEditDraft}
+            onClose={() => setEditLayerOpen(false)}
+            onRegenerate={() => void handleRegenerateFromEdit()}
+            onUploadHero={handleUploadHero}
+            busy={regenerating}
+          />
         ) : null}
       </div>
       <BottomToolbar activeIndex={2} originPath={location.pathname} />

@@ -512,6 +512,23 @@
   color: rgba(255, 255, 255, 0.4);
 }
 
+.ramp-post-it__chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0 2px;
+}
+
+.ramp-post-it__chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(var(--salonx-primary-rgb, 59, 130, 246), 0.16);
+  color: var(--salonx-primary, #3b82f6);
+}
+
 .ramp-post-it__recipientBlock {
   display: flex;
   flex-direction: column;
@@ -805,4 +822,46 @@
     transform: scale(1);
     opacity: 1;
   }
+}
+
+/* pending_pick — parked S4 candidate shots */
+.ramp-post-it__pickGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  width: 100%;
+  margin: 12px 0 16px;
+}
+
+.ramp-post-it__pickCell {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  padding: 0;
+}
+.ramp-post-it__pickCell:disabled { opacity: 0.6; cursor: default; }
+.ramp-post-it__pickCell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ramp-post-it__pickLabel {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  border-radius: 9px;
+  color: #fff;
+  background: color-mix(in srgb, var(--salonx-primary, #00ff8a) 85%, black 6%);
 }

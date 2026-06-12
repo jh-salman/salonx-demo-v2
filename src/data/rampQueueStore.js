@@ -9,6 +9,7 @@ const UPDATE_EVENT_NAME = 'salonx:ramp-queue-updated';
 const QUEUE_POLL_MS = 1000;
 const RAMP_QUEUE_STATUSES = new Set([
   'pending',
+  'pending_pick',
   'generating',
   'processing',
   'ready',
@@ -159,6 +160,8 @@ export function rampStatusLabel(status) {
   switch (String(status || '').trim()) {
     case 'pending':
       return 'Pending';
+    case 'pending_pick':
+      return 'Pick a photo';
     case 'generating':
       return 'Generating';
     case 'processing':

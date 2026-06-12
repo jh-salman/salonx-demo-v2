@@ -12,6 +12,8 @@ import Screen1DemoImage from "../presentation/screen/Screen1DemoImage";
 import RampPostIt from "../presentation/screen/RampPostIt";
 import RampScreen from "../presentation/screen/RampScreen";
 import RampStation from "../presentation/screen/RampStation";
+import RampMasterQueue from "../presentation/screen/RampMasterQueue";
+import RampLibrary from "../presentation/screen/RampLibrary";
 import Screen5 from "../presentation/screen/Screen5";
 import BottomToolbar from "../component/BottomToolbar";
 
@@ -107,6 +109,8 @@ export const router = createBrowserRouter([
       { path: "/climax", element: <Climax /> },
       { path: "/screen5", element: <Screen5 /> },
       { path: "/ramp", element: <RampStation /> },
+      { path: "/ramp/queue", element: <RampMasterQueue /> },
+      { path: "/ramp/library", element: <RampLibrary /> },
       { path: "/calendar", element: <Calendar /> },
       { path: "/checkout", element: <CheckOut /> },
       { path: "/clients", element: <Clients /> },

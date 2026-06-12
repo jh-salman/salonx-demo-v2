@@ -42,6 +42,17 @@ export async function fetchRampRecent(limit = 24) {
   }
 }
 
+/** Cloud library — built RAMP artifacts (ready/posted/sent), any device. */
+export async function fetchRampLibrary(limit = 40) {
+  if (!isRampApiAvailable()) return { items: [] }
+  const res = await rampFetch(`/api/ramp/library?limit=${encodeURIComponent(String(limit))}`)
+  if (!res?.ok) return { items: [] }
+  const data = await res.json().catch(() => ({}))
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+  }
+}
+
 /** Recent RAMP queue rows for Screen1 — DB source of truth. */
 export async function dismissRampFromQueue(tokenOrId) {
   const key = String(tokenOrId || '').trim()
@@ -119,6 +130,39 @@ export async function uploadRampMedia(file) {
     ? window.location.origin
     : base.replace(/\/$/, '')
   return `${origin}${u.startsWith('/') ? u : `/${u}`}`
+}
+
+/**
+ * Park multiple candidate shots without picking a hero (S4 multi-shot review).
+ * The post becomes `pending_pick` — a "Pick a photo" card in the queue.
+ * @param {string} token @param {string[]} mediaUrls @param {string} [phone]
+ */
+export async function parkRampPick(token, mediaUrls, phone) {
+  const t = String(token || '').trim()
+  if (!t) throw new Error('token required')
+  if (!isRampApiAvailable()) throw new Error('RAMP API is not configured')
+  const urls = (Array.isArray(mediaUrls) ? mediaUrls : [])
+    .map((u) => String(u || '').trim())
+    .filter(Boolean)
+  const res = await rampFetch(`/api/ramp/${encodeURIComponent(t)}/park-pick`, {
+    method: 'POST',
+    body: JSON.stringify({ mediaUrls: urls, ...(phone ? { phone } : {}) }),
+  })
+  const data = await res?.json().catch(() => ({}))
+  if (!res?.ok) {
+    throw new Error(data.error || `park-pick failed (${res?.status || 0})`)
+  }
+  return data
+}
+
+/** Candidate shots parked for a `pending_pick` post. */
+export async function fetchRampCandidates(token) {
+  const t = String(token || '').trim()
+  if (!t || !isRampApiAvailable()) return { candidates: [] }
+  const res = await rampFetch(`/api/ramp/${encodeURIComponent(t)}/candidates`)
+  if (!res?.ok) return { candidates: [] }
+  const data = await res.json().catch(() => ({}))
+  return { candidates: Array.isArray(data?.candidates) ? data.candidates : [] }
 }
 
 /** @param {{ token: string, mediaUrl: string, phone?: string, source?: string, note?: string }} payload */

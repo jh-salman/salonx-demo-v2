@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft } from "phosphor-react";
+import { ArrowLeft, Camera, Lightning } from "phosphor-react";
 import "../style/climax.css";
+import "../style/ramp-control-popup.css";
+import RampShotReview from "../../component/RampShotReview.jsx";
 import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { MOCK_SERVICES } from "../../data/mockServices";
 import {
@@ -36,6 +38,31 @@ import {
 } from "../../data/rampQueueStore.js";
 
 const RAMP_CHECKOUT_SESSION_KEY = "@salonx/ramp/checkout-session/v1";
+const RAMP_S4_REMINDER_KEY = "@salonx/ramp/s4-reminder-shown/v1";
+
+function wasS4ReminderShown(apptKey) {
+  if (!apptKey || typeof sessionStorage === "undefined") return false;
+  try {
+    const raw = sessionStorage.getItem(RAMP_S4_REMINDER_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) && arr.includes(apptKey);
+  } catch {
+    return false;
+  }
+}
+
+function markS4ReminderShown(apptKey) {
+  if (!apptKey || typeof sessionStorage === "undefined") return;
+  try {
+    const raw = sessionStorage.getItem(RAMP_S4_REMINDER_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    const set = new Set(Array.isArray(arr) ? arr : []);
+    set.add(apptKey);
+    sessionStorage.setItem(RAMP_S4_REMINDER_KEY, JSON.stringify([...set]));
+  } catch {
+    /* private mode */
+  }
+}
 
 // Climax = checkout. Everything here is driven by the active appointment:
 //   * services + products = `appointmentStateStore` keyed by apt id (the same
@@ -518,6 +545,10 @@ export default function Climax() {
   const [editModal, setEditModal] = useState(null);
   // 'hourly' | 'consult' | null — slider popup that lives ABOVE the other modals
   const [rateEditOpen, setRateEditOpen] = useState(null);
+  // S4 / CLIMAX capture reminder — fires once per in-chair checkout if no RAMP yet.
+  const [s4ReminderOpen, setS4ReminderOpen] = useState(false);
+  // S4 multi-shot review — snap a few, pick a hero or park as pending_pick.
+  const [shotReviewOpen, setShotReviewOpen] = useState(false);
 
   const longPressTimeout = useRef(null);
   const handleLongPress = (callback, ms = 600) => ({
@@ -564,8 +595,14 @@ export default function Climax() {
     ts: 0,
   });
   useEffect(() => {
-    blockClimaxSwipeRef.current = !!(modifyOpen || editModal || rateEditOpen);
-  }, [modifyOpen, editModal, rateEditOpen]);
+    blockClimaxSwipeRef.current = !!(
+      modifyOpen ||
+      editModal ||
+      rateEditOpen ||
+      s4ReminderOpen ||
+      shotReviewOpen
+    );
+  }, [modifyOpen, editModal, rateEditOpen, s4ReminderOpen, shotReviewOpen]);
 
   const climaxSwipeTargetFilter = useCallback((target) => {
     if (!target?.closest) return false;
@@ -968,6 +1005,42 @@ export default function Climax() {
       setCareCardError('RAMP generation failed — open RAMP from Screen 1 to retry.');
     }
   }, [checkoutRampToken, rampLiveStatus, careCardState]);
+
+  // S4 / CLIMAX capture reminder — "in case you forgot," directed at the
+  // in-chair client. Fires once per appointment when no RAMP was captured yet.
+  useEffect(() => {
+    if (!checkoutFromScreen2 || !apptKey) return;
+    if (checkoutRampToken || checkoutRampSkipped) return;
+    if (wasS4ReminderShown(apptKey)) return;
+    setS4ReminderOpen(true);
+  }, [checkoutFromScreen2, apptKey, checkoutRampToken, checkoutRampSkipped]);
+
+  const dismissS4Reminder = useCallback(() => {
+    markS4ReminderShown(apptKey);
+    setS4ReminderOpen(false);
+  }, [apptKey]);
+
+  const captureFromS4 = useCallback(() => {
+    markS4ReminderShown(apptKey);
+    setS4ReminderOpen(false);
+    setShotReviewOpen(true);
+  }, [apptKey]);
+
+  const closeShotReview = useCallback(() => {
+    setShotReviewOpen(false);
+  }, []);
+
+  const onShotPicked = useCallback(
+    (token) => {
+      setShotReviewOpen(false);
+      navigate(`/screen5/ramp/${encodeURIComponent(token)}`);
+    },
+    [navigate],
+  );
+
+  const onShotsParked = useCallback(() => {
+    setShotReviewOpen(false);
+  }, []);
 
   return (
     <div
@@ -1675,6 +1748,71 @@ export default function Climax() {
           </div>
         </div>
       ) : null}
+
+      {s4ReminderOpen ? (
+        <div
+          className="ramp-ctrl ramp-s4"
+          style={{ ["--ramp-ctrl-accent"]: accent }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) dismissS4Reminder();
+          }}
+        >
+          <div
+            className="ramp-ctrl__sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Capture a RAMP moment"
+          >
+            <button
+              type="button"
+              className="ramp-ctrl__grab"
+              onClick={dismissS4Reminder}
+              aria-label="Close"
+            />
+            <div className="ramp-ctrl__bolt" aria-hidden>
+              <Lightning size={26} weight="fill" />
+            </div>
+            <div className="ramp-ctrl__title">One last moment?</div>
+            <p className="ramp-ctrl__sub">
+              In case you forgot — grab a quick photo of {clientHeader.name} before
+              they leave the chair. You can build the post later from the queue.
+            </p>
+
+            <button
+              type="button"
+              className="ramp-ctrl__choice ramp-ctrl__choice--primary"
+              onClick={captureFromS4}
+            >
+              <span className="ramp-ctrl__eic" aria-hidden>
+                <Camera size={22} weight="bold" />
+              </span>
+              <span className="ramp-ctrl__lab">
+                <span className="ramp-ctrl__t">Capture the moment</span>
+                <span className="ramp-ctrl__d">Snap a few → pick a winner or save for later</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="ramp-ctrl__choice ramp-ctrl__choice--ghost"
+              onClick={dismissS4Reminder}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <RampShotReview
+        open={shotReviewOpen}
+        accent={accent}
+        clientName={clientHeader.name}
+        clientPhone={checkoutClientPhone}
+        appointmentId={activeApt?.id ?? null}
+        onPicked={onShotPicked}
+        onParked={onShotsParked}
+        onClose={closeShotReview}
+      />
     </div>
   );
 }
