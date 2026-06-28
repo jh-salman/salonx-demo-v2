@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:demo": "VITE_DEV_USE_DEMO_API=true vite",
+    "dev:demo:stack": "bash scripts/dev-with-demo-api.sh",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -14,6 +16,7 @@
     "@react-three/fiber": "^9.2.0",
     "@tailwindcss/vite": "^4.1.11",
     "date-fns": "^4.1.0",
+    "html-to-image": "^1.11.13",
     "phosphor-react": "^1.4.1",
     "react": "^19.1.0",
     "react-big-calendar": "^1.19.4",

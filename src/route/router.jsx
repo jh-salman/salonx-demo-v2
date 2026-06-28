@@ -9,12 +9,9 @@ import CheckOut from "../presentation/screen/CheckOut";
 import Clients from "../presentation/screen/Clients";
 import SettingsScreen from "../presentation/screen/SettingsScreen";
 import Screen1DemoImage from "../presentation/screen/Screen1DemoImage";
-import RampPostIt from "../presentation/screen/RampPostIt";
-import RampScreen from "../presentation/screen/RampScreen";
-import RampStation from "../presentation/screen/RampStation";
-import RampMasterQueue from "../presentation/screen/RampMasterQueue";
-import RampLibrary from "../presentation/screen/RampLibrary";
 import Screen5 from "../presentation/screen/Screen5";
+import RampApp from "../presentation/ramp/RampApp";
+import RampPublicView from "../presentation/ramp/views/RampPublicView";
 import BottomToolbar from "../component/BottomToolbar";
 
 function isScreen1Path(pathname) {
@@ -28,13 +25,13 @@ function Screen1RouteSlot() {
   return null;
 }
 
-/** Routes without global bottom toolbar (welcome + public RAMP). */
+/** Routes without global bottom toolbar (welcome). */
 const HIDE_TOOLBAR_PATHS = new Set(["/"]);
 
 function hideToolbarForPath(pathname) {
-  if (HIDE_TOOLBAR_PATHS.has(pathname) || pathname.startsWith("/p/")) return true;
-  // Ramp routes embed their own nav or are full-screen flows.
-  if (pathname.startsWith("/ramp") || pathname.startsWith("/screen5")) return true;
+  if (HIDE_TOOLBAR_PATHS.has(pathname)) return true;
+  if (pathname.startsWith("/screen5")) return true;
+  if (pathname.startsWith("/ramp/public")) return true;
   return false;
 }
 
@@ -42,24 +39,13 @@ function activeIndexForPath(pathname) {
   if (pathname.startsWith("/screen1") || pathname.startsWith("/s1-demo-image"))
     return 0;
   if (pathname.startsWith("/clients") || pathname.startsWith("/screen2")) return 1;
-  if (
-    pathname.startsWith("/ramp") ||
-    pathname.startsWith("/screen5/ramp")
-  ) {
-    return 2;
-  }
+  if (pathname.startsWith("/ramp")) return 2;
   if (pathname.startsWith("/calendar") || pathname.startsWith("/screen3")) return 3;
   if (pathname.startsWith("/settings")) return 4;
   return -1;
 }
 
-/** Layout route: renders the current screen + persistent bottom toolbar.
- *
- * NOTE: We MUST wrap children in a real DOM element (not a Fragment) so that
- * the global `#root > *` rule in `src/index.css` (which sets
- * `display:flex; flex-direction:column; min-height: shell-height`) targets
- * this single wrapper rather than both the Outlet root AND the toolbar — the
- * latter would otherwise stretch full-viewport and stack icons vertically. */
+/** Layout route: renders the current screen + persistent bottom toolbar. */
 function AppLayout() {
   const location = useLocation();
   const hideToolbar = hideToolbarForPath(location.pathname);
@@ -108,15 +94,13 @@ export const router = createBrowserRouter([
       { path: "/screen3", element: <Calendar /> },
       { path: "/climax", element: <Climax /> },
       { path: "/screen5", element: <Screen5 /> },
-      { path: "/ramp", element: <RampStation /> },
-      { path: "/ramp/queue", element: <RampMasterQueue /> },
-      { path: "/ramp/library", element: <RampLibrary /> },
+      { path: "/ramp/public/:queueId", element: <RampPublicView /> },
+      { path: "/ramp", element: <RampApp /> },
+      { path: "/ramp/:queueId", element: <RampApp /> },
       { path: "/calendar", element: <Calendar /> },
       { path: "/checkout", element: <CheckOut /> },
       { path: "/clients", element: <Clients /> },
       { path: "/settings", element: <SettingsScreen /> },
-      { path: "/screen5/ramp/:token", element: <RampScreen /> },
-      { path: "/p/:token", element: <RampPostIt /> },
     ],
   },
 ]);

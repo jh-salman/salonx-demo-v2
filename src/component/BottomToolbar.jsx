@@ -6,18 +6,12 @@ import './BottomToolbar.css';
 
 const BOTTOM_TOOLBAR_ITEMS = [
   { Icon: Scissors, label: 'Stylist', to: '/screen1' },
-  // Profile icon now opens the Clients picker; tapping a client there forwards
-  // to Screen2 with the proper apt payload.
   { Icon: User, label: 'Clients', to: '/clients' },
   { Icon: Lightning, label: 'RAMP', to: '/ramp' },
   { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
   { Icon: Gear, label: 'Settings', to: '/settings' },
 ];
 
-/**
- * `aria-current='page'` is set on the active tab so CSS can size the glyph in
- * standalone / PWA (see BottomToolbar.css).
- */
 function BottomToolbar({ activeIndex = -1, style, originPath }) {
   const navigate = useNavigate();
 
@@ -31,6 +25,7 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
       <div className="bottom-toolbar-row">
         {BOTTOM_TOOLBAR_ITEMS.map(({ Icon, label, to }, i) => {
           const isActive = i === activeIndex;
+          const isRamp = label === 'RAMP';
           return (
             <button
               key={label}
@@ -39,14 +34,16 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
               aria-label={label}
               aria-current={isActive ? 'page' : undefined}
               onClick={() => {
-                if (to === '/clients' && originPath) {
-                  navigate(to, { state: { from: originPath } });
+                if (isRamp) {
+                  if (originPath?.startsWith('/ramp')) {
+                    window.dispatchEvent(new CustomEvent('salonx:ramp-open-bolt'));
+                    return;
+                  }
+                  navigate('/ramp', { state: { openBolt: true } });
                   return;
                 }
-                if (to === '/ramp') {
-                  const from =
-                    originPath && originPath.startsWith('/') ? originPath : '/screen1';
-                  navigate(to, { state: { from } });
+                if (to === '/clients' && originPath) {
+                  navigate(to, { state: { from: originPath } });
                   return;
                 }
                 if (to === '/calendar') {
@@ -67,7 +64,7 @@ function BottomToolbar({ activeIndex = -1, style, originPath }) {
             >
               <Icon
                 size={isActive ? 26 : 24}
-                weight={isActive ? 'fill' : 'regular'}
+                weight={isActive || isRamp ? 'fill' : 'regular'}
                 aria-hidden
               />
             </button>

@@ -26,6 +26,13 @@ export default defineConfig(({ mode }) => {
           target: demoApiTarget,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/salonx-demo-api/, '') || '/',
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              if (req.url?.includes('/api/config/stream')) {
+                proxyReq.setHeader('Accept', 'text/event-stream')
+              }
+            })
+          },
         },
       },
     },

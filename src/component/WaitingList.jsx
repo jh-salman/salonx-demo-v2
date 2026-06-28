@@ -6,14 +6,13 @@ import {
   useCalendarParked,
   useCalendarWaitlist,
 } from '../data/calendarEventsStore';
-import { removeRampQueueItem, useRampQueue, rampStatusLabel } from '../data/rampQueueStore';
-import { useRampPostMetaMap } from '../data/rampPostMetaStore';
-import { removeRampAppointmentLinkByToken } from '../data/rampAppointmentLink';
+import { dismissRampQueueItem, useRampS1Queue } from '../data/rampLocalQueueStore';
+import { rampQueuePath } from '../presentation/ramp/rampPaths';
 import { useTheme } from '../context/ThemeContext';
 import { accentCardGradientCss } from '../theme/primaryTheme';
 
 const QUEUE_ATTENTION_LABEL = 'Need Attention';
-const SECTION_LABELS = ['RAMP', 'Waiting List', 'Park'];
+const QUEUE_SECTION_LABELS = ['RAMP', 'Waiting List', 'Park'];
 const SWIPE_DELETE_THRESHOLD_PX = 72;
 const SWIPE_MAX_PX = 120;
 const SWIPE_AXIS_LOCK_PX = 6;
@@ -153,78 +152,6 @@ const clientNameStyle = {
   textOverflow: 'ellipsis',
 };
 
-/**
- * RAMP queue cards get a big "RAMP" wordmark stamped in the brand baton color
- * across the center of the pill (boss spec) so a stylist instantly knows to
- * come back and finish that post.
- */
-function rampStampStyle(accent) {
-  return {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    pointerEvents: 'none',
-    color: accent,
-    fontSize: '30px',
-    fontWeight: 900,
-    letterSpacing: '0.18em',
-    textTransform: 'uppercase',
-    lineHeight: 1,
-    opacity: 0.85,
-    textShadow: `0 0 12px ${accent}55`,
-  };
-}
-
-/** Small pre-armed smart-send indicator stamped top-right of a RAMP card. */
-function armedChipStyle(accent) {
-  return {
-    position: 'absolute',
-    top: '5px',
-    right: '8px',
-    zIndex: 2,
-    fontSize: '8px',
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
-    lineHeight: 1,
-    padding: '3px 6px',
-    borderRadius: '999px',
-    color: accent,
-    border: `1px solid ${accent}66`,
-    background: 'rgba(0, 0, 0, 0.45)',
-    whiteSpace: 'nowrap',
-    pointerEvents: 'none',
-  };
-}
-
-function rampStateGlyph(status) {
-  switch (String(status || '').trim()) {
-    case 'ready':
-      return '⚡';
-    case 'pending_pick':
-      return '📸';
-    default:
-      return '';
-  }
-}
-
-const rampNameStyle = {
-  fontSize: '14px',
-  fontWeight: 700,
-  color: '#f5f5f7',
-  margin: 0,
-  lineHeight: 1.15,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  position: 'relative',
-  zIndex: 1,
-};
 
 function metaStyle(accent) {
   return {
@@ -275,26 +202,9 @@ function indicatorDotStyle(accent) {
   };
 }
 
-function UnifiedQueueHeader({ labels, accent, totalCount, onOpenMaster }) {
-  const interactive = typeof onOpenMaster === 'function';
+function UnifiedQueueHeader({ labels, accent, totalCount }) {
   return (
-    <div
-      style={{ ...headerStyle, cursor: interactive ? 'pointer' : 'default' }}
-      role={interactive ? 'button' : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      aria-label={interactive ? 'Open RAMP Master Queue' : undefined}
-      onClick={interactive ? onOpenMaster : undefined}
-      onKeyDown={
-        interactive
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onOpenMaster();
-              }
-            }
-          : undefined
-      }
-    >
+    <div style={headerStyle}>
       <div style={innerFlexStyle}>
         <div style={indicatorDotStyle(accent)} aria-hidden />
         {labels.map((label, index) => (
@@ -309,7 +219,7 @@ function UnifiedQueueHeader({ labels, accent, totalCount, onOpenMaster }) {
         ))}
       </div>
       <span style={headerCountStyle} aria-label={`${totalCount} entries`}>
-        {interactive ? `${totalCount} ›` : totalCount}
+        {totalCount}
       </span>
     </div>
   );
@@ -472,27 +382,8 @@ function SwipeableQueueCard({ row, cardGradient, accent, onPress, onDismiss }) {
         }
       >
         <div style={cardInnerStyle}>
-          {row.kind === 'ramp' ? (
-            <>
-              {row.armed ? (
-                <span style={armedChipStyle(accent)}>
-                  ⚡ {row.postTypeLabel ? `${row.postTypeLabel} armed` : 'Armed'}
-                </span>
-              ) : null}
-              <span style={rampStampStyle(accent)} aria-hidden>
-                RAMP
-              </span>
-              <span style={rampNameStyle}>{row.name}</span>
-              <span style={{ ...metaStyle(accent), position: 'relative', zIndex: 1 }}>
-                {row.meta}
-              </span>
-            </>
-          ) : (
-            <>
-              <span style={clientNameStyle}>{row.name}</span>
-              <span style={metaStyle(accent)}>{row.meta}</span>
-            </>
-          )}
+          <span style={clientNameStyle}>{row.name}</span>
+          <span style={metaStyle(accent)}>{row.meta}</span>
         </div>
       </div>
     </div>
@@ -509,28 +400,18 @@ function WaitingList() {
 
   const parked = useCalendarParked();
   const waitlist = useCalendarWaitlist();
-  const rampItems = useRampQueue();
-  const rampMetaMap = useRampPostMetaMap();
+  const rampQueue = useRampS1Queue();
 
   const rampRows = useMemo(
     () =>
-      rampItems.map((row) => {
-        const token = row.token || row.id;
-        const meta = rampMetaMap[String(token || '')] || null;
-        const glyph = rampStateGlyph(row.status);
-        const label = rampStatusLabel(row.status);
-        return {
-          key: `ramp-${token}`,
-          id: String(token || ''),
-          token,
-          name: row.title || 'Client',
-          meta: glyph ? `${glyph} ${label}` : label,
-          armed: Boolean(meta?.armed),
-          postTypeLabel: meta?.postType === 'Before / After' ? 'Before/After' : '',
-          kind: 'ramp',
-        };
-      }),
-    [rampItems, rampMetaMap],
+      rampQueue.map((item) => ({
+        key: `ramp-${item.id}`,
+        id: item.id,
+        name: item.name,
+        meta: item.meta || QUEUE_ATTENTION_LABEL,
+        kind: 'ramp',
+      })),
+    [rampQueue],
   );
 
   const waitlistRows = useMemo(
@@ -564,10 +445,7 @@ function WaitingList() {
 
   const handleDismiss = useCallback((row) => {
     if (row.kind === 'ramp') {
-      if (row.token) {
-        removeRampQueueItem(row.token);
-        removeRampAppointmentLinkByToken(row.token);
-      }
+      dismissRampQueueItem(row.id);
       return;
     }
     if (row.kind === 'wait') {
@@ -579,17 +457,22 @@ function WaitingList() {
     }
   }, []);
 
+  const handlePress = useCallback(
+    (row) => {
+      if (row.kind !== 'ramp') return;
+      navigate(rampQueuePath(row.id));
+    },
+    [navigate],
+  );
+
   if (!allRows.length) return null;
 
   return (
-    <div style={stackStyle} aria-label={SECTION_LABELS.join(', ')}>
+    <div style={stackStyle} aria-label={QUEUE_SECTION_LABELS.join(', ')}>
       <UnifiedQueueHeader
-        labels={SECTION_LABELS}
+        labels={QUEUE_SECTION_LABELS}
         accent={primaryHex}
         totalCount={allRows.length}
-        onOpenMaster={
-          rampRows.length ? () => navigate('/ramp/queue') : undefined
-        }
       />
       <div style={rowsStyle}>
         {allRows.map((row) => (
@@ -598,12 +481,8 @@ function WaitingList() {
             row={row}
             cardGradient={cardGradient}
             accent={primaryHex}
-            onPress={
-              row.kind === 'ramp' && row.token
-                ? () => navigate(`/screen5/ramp/${encodeURIComponent(row.token)}`)
-                : undefined
-            }
             onDismiss={handleDismiss}
+            onPress={row.kind === 'ramp' ? () => handlePress(row) : undefined}
           />
         ))}
       </div>

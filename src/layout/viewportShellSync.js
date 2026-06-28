@@ -153,7 +153,7 @@ function isSalonxKeyboardLockActive() {
   if (typeof document === 'undefined') return false
   const active = document.activeElement
   if (!active || !(active instanceof HTMLElement)) return false
-  return Boolean(active.closest('[data-salonx-keyboard-lock], .ramp-bolt'))
+  return Boolean(active.closest('[data-salonx-keyboard-lock]'))
 }
 
 function looksLikeIosKeyboardViewport(h) {

@@ -12,7 +12,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Scissors,
   User,
-  Lightning,
   CalendarBlank,
   Gear,
   CaretRight,
@@ -1013,22 +1012,6 @@ function Screen1DemoImage() {
   /** `/s1-demo-image` = full image workflow; `/screen1` = same UI, slots view-only (no picker). */
   const allowImageUpload = location.pathname === S1_DEMO_IMAGE_ROUTE;
 
-  const stylistToolbarTarget =
-    location.pathname === S1_DEMO_IMAGE_ROUTE
-      ? S1_DEMO_IMAGE_ROUTE
-      : SCREEN1_ROUTE;
-
-  const screenDemoToolbar = useMemo(
-    () => [
-      { Icon: Scissors, label: 'Stylist', to: stylistToolbarTarget },
-      { Icon: User, label: 'Clients', to: '/clients' },
-      { Icon: Lightning, label: 'RAMP', to: '/ramp' },
-      { Icon: CalendarBlank, label: 'Calendar', to: '/calendar' },
-      { Icon: Gear, label: 'Settings', to: '/settings' },
-    ],
-    [stylistToolbarTarget],
-  );
-
   const isStylistToolbarActive =
     location.pathname === SCREEN1_ROUTE ||
     location.pathname === S1_DEMO_IMAGE_ROUTE;
@@ -1057,7 +1040,10 @@ function Screen1DemoImage() {
   /** Appointments + waitlist + parked toolbar — socket realtime (starts on mount). */
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return undefined;
-    return startWaitingListRealtimeSync();
+    const stopWaiting = startWaitingListRealtimeSync();
+    return () => {
+      stopWaiting?.();
+    };
   }, []);
 
   /** First paint + keep-alive return: load SET3 data without opening Calendar. */

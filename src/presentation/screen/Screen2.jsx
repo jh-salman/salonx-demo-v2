@@ -44,7 +44,6 @@ import {
   uploadClientProfileImage,
 } from '../../data/clientProfileAvatar';
 import { isAppointmentsApiAvailable, createAppointmentRemote, deleteAppointmentRemote } from '../../data/v2AppointmentsApi';
-import { readRampAppointmentToken } from '../../data/rampAppointmentLink';
 import {
   notifyCalendarUpdated,
   removeAppointmentFromSessionCache,
@@ -1835,18 +1834,6 @@ export default function Screen2() {
   }, [servicePickerCategory]);
 
   const finishRowProducts = useMemo(() => (productQueue || []).slice(0, 4), [productQueue]);
-  const rampStationProducts = useMemo(
-    () =>
-      (productQueue || [])
-        .map((p) => {
-          const name = p.shortName || p.name || '';
-          return p.brand ? `${p.brand} ${name}`.trim() : String(name).trim();
-        })
-        .filter(Boolean),
-    [productQueue],
-  );
-
-
   useEffect(() => {
     setSvcQueue((prev) =>
       prev.map((s) => {
@@ -2237,29 +2224,11 @@ export default function Screen2() {
                 type="button"
                 className={`s2-cta is-checkout${bookingStepNotify ? ' is-notify' : ''}`}
                 onClick={() => {
-                  // RAMP post already designed for this appointment → skip the
-                  // RAMP station and go straight to Climax with the live status.
-                  const linkedRampToken = readRampAppointmentToken(activeApt?.id);
-                  if (linkedRampToken) {
-                    navigate('/climax', {
-                      state: {
-                        from: '/screen2',
-                        rampSkipped: false,
-                        rampToken: linkedRampToken,
-                        apt: activeApt,
-                        clientPhone: activeClient.phone || '',
-                      },
-                    });
-                    return;
-                  }
-                  navigate('/ramp', {
+                  navigate('/climax', {
                     state: {
                       from: '/screen2',
-                      fromParent: backTarget,
                       apt: activeApt,
-                      clientName: activeClient.name,
                       clientPhone: activeClient.phone || '',
-                      products: rampStationProducts,
                     },
                   });
                 }}

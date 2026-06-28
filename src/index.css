@@ -224,3 +224,10 @@ body {
 .app-layout__outlet.is-active {
   display: flex;
 }
+.app-layout__outlet.is-active > .rampx {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}

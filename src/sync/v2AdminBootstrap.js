@@ -561,6 +561,11 @@ export function applyCachedV2AdminConfigFromStorage() {
   if (v2ConfigMemoryCache?.body) applyV2AdminConfigJson(v2ConfigMemoryCache.body)
 }
 
+/** Latest synced v2-admin config body (in-memory). */
+export function getV2AdminCachedConfig() {
+  return v2ConfigMemoryCache?.body ?? null
+}
+
 export async function syncFromV2Admin() {
   warnIfNoV2AdminBase()
   const base = getV2AdminBase()
@@ -595,6 +600,7 @@ export async function syncFromV2Admin() {
 
 const POLL_MS_PROXIED = 400
 const POLL_MS_SSE_BACKUP = 8000
+const POLL_MS_DEMO_API_DOWN = 30000
 
 export function startV2AdminRealtimeSync() {
   warnIfNoV2AdminBase()
@@ -602,18 +608,38 @@ export function startV2AdminRealtimeSync() {
   if (!base) return () => {}
 
   const proxied = base.startsWith('/')
-  const pollMs = proxied ? POLL_MS_PROXIED : POLL_MS_SSE_BACKUP
-
-  const pollId = setInterval(() => {
-    void syncFromV2Admin()
-  }, pollMs)
+  const isDemoApiProxy = base.startsWith('/salonx-demo-api')
 
   /** Same-origin SSE: full-URL admin, or dev proxy to demo-api (`/salonx-demo-api`). Skip for `/salonx-admin` → Next (proxy buffering). */
   const useEventSource =
     typeof EventSource !== 'undefined' &&
-    (!proxied || base.startsWith('/salonx-demo-api'))
+    (!proxied || isDemoApiProxy)
 
+  let pollMs = isDemoApiProxy
+    ? POLL_MS_SSE_BACKUP
+    : proxied
+      ? POLL_MS_PROXIED
+      : POLL_MS_SSE_BACKUP
+  let pollId = null
   let es
+
+  const schedulePoll = () => {
+    if (pollId) clearInterval(pollId)
+    pollId = setInterval(() => {
+      void syncFromV2Admin().then((ok) => {
+        if (isDemoApiProxy) {
+          const nextMs = ok ? POLL_MS_SSE_BACKUP : POLL_MS_DEMO_API_DOWN
+          if (nextMs !== pollMs) {
+            pollMs = nextMs
+            schedulePoll()
+          }
+        }
+      })
+    }, pollMs)
+  }
+
+  schedulePoll()
+
   if (useEventSource) {
     try {
       es = new EventSource(`${base}/api/config/stream?forWeb=1`)
@@ -625,6 +651,14 @@ export function startV2AdminRealtimeSync() {
         } catch {
           /* */
         }
+      }
+      es.onerror = () => {
+        try {
+          es?.close()
+        } catch {
+          /* */
+        }
+        es = undefined
       }
     } catch {
       es = undefined

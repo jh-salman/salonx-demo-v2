@@ -15,7 +15,6 @@ import {
 } from './v2AppointmentsApi.js';
 import { fetchCalendarToolbar, saveCalendarToolbarRemote } from './calendarToolbarApi.js';
 import { startCalendarRealtimeSync } from '../sync/calendarRealtimeSync.js';
-import { syncRampQueueFromApi } from './rampQueueStore.js';
 
 const CALENDAR_STORAGE_KEY = '@salonx/calendar/v1';
 const UPDATE_EVENT_NAME = 'salonx:calendar-updated';
@@ -348,7 +347,6 @@ export function startWaitingListRealtimeSync() {
 
   const reloadAllFromDb = () => {
     void refreshToolbarFromApi();
-    void syncRampQueueFromApi();
     void ensureStylistAppointmentsCache({ force: true });
   };
 

@@ -1,6 +1,5 @@
 import { clearApiAppointmentsMemoryCache } from './apiAppointmentsSessionCache.js'
 import { clearS1DemoMemory } from './s1DemoMemoryStore.js'
-import { resetRampQueueMemory } from './rampQueueStore.js'
 import {
   setApiModeCalendarEventsMirror,
   setApiModeToolbarMirror,
@@ -10,8 +9,6 @@ import { isAppointmentsApiAvailable } from './v2AppointmentsApi.js'
 const LOCAL_KEYS = [
   '@salonx/calendar/v1',
   '@salonx/v2-appointments-session/v1',
-  '@salonx/ramp/queue/v1',
-  '@salonx/ramp/queue/dismissed/v1',
   '@salonx/s1-demo-image/v1',
   '@salonx/v2admin-config-cache/v1',
 ]
@@ -51,5 +48,4 @@ export function clearS1ApiCaches() {
   clearApiAppointmentsMemoryCache()
   setApiModeCalendarEventsMirror([])
   setApiModeToolbarMirror({ parkedFromDrag: [], toolbarEvents: [] })
-  resetRampQueueMemory()
 }
