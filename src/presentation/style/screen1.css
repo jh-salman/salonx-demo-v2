@@ -107,10 +107,10 @@
   --s1-bg-h: 100%;
   --s1-content-inset-left: 5px;
   --s1-curve-top: -5px;
-  --s1-curve-right: -6px;
+  --s1-curve-right: -12px;
   --s1-curve-w: 65px;
-  /* Upper hook of CurvedLine SVG (y≈192 / 973) — calendar tap above, partner link below. */
-  --s1-curve-rail-split: calc(100% * 192 / 973);
+  /* Upper hook of CurvedLine SVG (y≈118 / 512) — calendar tap above, partner link below. */
+  --s1-curve-rail-split: calc(100% * 118 / 512);
   /* Dock row — list/timer reserve space above this */
   --s1-toolbar-h: 64px;
 }
