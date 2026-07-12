@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   dismissParkedItem,
   dismissWaitlistItem,
+  isSameLocalDay,
+  useCalendarEvents,
   useCalendarParked,
   useCalendarWaitlist,
 } from '../data/calendarEventsStore';
@@ -30,9 +32,15 @@ const stackStyle = {
   width: '100%',
   boxSizing: 'border-box',
   gap: 0,
-  /* Pull flush under last appointment card (ClientCard marginBottom). */
-  marginTop: `-${S1_CARD_STACK_GAP_PX}px`,
 };
+
+function queueStackStyle(hasAppointmentsAbove) {
+  return {
+    ...stackStyle,
+    /* Collapse last appointment card margin only when cards precede the queue. */
+    marginTop: hasAppointmentsAbove ? `-${S1_CARD_STACK_GAP_PX}px` : 0,
+  };
+}
 
 const headerStyle = {
   display: 'flex',
@@ -401,6 +409,12 @@ function WaitingList() {
   const parked = useCalendarParked();
   const waitlist = useCalendarWaitlist();
   const rampQueue = useRampS1Queue();
+  const calendarEvents = useCalendarEvents();
+
+  const hasAppointmentsAbove = useMemo(() => {
+    const today = new Date();
+    return calendarEvents.some((ev) => isSameLocalDay(ev.start, today));
+  }, [calendarEvents]);
 
   const rampRows = useMemo(
     () =>
@@ -468,7 +482,10 @@ function WaitingList() {
   if (!allRows.length) return null;
 
   return (
-    <div style={stackStyle} aria-label={QUEUE_SECTION_LABELS.join(', ')}>
+    <div
+      style={queueStackStyle(hasAppointmentsAbove)}
+      aria-label={QUEUE_SECTION_LABELS.join(', ')}
+    >
       <UnifiedQueueHeader
         labels={QUEUE_SECTION_LABELS}
         accent={primaryHex}
