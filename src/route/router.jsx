@@ -51,7 +51,7 @@ function activeIndexForPath(pathname) {
   return -1;
 }
 
-/** Subdomain → /m/:slug path so the same SPA routes work on Render wildcards. */
+/** Subdomain → /m/:slug (e.g. tast.salonx.com). Skips reserved hosts like demo.salonx.com. */
 function MicrositeHostGate({ children }) {
   const location = useLocation();
   const hostSlug = resolveMicrositeSlugFromLocation(window.location);

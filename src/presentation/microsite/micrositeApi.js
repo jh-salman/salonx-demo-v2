@@ -81,7 +81,21 @@ export function resolveMicrositeSlugFromLocation(location = window.location) {
   const hostParts = host.split('.').filter(Boolean)
   if (hostParts.length < 3) return null
   const sub = hostParts[0]
-  const reserved = new Set(['www', 'app', 'admin', 'api', 'book', 'cdn', 'mail', 'status'])
+  // Platform hosts — never treat as salon microsite slugs
+  const reserved = new Set([
+    'www',
+    'app',
+    'admin',
+    'api',
+    'book',
+    'cdn',
+    'mail',
+    'status',
+    'demo', // demo.salonx.com = main Salon X app
+    'demo-api',
+    'm',
+    'salonx',
+  ])
   if (!sub || reserved.has(sub)) return null
   return sub
 }
