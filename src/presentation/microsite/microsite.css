@@ -1,0 +1,386 @@
+.ms-shell {
+  min-height: 100dvh;
+  height: 100dvh;
+  background: #0a0a0b;
+  color: #f4f4f5;
+  --ms-primary: #3b82f6;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ms-shell--admin {
+  height: auto;
+  min-height: 100dvh;
+  overflow: auto;
+  padding-bottom: 80px;
+}
+
+.ms-shell__inner {
+  max-width: 420px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.ms-shell__inner:has(.ms-book) {
+  padding-bottom: 0;
+}
+
+.ms-center {
+  text-align: center;
+  padding-top: 48px;
+}
+
+.ms-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 32px;
+  text-align: center;
+}
+
+.ms-hero__logo {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 16px;
+}
+
+.ms-hero__mark {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: var(--ms-primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.ms-hero__name {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.ms-hero__tag {
+  margin: 0;
+  font-size: 16px;
+  color: #a1a1aa;
+}
+
+.ms-hero__about {
+  margin: 0;
+  font-size: 14px;
+  color: #71717a;
+  max-width: 32ch;
+}
+
+.ms-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  background: transparent;
+}
+
+.ms-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ms-btn--primary {
+  background: var(--ms-primary);
+  color: #fff;
+}
+
+.ms-btn--ghost {
+  border-color: #3f3f46;
+  color: #e4e4e7;
+}
+
+.ms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ms-list__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ms-list__item.is-active {
+  border-color: var(--ms-primary);
+  box-shadow: inset 0 0 0 1px var(--ms-primary);
+}
+
+.ms-list__title {
+  font-weight: 600;
+}
+
+.ms-list__meta {
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.ms-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+.ms-field--row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ms-field input,
+.ms-field textarea {
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: #f4f4f5;
+  padding: 0 12px;
+  font-size: 15px;
+}
+
+.ms-field textarea {
+  padding: 12px;
+  min-height: 72px;
+  resize: vertical;
+}
+
+.ms-field__hint {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.ms-slots__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ms-chip {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: #f4f4f5;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ms-chip.is-active {
+  border-color: var(--ms-primary);
+  background: color-mix(in srgb, var(--ms-primary) 25%, #18181b);
+}
+
+.ms-book__title {
+  margin: 8px 0 16px;
+  font-size: 24px;
+}
+
+.ms-book {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.ms-book__header {
+  flex: 0 0 auto;
+}
+
+.ms-book__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 12px;
+}
+
+.ms-back {
+  color: #a1a1aa;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.ms-steps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.ms-steps__item {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #52525b;
+}
+
+.ms-steps__item.is-active {
+  color: var(--ms-primary);
+}
+
+.ms-book__actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #27272a;
+  background: #0a0a0b;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+.ms-muted {
+  color: #71717a;
+  font-size: 14px;
+}
+
+.ms-error {
+  color: #f87171;
+  font-size: 13px;
+}
+
+.ms-ok {
+  color: #4ade80;
+  font-size: 13px;
+}
+
+.ms-footer-link {
+  text-align: center;
+  margin-top: 24px;
+}
+
+.ms-footer-link a {
+  color: #a1a1aa;
+}
+
+.ms-admin__page-title {
+  margin: 0 0 16px;
+  font-size: 24px;
+}
+
+.ms-admin__title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.ms-tpl-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.ms-tpl-card {
+  text-align: left;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ms-tpl-card strong {
+  display: block;
+}
+
+.ms-tpl-card span {
+  font-size: 12px;
+  color: var(--ms-primary);
+}
+
+.ms-tpl-card p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #71717a;
+}
+
+.ms-tpl-card.is-active {
+  border-color: var(--ms-primary);
+}
+
+.ms-hours {
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.ms-hours__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.ms-hours__day {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #d4d4d8;
+}
+
+.ms-link-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #18181b;
+  border: 1px solid #27272a;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+.ms-link-box code {
+  word-break: break-all;
+  color: #e4e4e7;
+  font-size: 12px;
+}
+
+.ms-success h1 {
+  margin-bottom: 8px;
+}

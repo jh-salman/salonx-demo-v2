@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createBrowserRouter, Outlet, useLocation } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router-dom";
 import Home from "../presentation/screen/Home";
 import Screen2 from "../presentation/screen/Screen2";
 import Screen3 from "../presentation/screen/Screen3";
@@ -13,6 +13,11 @@ import Screen5 from "../presentation/screen/Screen5";
 import RampApp from "../presentation/ramp/RampApp";
 import RampPublicView from "../presentation/ramp/views/RampPublicView";
 import BottomToolbar from "../component/BottomToolbar";
+import MicrositeHome from "../presentation/microsite/pages/MicrositeHome";
+import MicrositeBook from "../presentation/microsite/pages/MicrositeBook";
+import MicrositeSuccess from "../presentation/microsite/pages/MicrositeSuccess";
+import MicrositeAdminScreen from "../presentation/microsite/MicrositeAdminScreen";
+import { resolveMicrositeSlugFromLocation, micrositePublicPath } from "../presentation/microsite/micrositeApi";
 
 function isScreen1Path(pathname) {
   return (
@@ -32,6 +37,7 @@ function hideToolbarForPath(pathname) {
   if (HIDE_TOOLBAR_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/screen5")) return true;
   if (pathname.startsWith("/ramp/public")) return true;
+  if (pathname.startsWith("/m/")) return true;
   return false;
 }
 
@@ -41,8 +47,18 @@ function activeIndexForPath(pathname) {
   if (pathname.startsWith("/clients") || pathname.startsWith("/screen2")) return 1;
   if (pathname.startsWith("/ramp")) return 2;
   if (pathname.startsWith("/calendar") || pathname.startsWith("/screen3")) return 3;
-  if (pathname.startsWith("/settings")) return 4;
+  if (pathname.startsWith("/settings") || pathname.startsWith("/microsite")) return 4;
   return -1;
+}
+
+/** Subdomain → /m/:slug path so the same SPA routes work on Render wildcards. */
+function MicrositeHostGate({ children }) {
+  const location = useLocation();
+  const hostSlug = resolveMicrositeSlugFromLocation(window.location);
+  if (hostSlug && !location.pathname.startsWith("/m/")) {
+    return <Navigate to={micrositePublicPath(hostSlug)} replace />;
+  }
+  return children;
 }
 
 /** Layout route: renders the current screen + persistent bottom toolbar. */
@@ -59,27 +75,29 @@ function AppLayout() {
   }, [screen1Active]);
 
   return (
-    <div className="app-layout">
-      {screen1KeepAlive ? (
+    <MicrositeHostGate>
+      <div className="app-layout">
+        {screen1KeepAlive ? (
+          <div
+            className={`app-keepalive-screen1${screen1Active ? " is-active" : ""}`}
+            aria-hidden={!screen1Active}
+          >
+            <Screen1DemoImage />
+          </div>
+        ) : null}
         <div
-          className={`app-keepalive-screen1${screen1Active ? " is-active" : ""}`}
-          aria-hidden={!screen1Active}
+          className={`app-layout__outlet${screen1Active ? "" : " is-active"}`}
         >
-          <Screen1DemoImage />
+          <Outlet />
         </div>
-      ) : null}
-      <div
-        className={`app-layout__outlet${screen1Active ? "" : " is-active"}`}
-      >
-        <Outlet />
+        {!hideToolbar ? (
+          <BottomToolbar
+            activeIndex={activeIndexForPath(location.pathname)}
+            originPath={location.pathname}
+          />
+        ) : null}
       </div>
-      {!hideToolbar ? (
-        <BottomToolbar
-          activeIndex={activeIndexForPath(location.pathname)}
-          originPath={location.pathname}
-        />
-      ) : null}
-    </div>
+    </MicrositeHostGate>
   );
 }
 
@@ -101,6 +119,10 @@ export const router = createBrowserRouter([
       { path: "/checkout", element: <CheckOut /> },
       { path: "/clients", element: <Clients /> },
       { path: "/settings", element: <SettingsScreen /> },
+      { path: "/microsite", element: <MicrositeAdminScreen /> },
+      { path: "/m/:slug", element: <MicrositeHome /> },
+      { path: "/m/:slug/book", element: <MicrositeBook /> },
+      { path: "/m/:slug/success", element: <MicrositeSuccess /> },
     ],
   },
 ]);

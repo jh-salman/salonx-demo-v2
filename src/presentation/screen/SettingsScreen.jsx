@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 import '../style/settings.css';
 
@@ -10,6 +11,11 @@ export const V2_ADMIN_STATION_URL =
 function SettingsScreen() {
   return (
     <div className="settings-root settings-root--fullscreenEmbed">
+      <div className="settings-micrositeBar">
+        <Link to="/microsite" className="settings-micrositeBar__link">
+          Microsite
+        </Link>
+      </div>
       <div className="settings-embedWrap settings-embedWrap--fullscreen">
         <iframe
           title="SalonX Admin"

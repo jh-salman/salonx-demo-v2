@@ -43,6 +43,23 @@
   background: #0c0e10;
 }
 
+.settings-micrositeBar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  background: #0a0a0b;
+  border-bottom: 1px solid #27272a;
+}
+
+.settings-micrositeBar__link {
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .settings-main {
   flex: 1 1 auto;
   min-height: 0;
