@@ -43,4 +43,9 @@ export const authAppApi = {
       method: 'POST',
       body: JSON.stringify({ organizationId }),
     }),
+  acceptInvite: (invitationId) =>
+    jsonFetch('/api/auth-app/accept-invite', {
+      method: 'POST',
+      body: JSON.stringify({ invitationId }),
+    }),
 }

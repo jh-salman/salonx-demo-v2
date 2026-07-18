@@ -1,64 +1,79 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { authClient } from '../../auth/authClient.js'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { authAppApi } from '../../auth/authAppApi.js'
+import {
+  clearPendingInvite,
+  setPendingInvite,
+} from '../../auth/pendingInvite.js'
 import './authScreens.css'
 
+/**
+ * `/invite/:invitationId` — link-based accept.
+ * Signed in → auto-join the org and enter the app.
+ * Signed out → remember the invite and bounce to welcome sign-in; Screen0
+ * returns here afterwards.
+ */
 export default function InviteAcceptScreen() {
   const { invitationId } = useParams()
   const navigate = useNavigate()
-  const [session, setSession] = useState(null)
-  const [busy, setBusy] = useState(false)
+  const [state, setState] = useState('working') // working | error
   const [error, setError] = useState('')
-  const [msg, setMsg] = useState('')
+  const ranRef = useRef(false)
 
-  useEffect(() => {
-    authClient.getSession().then(({ data }) => setSession(data))
-  }, [])
-
-  async function accept() {
-    setBusy(true)
-    setError('')
-    setMsg('')
+  const run = useCallback(async () => {
+    if (!invitationId) {
+      setState('error')
+      setError('Invalid invitation link')
+      return
+    }
     try {
-      const { error: err } = await authClient.organization.acceptInvitation({
-        invitationId,
-      })
-      if (err) {
-        setError(err.message || 'Could not accept invite')
-        return
-      }
-      setMsg('Joined — opening Salon X')
+      await authAppApi.me()
+    } catch {
+      // Not signed in — remember invite, go sign in, come back here.
+      setPendingInvite(invitationId)
+      navigate('/', { replace: true })
+      return
+    }
+    try {
+      await authAppApi.acceptInvite(invitationId)
+      clearPendingInvite()
       navigate('/screen1', { replace: true })
     } catch (e) {
-      setError(e?.message || 'Accept failed')
-    } finally {
-      setBusy(false)
+      clearPendingInvite()
+      setState('error')
+      setError(e?.message || 'Could not accept this invitation')
     }
-  }
+  }, [invitationId, navigate])
+
+  useEffect(() => {
+    if (ranRef.current) return
+    ranRef.current = true
+    void run()
+  }, [run])
 
   return (
     <div className="auth-screen">
       <div className="auth-card">
         <h1>Staff invitation</h1>
-        <p className="auth-muted">
-          Sign in with your US phone on the welcome screen, then accept here.
-        </p>
-        {!session ? (
-          <Link className="auth-btn" to="/">
-            Go to Welcome / sign in
-          </Link>
+        {state === 'working' ? (
+          <p className="auth-muted">Joining your salon…</p>
         ) : (
-          <button
-            type="button"
-            className="auth-btn"
-            disabled={busy}
-            onClick={() => void accept()}
-          >
-            {busy ? 'Joining…' : 'Accept invitation'}
-          </button>
+          <>
+            <p className="auth-error">{error}</p>
+            <button
+              type="button"
+              className="auth-btn"
+              onClick={() => {
+                setState('working')
+                setError('')
+                ranRef.current = false
+                void run()
+              }}
+            >
+              Try again
+            </button>
+          </>
         )}
-        {error ? <p className="auth-error">{error}</p> : null}
-        {msg ? <p className="auth-ok">{msg}</p> : null}
       </div>
     </div>
   )

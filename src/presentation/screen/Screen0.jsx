@@ -10,6 +10,7 @@ import {
   verifyPhoneOtp,
 } from '../../auth/authClient.js'
 import { authAppApi } from '../../auth/authAppApi.js'
+import { getPendingInvite } from '../../auth/pendingInvite.js'
 import '../style/screen0.css'
 
 function urlLooksLikeVideo(url) {
@@ -74,6 +75,11 @@ function Screen0() {
       .then((me) => {
         if (!alive) return
         if (me && me.user) {
+          const pendingInvite = getPendingInvite()
+          if (pendingInvite) {
+            navigate(`/invite/${pendingInvite}`, { replace: true })
+            return
+          }
           navigate(me.members?.length ? '/screen1' : '/onboarding', {
             replace: true,
           })
@@ -223,6 +229,12 @@ function Screen0() {
     setAuthError('')
     try {
       await verifyPhoneOtp(e164, otpDigits)
+      const pendingInvite = getPendingInvite()
+      if (pendingInvite) {
+        setGlassKeyboardOpen(false)
+        navigate(`/invite/${pendingInvite}`, { replace: true })
+        return
+      }
       try {
         const me = await authAppApi.me()
         if (!me.members?.length) {
