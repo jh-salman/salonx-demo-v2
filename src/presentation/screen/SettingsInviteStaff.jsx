@@ -1,20 +1,35 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  cancelOrgInvitation,
-  inviteOrgMember,
-  listOrgInvitations,
-} from '../../auth/authClient.js'
+import { authAppApi } from '../../auth/authAppApi.js'
+import { cancelOrgInvitation, inviteOrgMember } from '../../auth/authClient.js'
 
-function statusLabel(status) {
+function statusMeta(status) {
   const s = String(status || '').toLowerCase()
-  if (s === 'pending') return 'Pending'
-  if (s === 'accepted') return 'Accepted'
-  if (s === 'canceled' || s === 'cancelled') return 'Canceled'
-  if (s === 'rejected') return 'Rejected'
-  return status || '—'
+  if (s === 'pending') return { label: 'Pending', tone: 'pending' }
+  if (s === 'accepted') return { label: 'Accepted', tone: 'accepted' }
+  if (s === 'canceled' || s === 'cancelled')
+    return { label: 'Canceled', tone: 'canceled' }
+  if (s === 'expired') return { label: 'Expired', tone: 'expired' }
+  if (s === 'rejected') return { label: 'Rejected', tone: 'canceled' }
+  return { label: status || '—', tone: 'muted' }
 }
 
-/** Staff invite + pending list / cancel — Settings (gear). */
+function memberLabel(m) {
+  const u = m?.user || {}
+  return u.name || u.phoneNumber || u.email || m?.userId || 'Member'
+}
+
+function memberSub(m) {
+  const u = m?.user || {}
+  const bits = []
+  if (u.phoneNumber) bits.push(u.phoneNumber)
+  if (u.email && !String(u.email).endsWith('@users.salonx.local')) {
+    bits.push(u.email)
+  }
+  bits.push(m?.role || 'member')
+  return bits.join(' · ')
+}
+
+/** Staff invite + members + dynamic invitation statuses — Settings. */
 export default function SettingsInviteStaff({ pageMode = false }) {
   const [open] = useState(pageMode)
   const [email, setEmail] = useState('')
@@ -24,22 +39,39 @@ export default function SettingsInviteStaff({ pageMode = false }) {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
   const [invites, setInvites] = useState([])
+  const [members, setMembers] = useState([])
+  const [callerRole, setCallerRole] = useState('')
+  const [confirm, setConfirm] = useState(null) // { kind, title, body, run }
 
-  const refreshInvites = useCallback(async () => {
+  const canManage =
+    String(callerRole).toLowerCase() === 'owner' ||
+    String(callerRole).toLowerCase() === 'admin'
+
+  const refresh = useCallback(async () => {
     setListBusy(true)
     try {
-      const rows = await listOrgInvitations()
-      setInvites(Array.isArray(rows) ? rows : [])
-    } catch {
-      setInvites([])
+      const [inviteData, memberData] = await Promise.all([
+        authAppApi.orgInvitations().catch(() => null),
+        authAppApi.orgMembers().catch(() => null),
+      ])
+      setInvites(
+        Array.isArray(inviteData?.invitations) ? inviteData.invitations : [],
+      )
+      if (memberData) {
+        setMembers(Array.isArray(memberData.members) ? memberData.members : [])
+        setCallerRole(memberData.callerRole || '')
+      } else {
+        setMembers([])
+        setCallerRole('')
+      }
     } finally {
       setListBusy(false)
     }
   }, [])
 
   useEffect(() => {
-    if (open) void refreshInvites()
-  }, [open, refreshInvites])
+    if (open) void refresh()
+  }, [open, refresh])
 
   async function submit(e) {
     e.preventDefault()
@@ -47,15 +79,11 @@ export default function SettingsInviteStaff({ pageMode = false }) {
     setMsg('')
     setError('')
     try {
-      await inviteOrgMember({
-        email: email.trim(),
-        role,
-      })
+      await inviteOrgMember({ email: email.trim(), role })
       setMsg(`Invite sent to ${email.trim()}`)
       setEmail('')
-      await refreshInvites()
+      await refresh()
     } catch (err) {
-      // Already invited → offer resend path via same form retry with resend
       const text = err.message || 'Invite failed'
       if (/already invited/i.test(text)) {
         try {
@@ -66,7 +94,7 @@ export default function SettingsInviteStaff({ pageMode = false }) {
           })
           setMsg(`Invite re-sent to ${email.trim()}`)
           setEmail('')
-          await refreshInvites()
+          await refresh()
           return
         } catch (e2) {
           setError(e2.message || text)
@@ -79,45 +107,86 @@ export default function SettingsInviteStaff({ pageMode = false }) {
     }
   }
 
-  async function onCancel(invitationId) {
-    if (!invitationId || busy) return
+  function askConfirm({ kind, title, body, run }) {
+    setConfirm({ kind, title, body, run })
+  }
+
+  async function runConfirm() {
+    if (!confirm?.run || busy) return
     setBusy(true)
     setError('')
     setMsg('')
     try {
-      await cancelOrgInvitation(invitationId)
-      setMsg('Invitation canceled')
-      await refreshInvites()
+      await confirm.run()
+      setConfirm(null)
+      await refresh()
     } catch (err) {
-      setError(err.message || 'Cancel failed')
+      setError(err.message || 'Action failed')
+      setConfirm(null)
     } finally {
       setBusy(false)
     }
   }
 
-  async function onResend(row) {
-    if (!row?.email || busy) return
-    setBusy(true)
-    setError('')
-    setMsg('')
-    try {
-      await inviteOrgMember({
-        email: row.email,
-        role: row.role || 'member',
-        resend: true,
-      })
-      setMsg(`Invite re-sent to ${row.email}`)
-      await refreshInvites()
-    } catch (err) {
-      setError(err.message || 'Resend failed')
-    } finally {
-      setBusy(false)
-    }
+  function onCancelInvite(row) {
+    askConfirm({
+      kind: 'danger',
+      title: 'Cancel invitation?',
+      body: `Cancel the invite for ${row.email}? They will no longer be able to join with this link.`,
+      run: async () => {
+        await cancelOrgInvitation(row.id)
+        setMsg('Invitation canceled')
+      },
+    })
   }
 
-  const pending = invites.filter(
-    (i) => String(i.status || '').toLowerCase() === 'pending',
-  )
+  function onDeleteInvite(row) {
+    askConfirm({
+      kind: 'danger',
+      title: 'Delete invitation?',
+      body: `Permanently remove the ${statusMeta(row.status).label.toLowerCase()} invite for ${row.email}?`,
+      run: async () => {
+        await authAppApi.deleteInvitation(row.id)
+        setMsg('Invitation deleted')
+      },
+    })
+  }
+
+  function onResend(row) {
+    askConfirm({
+      kind: 'primary',
+      title: 'Resend invitation?',
+      body: `Send a new invite email to ${row.email}?`,
+      run: async () => {
+        await inviteOrgMember({
+          email: row.email,
+          role: row.role || 'member',
+          resend: true,
+        })
+        setMsg(`Invite re-sent to ${row.email}`)
+      },
+    })
+  }
+
+  function onRemoveMember(m) {
+    askConfirm({
+      kind: 'danger',
+      title: 'Remove team member?',
+      body: `${memberLabel(m)} will lose access to this salon. Their account stays — only this organization membership is removed.`,
+      run: async () => {
+        await authAppApi.removeMember(m.id)
+        setMsg(`${memberLabel(m)} removed`)
+      },
+    })
+  }
+
+  const sortedInvites = [...invites].sort((a, b) => {
+    const order = { pending: 0, accepted: 1, canceled: 2, cancelled: 2, expired: 3, rejected: 4 }
+    const sa = order[String(a.status || '').toLowerCase()] ?? 9
+    const sb = order[String(b.status || '').toLowerCase()] ?? 9
+    if (sa !== sb) return sa - sb
+    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+  })
 
   if (!open) return null
 
@@ -162,53 +231,171 @@ export default function SettingsInviteStaff({ pageMode = false }) {
 
       <div className="sx-card">
         <div className="sx-card__head">
-          <h3 className="sx-card__title">Pending invitations</h3>
+          <div>
+            <h3 className="sx-card__title">Team members</h3>
+            <p className="sx-card__sub">
+              {members.length
+                ? `${members.length} in this salon`
+                : 'People with access to this salon'}
+            </p>
+          </div>
           <button
             type="button"
             className="sx-btn sx-btn--ghost sx-btn--sm"
-            onClick={() => void refreshInvites()}
+            onClick={() => void refresh()}
             disabled={listBusy}
           >
             {listBusy ? '…' : 'Refresh'}
           </button>
         </div>
 
-        {pending.length === 0 ? (
-          <p className="sx-empty">No pending invitations</p>
+        {members.length === 0 ? (
+          <p className="sx-empty">No members yet</p>
         ) : (
           <ul className="sx-inviteList">
-            {pending.map((row) => (
-              <li key={row.id} className="sx-inviteItem">
-                <span className="sx-avatar">{(row.email || '?').charAt(0)}</span>
-                <span className="sx-inviteItem__meta">
-                  <span className="sx-inviteItem__email">{row.email}</span>
-                  <span className="sx-inviteItem__role">
-                    {row.role || 'member'} · {statusLabel(row.status)}
-                  </span>
+            {members.map((m) => (
+              <li key={m.id} className="sx-inviteItem">
+                <span className="sx-avatar">
+                  {memberLabel(m).charAt(0)}
                 </span>
-                <div className="sx-inviteItem__actions">
-                  <button
-                    type="button"
-                    className="sx-btn sx-btn--ghost sx-btn--sm"
-                    disabled={busy}
-                    onClick={() => void onResend(row)}
-                  >
-                    Resend
-                  </button>
-                  <button
-                    type="button"
-                    className="sx-btn sx-btn--danger sx-btn--sm"
-                    disabled={busy}
-                    onClick={() => void onCancel(row.id)}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <span className="sx-inviteItem__meta">
+                  <span className="sx-inviteItem__email">
+                    {memberLabel(m)}
+                    {m.isSelf ? ' (you)' : ''}
+                  </span>
+                  <span className="sx-inviteItem__role">{memberSub(m)}</span>
+                </span>
+                <span className={`sx-status sx-status--${String(m.role || 'member').toLowerCase()}`}>
+                  {m.role || 'member'}
+                </span>
+                {canManage && !m.isSelf ? (
+                  <div className="sx-inviteItem__actions">
+                    <button
+                      type="button"
+                      className="sx-btn sx-btn--danger sx-btn--sm"
+                      disabled={busy}
+                      onClick={() => onRemoveMember(m)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      <div className="sx-card">
+        <div className="sx-card__head">
+          <div>
+            <h3 className="sx-card__title">Invitations</h3>
+            <p className="sx-card__sub">
+              Status updates live — Pending, Accepted, Canceled, Expired
+            </p>
+          </div>
+        </div>
+
+        {sortedInvites.length === 0 ? (
+          <p className="sx-empty">No invitations yet</p>
+        ) : (
+          <ul className="sx-inviteList">
+            {sortedInvites.map((row) => {
+              const st = statusMeta(row.status)
+              const isPending = st.tone === 'pending'
+              return (
+                <li key={row.id} className="sx-inviteItem">
+                  <span className="sx-avatar">
+                    {(row.email || '?').charAt(0)}
+                  </span>
+                  <span className="sx-inviteItem__meta">
+                    <span className="sx-inviteItem__email">{row.email}</span>
+                    <span className="sx-inviteItem__role">
+                      {row.role || 'member'}
+                    </span>
+                  </span>
+                  <span className={`sx-status sx-status--${st.tone}`}>
+                    {st.label}
+                  </span>
+                  <div className="sx-inviteItem__actions">
+                    {isPending ? (
+                      <>
+                        <button
+                          type="button"
+                          className="sx-btn sx-btn--ghost sx-btn--sm"
+                          disabled={busy}
+                          onClick={() => onResend(row)}
+                        >
+                          Resend
+                        </button>
+                        <button
+                          type="button"
+                          className="sx-btn sx-btn--danger sx-btn--sm"
+                          disabled={busy}
+                          onClick={() => onCancelInvite(row)}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : canManage ? (
+                      <button
+                        type="button"
+                        className="sx-btn sx-btn--danger sx-btn--sm"
+                        disabled={busy}
+                        onClick={() => onDeleteInvite(row)}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      {confirm ? (
+        <div
+          className="sx-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sx-confirm-title"
+        >
+          <button
+            type="button"
+            className="sx-modal__scrim"
+            aria-label="Close"
+            onClick={() => !busy && setConfirm(null)}
+          />
+          <div className="sx-modal__card">
+            <h3 id="sx-confirm-title" className="sx-card__title">
+              {confirm.title}
+            </h3>
+            <p className="sx-card__sub" style={{ marginTop: 8 }}>
+              {confirm.body}
+            </p>
+            <div className="sx-actions" style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                className="sx-btn sx-btn--ghost"
+                disabled={busy}
+                onClick={() => setConfirm(null)}
+              >
+                Keep
+              </button>
+              <button
+                type="button"
+                className={`sx-btn ${confirm.kind === 'danger' ? 'sx-btn--danger' : 'sx-btn--primary'}`}
+                disabled={busy}
+                onClick={() => void runConfirm()}
+              >
+                {busy ? '…' : confirm.kind === 'danger' ? 'Confirm' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

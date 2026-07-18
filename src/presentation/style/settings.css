@@ -1105,8 +1105,14 @@
 
 .sx-inviteItem__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.sx-inviteItem .sx-status {
+  margin-left: auto;
 }
 
 /* ── Business hours ── */
@@ -1223,4 +1229,95 @@
   font-size: 12px;
   font-weight: 550;
   color: rgba(255, 255, 255, 0.35);
+}
+
+/* ── Dynamic status badges (invitations + roles) ── */
+.sx-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: capitalize;
+}
+
+.sx-status--pending {
+  color: #fde68a;
+  background: rgba(234, 179, 8, 0.14);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.sx-status--accepted {
+  color: #86efac;
+  background: rgba(74, 222, 128, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.sx-status--canceled,
+.sx-status--expired {
+  color: #a1a1aa;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.sx-status--muted {
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sx-status--owner {
+  color: var(--salonx-primary);
+  background: rgba(var(--salonx-primary-rgb), 0.16);
+  border: 1px solid rgba(var(--salonx-primary-rgb), 0.35);
+}
+
+.sx-status--admin {
+  color: #c4b5fd;
+  background: rgba(167, 139, 250, 0.14);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+}
+
+.sx-status--member {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* ── Confirm modal ── */
+.sx-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.sx-modal__scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.62);
+  cursor: pointer;
+}
+
+.sx-modal__card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 360px;
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #121214;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
 }

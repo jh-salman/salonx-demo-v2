@@ -48,4 +48,16 @@ export const authAppApi = {
       method: 'POST',
       body: JSON.stringify({ invitationId }),
     }),
+  orgInvitations: () => jsonFetch('/api/auth-app/org-invitations'),
+  orgMembers: () => jsonFetch('/api/auth-app/org-members'),
+  removeMember: (memberId) =>
+    jsonFetch('/api/auth-app/remove-member', {
+      method: 'POST',
+      body: JSON.stringify({ memberId }),
+    }),
+  deleteInvitation: (invitationId) =>
+    jsonFetch('/api/auth-app/delete-invitation', {
+      method: 'POST',
+      body: JSON.stringify({ invitationId }),
+    }),
 }
