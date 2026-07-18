@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import MicrositeShell from '../MicrositeShell'
 import MicrositeHero from '../components/MicrositeHero'
 import { micrositeApi, micrositePublicPath } from '../micrositeApi'
+import { useMicrositeSlug } from '../useMicrositeSlug'
 
 export default function MicrositeHome() {
-  const { slug } = useParams()
+  const slug = useMicrositeSlug()
   const [salon, setSalon] = useState(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
+    if (!slug) {
+      setError('Salon not found')
+      return
+    }
     let alive = true
     micrositeApi
       .getPublicSalon(slug)

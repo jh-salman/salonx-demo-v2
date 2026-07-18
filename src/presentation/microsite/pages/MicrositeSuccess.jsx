@@ -1,15 +1,17 @@
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import MicrositeShell from '../MicrositeShell'
 import { micrositeApi, micrositePublicPath } from '../micrositeApi'
+import { useMicrositeSlug } from '../useMicrositeSlug'
 
 export default function MicrositeSuccess() {
-  const { slug } = useParams()
+  const slug = useMicrositeSlug()
   const location = useLocation()
   const [salon, setSalon] = useState(null)
   const name = location.state?.clientName || 'You'
 
   useEffect(() => {
+    if (!slug) return
     micrositeApi.getPublicSalon(slug).then((d) => setSalon(d.salon)).catch(() => {})
   }, [slug])
 

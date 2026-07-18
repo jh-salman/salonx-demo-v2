@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import MicrositeShell from '../MicrositeShell'
 import ServicePicker from '../components/ServicePicker'
 import StaffPicker from '../components/StaffPicker'
 import SlotPicker from '../components/SlotPicker'
 import ClientInfoForm from '../components/ClientInfoForm'
 import { micrositeApi, micrositePublicPath } from '../micrositeApi'
+import { useMicrositeSlug } from '../useMicrositeSlug'
 
 function todayISODate() {
   const d = new Date()
@@ -18,7 +19,7 @@ function todayISODate() {
 const STEPS = ['Service', 'Stylist', 'Time', 'You']
 
 export default function MicrositeBook() {
-  const { slug } = useParams()
+  const slug = useMicrositeSlug()
   const navigate = useNavigate()
   const [salon, setSalon] = useState(null)
   const [services, setServices] = useState([])

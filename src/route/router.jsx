@@ -17,7 +17,7 @@ import MicrositeHome from "../presentation/microsite/pages/MicrositeHome";
 import MicrositeBook from "../presentation/microsite/pages/MicrositeBook";
 import MicrositeSuccess from "../presentation/microsite/pages/MicrositeSuccess";
 import MicrositeAdminScreen from "../presentation/microsite/MicrositeAdminScreen";
-import { resolveMicrositeSlugFromLocation, micrositePublicPath } from "../presentation/microsite/micrositeApi";
+import { getHostMicrositeSlug } from "../presentation/microsite/micrositeApi";
 
 function isScreen1Path(pathname) {
   return (
@@ -51,14 +51,15 @@ function activeIndexForPath(pathname) {
   return -1;
 }
 
-/** Subdomain → /m/:slug (e.g. tast.salonx.com). Skips reserved hosts like demo.salonx.com. */
-function MicrositeHostGate({ children }) {
-  const location = useLocation();
-  const hostSlug = resolveMicrositeSlugFromLocation(window.location);
-  if (hostSlug && !location.pathname.startsWith("/m/")) {
-    return <Navigate to={micrositePublicPath(hostSlug)} replace />;
-  }
-  return children;
+/** Public salon host: `{slug}.salonx.com` — no stylist chrome. */
+function MicrositeHostLayout() {
+  return (
+    <div className="app-layout">
+      <div className="app-layout__outlet is-active">
+        <Outlet />
+      </div>
+    </div>
+  );
 }
 
 /** Layout route: renders the current screen + persistent bottom toolbar. */
@@ -75,54 +76,84 @@ function AppLayout() {
   }, [screen1Active]);
 
   return (
-    <MicrositeHostGate>
-      <div className="app-layout">
-        {screen1KeepAlive ? (
-          <div
-            className={`app-keepalive-screen1${screen1Active ? " is-active" : ""}`}
-            aria-hidden={!screen1Active}
-          >
-            <Screen1DemoImage />
-          </div>
-        ) : null}
+    <div className="app-layout">
+      {screen1KeepAlive ? (
         <div
-          className={`app-layout__outlet${screen1Active ? "" : " is-active"}`}
+          className={`app-keepalive-screen1${screen1Active ? " is-active" : ""}`}
+          aria-hidden={!screen1Active}
         >
-          <Outlet />
+          <Screen1DemoImage />
         </div>
-        {!hideToolbar ? (
-          <BottomToolbar
-            activeIndex={activeIndexForPath(location.pathname)}
-            originPath={location.pathname}
-          />
-        ) : null}
+      ) : null}
+      <div
+        className={`app-layout__outlet${screen1Active ? "" : " is-active"}`}
+      >
+        <Outlet />
       </div>
-    </MicrositeHostGate>
+      {!hideToolbar ? (
+        <BottomToolbar
+          activeIndex={activeIndexForPath(location.pathname)}
+          originPath={location.pathname}
+        />
+      ) : null}
+    </div>
   );
 }
 
-export const router = createBrowserRouter([
-  {
-    element: <AppLayout />,
-    children: [
-      { path: "/", element: <Home /> },
-      { path: "/screen1", element: <Screen1RouteSlot /> },
-      { path: "/s1-demo-image", element: <Screen1RouteSlot /> },
-      { path: "/screen2", element: <Screen2 /> },
-      { path: "/screen3", element: <Calendar /> },
-      { path: "/climax", element: <Climax /> },
-      { path: "/screen5", element: <Screen5 /> },
-      { path: "/ramp/public/:queueId", element: <RampPublicView /> },
-      { path: "/ramp", element: <RampApp /> },
-      { path: "/ramp/:queueId", element: <RampApp /> },
-      { path: "/calendar", element: <Calendar /> },
-      { path: "/checkout", element: <CheckOut /> },
-      { path: "/clients", element: <Clients /> },
-      { path: "/settings", element: <SettingsScreen /> },
-      { path: "/microsite", element: <MicrositeAdminScreen /> },
-      { path: "/m/:slug", element: <MicrositeHome /> },
-      { path: "/m/:slug/book", element: <MicrositeBook /> },
-      { path: "/m/:slug/success", element: <MicrositeSuccess /> },
-    ],
-  },
-]);
+function buildRouter() {
+  const hostSlug =
+    typeof window !== "undefined" ? getHostMicrositeSlug(window.location) : null;
+
+  // Production public URL: https://{slug}.salonx.com → /, /book, /success
+  // Never keep /m/:slug on a salon host (slug is already the hostname).
+  // demo.salonx.com is reserved and never enters this branch.
+  if (hostSlug) {
+    return createBrowserRouter([
+      {
+        element: <MicrositeHostLayout />,
+        children: [
+          { path: "/", element: <MicrositeHome /> },
+          { path: "/book", element: <MicrositeBook /> },
+          { path: "/success", element: <MicrositeSuccess /> },
+          // Collapse legacy /m/:slug paths → clean host URLs
+          { path: "/m/:slug", element: <Navigate to="/" replace /> },
+          { path: "/m/:slug/book", element: <Navigate to="/book" replace /> },
+          {
+            path: "/m/:slug/success",
+            element: <Navigate to="/success" replace />,
+          },
+          { path: "*", element: <Navigate to="/" replace /> },
+        ],
+      },
+    ]);
+  }
+
+  // Main app (demo.salonx.com / localhost) + /m/:slug local/path preview
+  return createBrowserRouter([
+    {
+      element: <AppLayout />,
+      children: [
+        { path: "/", element: <Home /> },
+        { path: "/screen1", element: <Screen1RouteSlot /> },
+        { path: "/s1-demo-image", element: <Screen1RouteSlot /> },
+        { path: "/screen2", element: <Screen2 /> },
+        { path: "/screen3", element: <Calendar /> },
+        { path: "/climax", element: <Climax /> },
+        { path: "/screen5", element: <Screen5 /> },
+        { path: "/ramp/public/:queueId", element: <RampPublicView /> },
+        { path: "/ramp", element: <RampApp /> },
+        { path: "/ramp/:queueId", element: <RampApp /> },
+        { path: "/calendar", element: <Calendar /> },
+        { path: "/checkout", element: <CheckOut /> },
+        { path: "/clients", element: <Clients /> },
+        { path: "/settings", element: <SettingsScreen /> },
+        { path: "/microsite", element: <MicrositeAdminScreen /> },
+        { path: "/m/:slug", element: <MicrositeHome /> },
+        { path: "/m/:slug/book", element: <MicrositeBook /> },
+        { path: "/m/:slug/success", element: <MicrositeSuccess /> },
+      ],
+    },
+  ]);
+}
+
+export const router = buildRouter();

@@ -134,7 +134,7 @@ export default function MicrositeThemeEditor({ salon, onSaved }) {
       </fieldset>
 
       <div className="ms-link-box">
-        <span>Public URL (production)</span>
+        <span>Public URL</span>
         <code>{publicUrl}</code>
         <button
           type="button"
@@ -143,7 +143,9 @@ export default function MicrositeThemeEditor({ salon, onSaved }) {
         >
           Copy
         </button>
-        <span>Local preview</span>
+        <span className="ms-muted">
+          Clients open this host (not demo.salonx.com). Dev preview:
+        </span>
         <code>{previewUrl}</code>
         <a className="ms-btn ms-btn--ghost" href={previewUrl} target="_blank" rel="noreferrer">
           Open preview

@@ -60,13 +60,28 @@ export const micrositeApi = {
     }),
 }
 
-/** Resolve public microsite slug from host or path. */
-export function resolveMicrositeSlugFromLocation(location = window.location) {
-  const host = (location.hostname || '').toLowerCase()
-  // Path always wins for local/dev: /m/:slug
-  const m = location.pathname.match(/^\/m\/([a-z0-9-]+)/i)
-  if (m) return m[1].toLowerCase()
+/** Platform hosts that are never salon microsite subdomains. */
+export const RESERVED_HOST_SLUGS = new Set([
+  'www',
+  'app',
+  'admin',
+  'api',
+  'book',
+  'cdn',
+  'mail',
+  'status',
+  'demo', // demo.salonx.com = main Salon X app
+  'demo-api',
+  'm',
+  'salonx',
+])
 
+/**
+ * Host-only slug: `samu.salonx.com` → `samu`.
+ * Returns null on demo/localhost/reserved.
+ */
+export function getHostMicrositeSlug(location = window.location) {
+  const host = (location.hostname || '').toLowerCase()
   if (
     !host ||
     host === 'localhost' ||
@@ -77,30 +92,36 @@ export function resolveMicrositeSlugFromLocation(location = window.location) {
     return null
   }
 
-  // tast.salonx.com → tast (require known parent or at least 3 labels)
   const hostParts = host.split('.').filter(Boolean)
   if (hostParts.length < 3) return null
   const sub = hostParts[0]
-  // Platform hosts — never treat as salon microsite slugs
-  const reserved = new Set([
-    'www',
-    'app',
-    'admin',
-    'api',
-    'book',
-    'cdn',
-    'mail',
-    'status',
-    'demo', // demo.salonx.com = main Salon X app
-    'demo-api',
-    'm',
-    'salonx',
-  ])
-  if (!sub || reserved.has(sub)) return null
+  if (!sub || RESERVED_HOST_SLUGS.has(sub)) return null
   return sub
 }
 
+/** Resolve slug from host (`{slug}.salonx.com`) or preview path `/m/:slug`. */
+export function resolveMicrositeSlugFromLocation(location = window.location) {
+  const hostSlug = getHostMicrositeSlug(location)
+  if (hostSlug) return hostSlug
+  const m = location.pathname.match(/^\/m\/([a-z0-9-]+)/i)
+  if (m) return m[1].toLowerCase()
+  return null
+}
+
+/**
+ * In-app paths for microsite links.
+ * On `{slug}.salonx.com` → `/`, `/book`, `/success` (clean public URL).
+ * On demo/localhost → `/m/:slug` preview paths.
+ */
 export function micrositePublicPath(slug, page = '') {
+  const hostSlug = typeof window !== 'undefined' ? getHostMicrositeSlug() : null
+  const onOwnHost = hostSlug && hostSlug === String(slug || '').toLowerCase()
+
+  if (onOwnHost) {
+    if (!page || page === 'home') return '/'
+    return `/${page}`
+  }
+
   const base = `/m/${encodeURIComponent(slug)}`
   if (!page || page === 'home') return base
   return `${base}/${page}`
