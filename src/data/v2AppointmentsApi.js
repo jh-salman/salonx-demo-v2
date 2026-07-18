@@ -42,6 +42,7 @@ function apiFetch(path, init = {}) {
   const sameOrigin = base.startsWith('/')
   return fetch(`${base}${path}`, {
     mode: sameOrigin ? 'same-origin' : 'cors',
+    credentials: 'include',
     cache: 'no-store',
     ...init,
   })

@@ -4,6 +4,12 @@ import { readMarqueePersisted } from '../../sync/v2AdminBootstrap.js'
 import { writeDemoLoginPhone } from '../../lib/demoLoginPhone.js'
 import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js'
 import { syncSalonxShellHeight } from '../../layout/viewportShellSync.js'
+import {
+  sendPhoneOtp,
+  toUsE164,
+  verifyPhoneOtp,
+} from '../../auth/authClient.js'
+import { authAppApi } from '../../auth/authAppApi.js'
 import '../style/screen0.css'
 
 function urlLooksLikeVideo(url) {
@@ -22,22 +28,37 @@ function formatPhoneDisplay(digits) {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
 }
 
-/** After Rock Star: full-bleed hold before route. */
+/** After successful sign-in: full-bleed hold before route. */
 const SCREEN0_POST_ROCKSTAR_HOLD_MS = 3000
+
+const OTP_LEN = 6
+const MOCK_OTP_HINT =
+  String(import.meta.env.VITE_AUTH_OTP_MOCK || 'true').toLowerCase() === 'true'
+    ? String(import.meta.env.VITE_AUTH_MOCK_OTP_CODE || '123456')
+    : ''
 
 function Screen0() {
   const navigate = useNavigate()
   const marqueeVideoRef = useRef(null)
   const postRockStarNavTimerRef = useRef(null)
   const [marquee, setMarquee] = useState(() => readMarqueePersisted())
+  /** landing | login | otp */
   const [step, setStep] = useState('landing')
   const [phone, setPhone] = useState('')
+  const [otp, setOtp] = useState('')
+  const [authError, setAuthError] = useState('')
   const [glassKeyboardOpen, setGlassKeyboardOpen] = useState(false)
   const [entering, setEntering] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [mediaFailed, setMediaFailed] = useState(false)
+  /** Gate the welcome dock until we know if a session already exists. */
+  const [checkingSession, setCheckingSession] = useState(true)
 
   const phoneDigits = digitsOnly(phone)
   const phoneComplete = phoneDigits.length === 10
+  const otpDigits = String(otp || '').replace(/\D/g, '').slice(0, OTP_LEN)
+  const otpComplete = otpDigits.length === OTP_LEN
+  const inAuthDock = step === 'login' || step === 'otp'
 
   useEffect(() => {
     const onSync = () => setMarquee(readMarqueePersisted())
@@ -45,12 +66,35 @@ function Screen0() {
     return () => window.removeEventListener('salonx:v2admin-marquee', onSync)
   }, [])
 
+  // Already signed in? Skip welcome/login entirely (secure cookie session).
   useEffect(() => {
-    if (step !== 'login') return undefined
+    let alive = true
+    authAppApi
+      .me()
+      .then((me) => {
+        if (!alive) return
+        if (me && me.user) {
+          navigate(me.members?.length ? '/screen1' : '/onboarding', {
+            replace: true,
+          })
+          return
+        }
+        setCheckingSession(false)
+      })
+      .catch(() => {
+        if (alive) setCheckingSession(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [navigate])
+
+  useEffect(() => {
+    if (!inAuthDock) return undefined
     syncSalonxShellHeight()
     const id = window.requestAnimationFrame(syncSalonxShellHeight)
     return () => window.cancelAnimationFrame(id)
-  }, [step, glassKeyboardOpen])
+  }, [step, glassKeyboardOpen, inAuthDock])
 
   const customSrc = marquee?.image?.trim() ?? ''
   const isVideo =
@@ -92,29 +136,7 @@ function Screen0() {
     [],
   )
 
-  const resetToLanding = useCallback(() => {
-    setGlassKeyboardOpen(false)
-    setPhone('')
-    setStep('landing')
-  }, [])
-
-  const openLogin = useCallback(() => {
-    if (entering) return
-    setStep('login')
-    setGlassKeyboardOpen(true)
-  }, [entering])
-
-  const appendDigit = useCallback((digit) => {
-    setPhone((prev) => digitsOnly(`${prev}${digit}`))
-  }, [])
-
-  const backspaceDigit = useCallback(() => {
-    setPhone((prev) => digitsOnly(prev).slice(0, -1))
-  }, [])
-
-  const goRockStar = useCallback(() => {
-    if (!phoneComplete || entering) return
-    writeDemoLoginPhone(phoneDigits)
+  const finishEnter = useCallback(() => {
     setGlassKeyboardOpen(false)
     setEntering(true)
     if (postRockStarNavTimerRef.current != null) {
@@ -124,7 +146,112 @@ function Screen0() {
       postRockStarNavTimerRef.current = null
       navigate('/screen1')
     }, SCREEN0_POST_ROCKSTAR_HOLD_MS)
-  }, [entering, navigate, phoneComplete, phoneDigits])
+  }, [navigate])
+
+  const resetToLanding = useCallback(() => {
+    setGlassKeyboardOpen(false)
+    setPhone('')
+    setOtp('')
+    setAuthError('')
+    setBusy(false)
+    setStep('landing')
+  }, [])
+
+  const openLogin = useCallback(() => {
+    if (entering || busy) return
+    setAuthError('')
+    setOtp('')
+    setStep('login')
+    setGlassKeyboardOpen(true)
+  }, [entering, busy])
+
+  const appendDigit = useCallback(
+    (digit) => {
+      if (step === 'otp') {
+        setOtp((prev) => String(prev || '').replace(/\D/g, '').slice(0, OTP_LEN) + digit)
+        return
+      }
+      setPhone((prev) => digitsOnly(`${prev}${digit}`))
+    },
+    [step],
+  )
+
+  const backspaceDigit = useCallback(() => {
+    if (step === 'otp') {
+      setOtp((prev) => String(prev || '').replace(/\D/g, '').slice(0, -1))
+      return
+    }
+    setPhone((prev) => digitsOnly(prev).slice(0, -1))
+  }, [step])
+
+  /** Rock Star on phone step → send OTP, keep dock UI, show OTP field. */
+  const goRockStarSendOtp = useCallback(async () => {
+    if (!phoneComplete || entering || busy) return
+    const e164 = toUsE164(phoneDigits)
+    if (!e164) {
+      setAuthError('Enter a valid US phone number')
+      return
+    }
+    setBusy(true)
+    setAuthError('')
+    writeDemoLoginPhone(phoneDigits)
+    try {
+      await sendPhoneOtp(e164)
+      setOtp('')
+      setStep('otp')
+      setGlassKeyboardOpen(true)
+    } catch (e) {
+      const hint =
+        e?.status === 404
+          ? `Not Found — check demo-api + Vite proxy (${e.url || 'send-otp'})`
+          : e?.message || 'Could not send code'
+      setAuthError(hint)
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, entering, phoneComplete, phoneDigits])
+
+  /** Rock Star on OTP step → verify → session → enter app. */
+  const goRockStarVerify = useCallback(async () => {
+    if (!otpComplete || entering || busy) return
+    const e164 = toUsE164(phoneDigits)
+    if (!e164) {
+      setAuthError('Enter a valid US phone number')
+      return
+    }
+    setBusy(true)
+    setAuthError('')
+    try {
+      await verifyPhoneOtp(e164, otpDigits)
+      try {
+        const me = await authAppApi.me()
+        if (!me.members?.length) {
+          setGlassKeyboardOpen(false)
+          navigate('/onboarding')
+          return
+        }
+      } catch {
+        /* still enter demo if me fails */
+      }
+      finishEnter()
+    } catch (e) {
+      setAuthError(e?.message || 'Sign in failed')
+    } finally {
+      setBusy(false)
+    }
+  }, [
+    busy,
+    entering,
+    finishEnter,
+    navigate,
+    otpComplete,
+    otpDigits,
+    phoneDigits,
+  ])
+
+  const primaryAction = step === 'otp' ? goRockStarVerify : goRockStarSendOtp
+  const primaryEnabled =
+    step === 'otp' ? otpComplete && !entering && !busy : phoneComplete && !entering && !busy
 
   const handlePhoneKeyDown = useCallback(
     (e) => {
@@ -137,27 +264,28 @@ function Screen0() {
         e.preventDefault()
         backspaceDigit()
       }
-      if (e.key === 'Enter' && phoneComplete) {
+      if (e.key === 'Enter' && primaryEnabled) {
         e.preventDefault()
-        goRockStar()
+        void primaryAction()
       }
     },
-    [appendDigit, backspaceDigit, goRockStar, phoneComplete],
+    [appendDigit, backspaceDigit, primaryAction, primaryEnabled],
   )
 
-  const dockClass =
-    step === 'login'
-      ? 'screen0-dock screen0-dock--login'
-      : 'screen0-dock'
+  const dockClass = inAuthDock
+    ? 'screen0-dock screen0-dock--login'
+    : 'screen0-dock'
 
   const phoneDisplay = formatPhoneDisplay(phoneDigits)
-  const sampleTail = '(555) 123-4567'.slice(phoneDisplay.length)
+  const sampleTail = '(212) 555-1234'.slice(phoneDisplay.length)
+  const otpDisplay = otpDigits
+  const otpSample = '••••••'.slice(otpDisplay.length)
 
   return (
     <div
       className="screen0-root"
-      data-salonx-keyboard-lock={step === 'login' ? '' : undefined}
-      onKeyDown={step === 'login' ? handlePhoneKeyDown : undefined}
+      data-salonx-keyboard-lock={inAuthDock ? '' : undefined}
+      onKeyDown={inAuthDock ? handlePhoneKeyDown : undefined}
     >
       <div className="screen0-bg" aria-hidden="true">
         <div className="screen0-bgDecor" />
@@ -204,7 +332,7 @@ function Screen0() {
 
       {entering ? <div className="screen0-enterFlash" aria-hidden /> : null}
 
-      {!entering && step === 'login' && glassKeyboardOpen ? (
+      {!entering && inAuthDock && glassKeyboardOpen ? (
         <button
           type="button"
           className="screen0-kbScrim"
@@ -213,14 +341,14 @@ function Screen0() {
         />
       ) : null}
 
-      {!entering ? (
+      {!entering && !checkingSession ? (
         <div className="screen0-bottom">
           <div className="screen0-bottomInner">
-            {!entering && step === 'login' && glassKeyboardOpen ? (
+            {!entering && inAuthDock && glassKeyboardOpen ? (
               <div
                 className="screen0-glassKeypad"
                 role="group"
-                aria-label="Phone keypad"
+                aria-label={step === 'otp' ? 'OTP keypad' : 'Phone keypad'}
                 onPointerDown={(e) => e.preventDefault()}
               >
                 <div className="screen0-glassKeypad-grid">
@@ -263,6 +391,15 @@ function Screen0() {
               </div>
             ) : null}
 
+            {authError ? (
+              <p className="screen0-authError" role="alert">
+                {authError}
+              </p>
+            ) : null}
+            {step === 'otp' && MOCK_OTP_HINT ? (
+              <p className="screen0-authHint">Dev code: {MOCK_OTP_HINT}</p>
+            ) : null}
+
             <div className={dockClass}>
               {step === 'landing' ? (
                 <button type="button" className="screen0-dockWelcome" onClick={openLogin}>
@@ -273,8 +410,17 @@ function Screen0() {
                   <button
                     type="button"
                     className="screen0-dockIconBack"
-                    disabled={entering}
-                    onClick={resetToLanding}
+                    disabled={entering || busy}
+                    onClick={() => {
+                      if (step === 'otp') {
+                        setOtp('')
+                        setAuthError('')
+                        setStep('login')
+                        setGlassKeyboardOpen(true)
+                        return
+                      }
+                      resetToLanding()
+                    }}
                     aria-label="Back"
                   >
                     ←
@@ -286,36 +432,62 @@ function Screen0() {
                       setGlassKeyboardOpen(true)
                     }}
                   >
-                    {phoneDisplay.length === 0 ? (
-                      <span className="screen0-fakeSample" aria-hidden>
-                        <span className="screen0-fakeBlink">(</span>
-                        {sampleTail}
-                      </span>
-                    ) : null}
-                    <div
-                      id="screen0-phone"
-                      className={`screen0-dockInput screen0-dockDisplay${phoneDisplay.length === 0 ? ' screen0-dockInput--ghost' : ''}`}
-                      role="textbox"
-                      aria-readonly="true"
-                      aria-label="Phone number"
-                      aria-describedby="screen0-phone-hint"
-                    >
-                      {phoneDisplay}
-                    </div>
-                    <span id="screen0-phone-hint" className="screen0-srOnly">
-                      Enter ten digits, then tap Rock Star
-                    </span>
+                    {step === 'otp' ? (
+                      <>
+                        {otpDisplay.length === 0 ? (
+                          <span className="screen0-fakeSample" aria-hidden>
+                            <span className="screen0-fakeBlink">{otpSample.slice(0, 1)}</span>
+                            {otpSample.slice(1)}
+                          </span>
+                        ) : null}
+                        <div
+                          id="screen0-otp"
+                          className={`screen0-dockInput screen0-dockDisplay${otpDisplay.length === 0 ? ' screen0-dockInput--ghost' : ''}`}
+                          role="textbox"
+                          aria-readonly="true"
+                          aria-label="One-time code"
+                          aria-describedby="screen0-otp-hint"
+                        >
+                          {otpDisplay}
+                        </div>
+                        <span id="screen0-otp-hint" className="screen0-srOnly">
+                          Enter six-digit code, then tap Rock Star
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        {phoneDisplay.length === 0 ? (
+                          <span className="screen0-fakeSample" aria-hidden>
+                            <span className="screen0-fakeBlink">(</span>
+                            {sampleTail}
+                          </span>
+                        ) : null}
+                        <div
+                          id="screen0-phone"
+                          className={`screen0-dockInput screen0-dockDisplay${phoneDisplay.length === 0 ? ' screen0-dockInput--ghost' : ''}`}
+                          role="textbox"
+                          aria-readonly="true"
+                          aria-label="Phone number"
+                          aria-describedby="screen0-phone-hint"
+                        >
+                          {phoneDisplay}
+                        </div>
+                        <span id="screen0-phone-hint" className="screen0-srOnly">
+                          Enter ten digits, then tap Rock Star
+                        </span>
+                      </>
+                    )}
                   </div>
                   <button
                     type="button"
                     className="screen0-dockGo"
-                    disabled={!phoneComplete || entering}
+                    disabled={!primaryEnabled}
                     onPointerDown={(e) => {
-                      if (phoneComplete && !entering) e.preventDefault()
+                      if (primaryEnabled) e.preventDefault()
                     }}
-                    onClick={goRockStar}
+                    onClick={() => void primaryAction()}
                   >
-                    Rock Star
+                    {busy ? '…' : 'Rock Star'}
                   </button>
                 </div>
               )}

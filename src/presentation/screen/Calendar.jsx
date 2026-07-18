@@ -2520,7 +2520,7 @@ export default function CalendarScreenWeb() {
           fetchStaffCatalog(),
         ]);
         if (cancelled) return;
-        if (clientsData?.stored && Array.isArray(clientsData.clients)) {
+        if (clientsData && Array.isArray(clientsData.clients)) {
           pauseServerPersist();
           setClients(clientsData.clients);
           if (clientsData.updatedAt) {

@@ -12,6 +12,7 @@ async function rampFetch(path, options = {}) {
   const sameOrigin = base.startsWith('/')
   const res = await fetch(`${base}${path}`, {
     mode: sameOrigin ? 'same-origin' : 'cors',
+    credentials: 'include',
     cache: 'no-store',
     ...options,
     headers: {

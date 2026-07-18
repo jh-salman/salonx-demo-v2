@@ -10,6 +10,7 @@ export async function fetchCalendarToolbar() {
   const sameOrigin = base.startsWith('/')
   const res = await fetch(`${base}/api/calendar-toolbar`, {
     mode: sameOrigin ? 'same-origin' : 'cors',
+    credentials: 'include',
     cache: 'no-store',
   })
   if (!res.ok) return null
@@ -26,6 +27,7 @@ export async function saveCalendarToolbarRemote(body) {
   const res = await fetch(`${base}/api/calendar-toolbar`, {
     method: 'PUT',
     mode: sameOrigin ? 'same-origin' : 'cors',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })

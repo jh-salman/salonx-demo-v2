@@ -10,10 +10,15 @@
 }
 
 .ms-shell--admin {
+  flex: 1 1 auto;
   height: auto;
-  min-height: 100dvh;
+  min-height: 0;
+  width: 100%;
   overflow: auto;
-  padding-bottom: 80px;
+  padding-bottom: calc(
+    80px + var(--salonx-bottom-toolbar-safe-h, env(safe-area-inset-bottom, 0px))
+  );
+  -webkit-overflow-scrolling: touch;
 }
 
 .ms-shell__inner {

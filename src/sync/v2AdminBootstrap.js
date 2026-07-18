@@ -173,7 +173,9 @@ function hasClimaxSessionPayload() {
 function isDevDemoApi() {
   return (
     import.meta.env.DEV &&
-    String(import.meta.env.VITE_DEV_USE_DEMO_API || '').toLowerCase() === 'true'
+    String(import.meta.env.VITE_DEV_USE_DEMO_API || '')
+      .trim()
+      .toLowerCase() === 'true'
   )
 }
 

@@ -38,9 +38,10 @@ export function enrichRampQueueItems(items) {
 export async function loadRampClientsCatalog() {
   if (isAppointmentsApiAvailable()) {
     const list = await refreshClientsCatalogCache()
-    if (Array.isArray(list) && list.length > 0) return list
+    if (Array.isArray(list)) return list
     const cached = getCachedClientsCatalog()
-    if (Array.isArray(cached) && cached.length > 0) return cached
+    if (Array.isArray(cached)) return cached
+    return []
   }
   return MOCK_CLIENTS
 }

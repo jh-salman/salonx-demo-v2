@@ -8,6 +8,10 @@ import Calendar from "../presentation/screen/Calendar";
 import CheckOut from "../presentation/screen/CheckOut";
 import Clients from "../presentation/screen/Clients";
 import SettingsScreen from "../presentation/screen/SettingsScreen";
+import SettingsOrganization from "../presentation/screen/SettingsOrganization";
+import SettingsHours from "../presentation/screen/SettingsHours";
+import SettingsStaff from "../presentation/screen/SettingsStaff";
+import SettingsAdmin from "../presentation/screen/SettingsAdmin";
 import Screen1DemoImage from "../presentation/screen/Screen1DemoImage";
 import Screen5 from "../presentation/screen/Screen5";
 import RampApp from "../presentation/ramp/RampApp";
@@ -18,6 +22,9 @@ import MicrositeBook from "../presentation/microsite/pages/MicrositeBook";
 import MicrositeSuccess from "../presentation/microsite/pages/MicrositeSuccess";
 import MicrositeAdminScreen from "../presentation/microsite/MicrositeAdminScreen";
 import { getHostMicrositeSlug } from "../presentation/microsite/micrositeApi";
+import OnboardingScreen from "../presentation/auth/OnboardingScreen";
+import InviteAcceptScreen from "../presentation/auth/InviteAcceptScreen";
+import RequireSession from "../presentation/auth/RequireSession";
 
 function isScreen1Path(pathname) {
   return (
@@ -38,6 +45,8 @@ function hideToolbarForPath(pathname) {
   if (pathname.startsWith("/screen5")) return true;
   if (pathname.startsWith("/ramp/public")) return true;
   if (pathname.startsWith("/m/")) return true;
+  if (pathname.startsWith("/onboarding") || pathname.startsWith("/invite"))
+    return true;
   return false;
 }
 
@@ -147,7 +156,20 @@ function buildRouter() {
         { path: "/checkout", element: <CheckOut /> },
         { path: "/clients", element: <Clients /> },
         { path: "/settings", element: <SettingsScreen /> },
-        { path: "/microsite", element: <MicrositeAdminScreen /> },
+        { path: "/settings/organization", element: <SettingsOrganization /> },
+        { path: "/settings/hours", element: <SettingsHours /> },
+        { path: "/settings/staff", element: <SettingsStaff /> },
+        { path: "/settings/admin", element: <SettingsAdmin /> },
+        {
+          path: "/microsite",
+          element: (
+            <RequireSession>
+              <MicrositeAdminScreen />
+            </RequireSession>
+          ),
+        },
+        { path: "/onboarding", element: <OnboardingScreen /> },
+        { path: "/invite/:invitationId", element: <InviteAcceptScreen /> },
         { path: "/m/:slug", element: <MicrositeHome /> },
         { path: "/m/:slug/book", element: <MicrositeBook /> },
         { path: "/m/:slug/success", element: <MicrositeSuccess /> },

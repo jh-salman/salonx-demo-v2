@@ -21,19 +21,25 @@ export function getCachedClientsCatalog() {
   return catalogCache
 }
 
+export function clearClientsCatalogCache() {
+  catalogCache = null
+  catalogUpdatedAt = null
+}
+
 export async function refreshClientsCatalogCache() {
   if (!isAppointmentsApiAvailable()) {
-    catalogCache = null
-    catalogUpdatedAt = null
+    clearClientsCatalogCache()
     return null
   }
   const data = await fetchClientsCatalog()
-  if (data?.stored && Array.isArray(data.clients)) {
+  // Org-scoped catalogs may be empty — still valid (do not fall back to mocks).
+  if (data && Array.isArray(data.clients)) {
     catalogCache = data.clients
     catalogUpdatedAt =
       typeof data.updatedAt === 'string' ? data.updatedAt : null
     return catalogCache
   }
+  clearClientsCatalogCache()
   return null
 }
 

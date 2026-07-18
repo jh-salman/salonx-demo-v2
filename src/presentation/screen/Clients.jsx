@@ -10,8 +10,10 @@ import {
 import {
   CLIENTS_CATALOG_UPDATED,
   addClientToCatalog,
+  clearClientsCatalogCache,
   refreshClientsCatalogCache,
 } from '../../data/clientProfileAvatar';
+import { authAppApi } from '../../auth/authAppApi.js';
 import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
 import { writePersistedScreen2Apt } from '../../data/appointmentStateStore';
 import {
@@ -29,12 +31,18 @@ import '../style/calendar.css';
 
 // Client picker styled like Settings: simple list + search, themed with --salonx-primary.
 
-const NEW_CLIENTS_STORAGE_KEY = '@salonx/clientsExtra/v1';
+const NEW_CLIENTS_STORAGE_PREFIX = '@salonx/clientsExtra/v1';
 
-function loadExtraClients() {
+function extrasStorageKey(salonId) {
+  return salonId
+    ? `${NEW_CLIENTS_STORAGE_PREFIX}/${salonId}`
+    : NEW_CLIENTS_STORAGE_PREFIX;
+}
+
+function loadExtraClients(salonId) {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(NEW_CLIENTS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(extrasStorageKey(salonId));
     const arr = raw ? JSON.parse(raw) : [];
     return Array.isArray(arr) ? arr : [];
   } catch {
@@ -42,10 +50,13 @@ function loadExtraClients() {
   }
 }
 
-function saveExtraClients(list) {
+function saveExtraClients(list, salonId) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(NEW_CLIENTS_STORAGE_KEY, JSON.stringify(list));
+    window.localStorage.setItem(
+      extrasStorageKey(salonId),
+      JSON.stringify(list),
+    );
   } catch {
     /* noop */
   }
@@ -72,20 +83,49 @@ export default function Clients() {
   const backTarget =
     (location?.state?.from && String(location.state.from)) || '/screen1';
 
-  const [extraClients, setExtraClients] = useState(() => loadExtraClients());
+  const [activeSalonId, setActiveSalonId] = useState(null);
+  const [extraClients, setExtraClients] = useState([]);
   const [consultStore, setConsultStore] = useState(() => loadConsultStore());
   const [idbAvatarByKey, setIdbAvatarByKey] = useState({});
   const [catalogClients, setCatalogClients] = useState([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
   const [query, setQuery] = useState('');
   const [newClientOpen, setNewClientOpen] = useState(false);
   const [newClientSaving, setNewClientSaving] = useState(false);
   const [newClientError, setNewClientError] = useState('');
 
   useEffect(() => {
-    if (!isAppointmentsApiAvailable()) return;
     let cancelled = false;
+    void (async () => {
+      try {
+        const me = await authAppApi.me();
+        if (cancelled) return;
+        const sid = me?.activeSalon?.id || null;
+        setActiveSalonId(sid);
+        setExtraClients(loadExtraClients(sid));
+      } catch {
+        if (!cancelled) {
+          setActiveSalonId(null);
+          setExtraClients([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) {
+      setCatalogLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    clearClientsCatalogCache();
     void refreshClientsCatalogCache().then((list) => {
-      if (!cancelled && list) setCatalogClients(list);
+      if (cancelled) return;
+      setCatalogClients(Array.isArray(list) ? list : []);
+      setCatalogLoaded(true);
     });
     const onCatalog = () => {
       void refreshClientsCatalogCache().then((list) => {
@@ -97,18 +137,20 @@ export default function Clients() {
       cancelled = true;
       window.removeEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
     };
-  }, []);
+  }, [activeSalonId]);
 
   const allClients = useMemo(() => {
     const map = new Map();
-    const base =
-      isAppointmentsApiAvailable() && catalogClients.length > 0
+    // When demo-api is on, clients are org-scoped — never blend global MOCK_CLIENTS.
+    const base = isAppointmentsApiAvailable()
+      ? catalogLoaded
         ? catalogClients
-        : MOCK_CLIENTS;
+        : []
+      : MOCK_CLIENTS;
     base.forEach((c) => map.set(clientKey(c.name), c));
     extraClients.forEach((c) => map.set(clientKey(c.name), c));
     return Array.from(map.values());
-  }, [extraClients, catalogClients]);
+  }, [extraClients, catalogClients, catalogLoaded]);
 
   const clientNames = useMemo(
     () => allClients.map((c) => c.name).filter(Boolean),
@@ -131,8 +173,12 @@ export default function Clients() {
       if (!e || e.key === null || e.key === CONSULT_STORAGE_KEY) {
         setConsultStore(loadConsultStore());
       }
-      if (!e || e.key === null || e.key === NEW_CLIENTS_STORAGE_KEY) {
-        setExtraClients(loadExtraClients());
+      if (
+        !e ||
+        e.key === null ||
+        e.key === extrasStorageKey(activeSalonId)
+      ) {
+        setExtraClients(loadExtraClients(activeSalonId));
       }
     };
     const onAvatarDb = () => {
@@ -157,7 +203,7 @@ export default function Clients() {
       window.removeEventListener(CLIENTS_CATALOG_UPDATED, onCatalog);
       window.removeEventListener(CONSULTATION_REMOTE_UPDATED, onConsultRemote);
     };
-  }, []);
+  }, [activeSalonId]);
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return undefined;
@@ -284,7 +330,7 @@ export default function Clients() {
 
         const next = [...extraClients, newClient];
         setExtraClients(next);
-        saveExtraClients(next);
+        saveExtraClients(next, activeSalonId);
         closeNewClientModal();
         openClient(newClient);
       } catch (e) {
@@ -296,6 +342,7 @@ export default function Clients() {
       }
     },
     [
+      activeSalonId,
       allClients,
       closeNewClientModal,
       extraClients,

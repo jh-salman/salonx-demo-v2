@@ -6,6 +6,7 @@ function apiFetch(path, init = {}) {
     return Promise.reject(new Error('API base not configured'))
   }
   return fetch(`${base}${path}`, {
+    credentials: 'include',
     ...init,
     headers: {
       Accept: 'application/json',
