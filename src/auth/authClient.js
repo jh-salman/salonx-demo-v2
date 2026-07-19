@@ -122,10 +122,44 @@ export async function signOut() {
   return authJson('/api/auth/sign-out', { method: 'POST', body: '{}' })
 }
 
+function isUsNational(d) {
+  return d.length === 10 && d[0] >= '2' && d[0] <= '9'
+}
+
+function isBdNational(d) {
+  return d.length === 10 && d[0] === '1' && d[1] >= '3' && d[1] <= '9'
+}
+
+/**
+ * Normalize a US or Bangladeshi number to E.164, or null if invalid.
+ *   US: +1XXXXXXXXXX (area code 2–9)
+ *   BD: +8801XXXXXXXXX (national 01[3-9]XXXXXXXX)
+ */
+export function toE164(input) {
+  const d = String(input || '').replace(/\D/g, '')
+  if (!d) return null
+  if (d.startsWith('880')) {
+    const nat = d.slice(3)
+    return isBdNational(nat) ? `+880${nat}` : null
+  }
+  if (d.length === 11 && d[0] === '0' && isBdNational(d.slice(1))) {
+    return `+880${d.slice(1)}`
+  }
+  if (d.length === 11 && d[0] === '1') {
+    const nat = d.slice(1)
+    return isUsNational(nat) ? `+1${nat}` : null
+  }
+  if (d.length === 10) {
+    if (isBdNational(d)) return `+880${d}`
+    if (isUsNational(d)) return `+1${d}`
+    return null
+  }
+  return null
+}
+
+/** @deprecated use toE164 — kept for backward compatibility. */
 export function toUsE164(tenDigits) {
-  const d = String(tenDigits || '').replace(/\D/g, '')
-  if (d.length !== 10) return null
-  return `+1${d}`
+  return toE164(tenDigits)
 }
 
 /** Direct send-otp (avoids stale better-auth client base). */

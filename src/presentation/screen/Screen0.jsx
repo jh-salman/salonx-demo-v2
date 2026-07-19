@@ -6,7 +6,7 @@ import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js'
 import { syncSalonxShellHeight } from '../../layout/viewportShellSync.js'
 import {
   sendPhoneOtp,
-  toUsE164,
+  toE164,
   verifyPhoneOtp,
 } from '../../auth/authClient.js'
 import { authAppApi } from '../../auth/authAppApi.js'
@@ -18,15 +18,19 @@ function urlLooksLikeVideo(url) {
 }
 
 function digitsOnly(s) {
-  return String(s || '').replace(/\D/g, '').slice(0, 10)
+  // Allow up to 13 digits so BD numbers (01…/880…) fit alongside US 10-digit.
+  return String(s || '').replace(/\D/g, '').slice(0, 13)
 }
 
 function formatPhoneDisplay(digits) {
   const d = digitsOnly(digits)
   if (d.length === 0) return ''
-  if (d.length <= 3) return `(${d}`
-  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+  // US-style grouping only for a bare 10-digit US number (area code 2–9).
+  if (d.length === 10 && d[0] >= '2' && d[0] <= '9') {
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+  }
+  // Otherwise (BD / partial / +country) show grouped raw digits.
+  return d.replace(/(\d{3,4})(?=\d)/g, '$1 ').trim()
 }
 
 /** After successful sign-in: full-bleed hold before route. */
@@ -56,7 +60,7 @@ function Screen0() {
   const [checkingSession, setCheckingSession] = useState(true)
 
   const phoneDigits = digitsOnly(phone)
-  const phoneComplete = phoneDigits.length === 10
+  const phoneComplete = Boolean(toE164(phoneDigits))
   const otpDigits = String(otp || '').replace(/\D/g, '').slice(0, OTP_LEN)
   const otpComplete = otpDigits.length === OTP_LEN
   const inAuthDock = step === 'login' || step === 'otp'
@@ -193,9 +197,9 @@ function Screen0() {
   /** Rock Star on phone step → send OTP, keep dock UI, show OTP field. */
   const goRockStarSendOtp = useCallback(async () => {
     if (!phoneComplete || entering || busy) return
-    const e164 = toUsE164(phoneDigits)
+    const e164 = toE164(phoneDigits)
     if (!e164) {
-      setAuthError('Enter a valid US phone number')
+      setAuthError('Enter a valid US or Bangladesh phone number')
       return
     }
     setBusy(true)
@@ -220,9 +224,9 @@ function Screen0() {
   /** Rock Star on OTP step → verify → session → enter app. */
   const goRockStarVerify = useCallback(async () => {
     if (!otpComplete || entering || busy) return
-    const e164 = toUsE164(phoneDigits)
+    const e164 = toE164(phoneDigits)
     if (!e164) {
-      setAuthError('Enter a valid US phone number')
+      setAuthError('Enter a valid US or Bangladesh phone number')
       return
     }
     setBusy(true)
