@@ -1,19 +1,32 @@
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
 export default function StaffPicker({ staff, value, onChange }) {
-  if (!staff?.length) {
-    return <p className="ms-muted">Any available stylist.</p>
-  }
+  const list = Array.isArray(staff) ? staff : []
   return (
-    <div className="ms-list" role="listbox" aria-label="Staff">
+    <div className="ms-bk-cards" role="listbox" aria-label="Professional">
       <button
         type="button"
         role="option"
         aria-selected={!value}
-        className={`ms-list__item${!value ? ' is-active' : ''}`}
+        className={`ms-bk-card ms-bk-staff${!value ? ' is-active' : ''}`}
         onClick={() => onChange('')}
       >
-        <span className="ms-list__title">Anyone</span>
+        <span className="ms-bk-staff__avatar ms-bk-staff__avatar--star" aria-hidden>
+          ★
+        </span>
+        <span className="ms-bk-staff__main">
+          <span className="ms-bk-staff__name">First available</span>
+          <span className="ms-bk-staff__meta">Earliest open time</span>
+        </span>
+        <span className="ms-bk-card__radio" aria-hidden />
       </button>
-      {staff.map((s) => {
+
+      {list.map((s) => {
         const id = String(s.id)
         const active = value === id
         return (
@@ -22,10 +35,23 @@ export default function StaffPicker({ staff, value, onChange }) {
             type="button"
             role="option"
             aria-selected={active}
-            className={`ms-list__item${active ? ' is-active' : ''}`}
+            className={`ms-bk-card ms-bk-staff${active ? ' is-active' : ''}`}
             onClick={() => onChange(id)}
           >
-            <span className="ms-list__title">{s.name || 'Stylist'}</span>
+            {s.avatar ? (
+              <img className="ms-bk-staff__avatar" src={s.avatar} alt="" />
+            ) : (
+              <span className="ms-bk-staff__avatar" aria-hidden>
+                {initials(s.name)}
+              </span>
+            )}
+            <span className="ms-bk-staff__main">
+              <span className="ms-bk-staff__name">{s.name || 'Stylist'}</span>
+              {s.role || s.title ? (
+                <span className="ms-bk-staff__meta">{s.role || s.title}</span>
+              ) : null}
+            </span>
+            <span className="ms-bk-card__radio" aria-hidden />
           </button>
         )
       })}

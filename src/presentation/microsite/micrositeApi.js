@@ -1,28 +1,48 @@
 import { getV2AdminBase } from '../../sync/v2AdminBootstrap.js'
 
-function apiFetch(path, init = {}) {
+const DEFAULT_TIMEOUT_MS = 15000
+
+/**
+ * Fetch a microsite endpoint with a hard timeout so a cold/slow backend never
+ * leaves the booking UI stuck on "Loading…". Aborts after `timeoutMs`.
+ */
+function apiFetch(path, init = {}, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const base = getV2AdminBase()
   if (!base) {
     return Promise.reject(new Error('API base not configured'))
   }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   return fetch(`${base}${path}`, {
     credentials: 'include',
+    signal: controller.signal,
     ...init,
     headers: {
       Accept: 'application/json',
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init.headers || {}),
     },
-  }).then(async (res) => {
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) {
-      const err = new Error(data?.error || res.statusText || 'Request failed')
-      err.status = res.status
-      err.data = data
-      throw err
-    }
-    return data
   })
+    .then(async (res) => {
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const err = new Error(data?.error || res.statusText || 'Request failed')
+        err.status = res.status
+        err.data = data
+        throw err
+      }
+      return data
+    })
+    .catch((err) => {
+      if (err?.name === 'AbortError') {
+        const e = new Error('This is taking too long. Please try again.')
+        e.status = 0
+        e.code = 'TIMEOUT'
+        throw e
+      }
+      throw err
+    })
+    .finally(() => clearTimeout(timer))
 }
 
 export const micrositeApi = {
