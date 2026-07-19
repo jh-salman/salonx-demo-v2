@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import MicrositeShell from '../MicrositeShell'
 import MicrositeHero from '../components/MicrositeHero'
-import { micrositeApi, micrositePublicPath } from '../micrositeApi'
+import { micrositeApi } from '../micrositeApi'
 import { useMicrositeSlug } from '../useMicrositeSlug'
 
 export default function MicrositeHome() {
@@ -51,11 +50,8 @@ export default function MicrositeHome() {
   }
 
   return (
-    <MicrositeShell salon={salon}>
+    <MicrositeShell salon={salon} landing>
       <MicrositeHero salon={salon} />
-      <p className="ms-footer-link">
-        <Link to={micrositePublicPath(salon.slug, 'book')}>Skip to booking →</Link>
-      </p>
     </MicrositeShell>
   )
 }
