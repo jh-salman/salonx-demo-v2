@@ -109,6 +109,16 @@ export async function deleteAppointmentRemote(id) {
 }
 
 /**
+ * Cash checkout — archive visit notes for Ghost Notes + remove from calendar.
+ * @param {string} id
+ */
+export async function completeAppointmentRemote(id) {
+  return apiRequest(`/api/appointments/${encodeURIComponent(id)}/complete`, {
+    method: 'POST',
+  })
+}
+
+/**
  * Upcoming appointments with an unreviewed client reference image (#11 popup).
  * @param {{ staffId?: string | null }} [opts]
  * @returns {Promise<AppointmentDto[]>}

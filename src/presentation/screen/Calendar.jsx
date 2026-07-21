@@ -833,6 +833,13 @@ export default function CalendarScreenWeb() {
     return all.filter((c) => c.id === viewerStaffId);
   }, [staffRoster, canSeeAllStaff, viewerStaffId]);
 
+  /** Staff picker in new/edit appointment — owner/admin: all; stylist: self only. */
+  const assignableStaff = useMemo(() => {
+    if (canSeeAllStaff) return staffRoster;
+    if (!viewerStaffId) return [];
+    return staffRoster.filter((s) => s.id === viewerStaffId);
+  }, [staffRoster, canSeeAllStaff, viewerStaffId]);
+
   // Phase 1 modal/overlay state
   const [aptOptionsApt, setAptOptionsApt] = useState(null); // appointment object
   /** Month view: which day is selected for the bottom appointment sheet (stays in Month). */
@@ -1818,6 +1825,9 @@ export default function CalendarScreenWeb() {
     if (!bookConfirm) return;
     const { kind, item, start, end, staffId } = bookConfirm;
     const dropId = item?.id != null ? String(item.id) : null;
+    // Unpark → assign to whoever unparked (their staff catalog row).
+    const assignStaffId =
+      kind === "parked" ? viewerStaffId || staffId : staffId;
 
     if (kind === "waitlist") {
       if (isAppointmentsApiAvailable()) {
@@ -1891,7 +1901,7 @@ export default function CalendarScreenWeb() {
         notes: "",
         start,
         end,
-        ...(staffId ? { staffId } : {}),
+        ...(assignStaffId ? { staffId: assignStaffId } : {}),
       };
 
       setEvents((prev) => [...prev, localEvent]);
@@ -1906,7 +1916,7 @@ export default function CalendarScreenWeb() {
               color: localEvent.color,
               price: 0,
               notes: "",
-              ...(staffId ? { staffId } : {}),
+              ...(assignStaffId ? { staffId: assignStaffId } : {}),
             });
             const saved = appointmentDtoToEvent(appointment);
             setEvents((prev) => [
@@ -1931,7 +1941,7 @@ export default function CalendarScreenWeb() {
         action: kind === "waitlist" ? "booked" : "scheduled",
       });
     }
-  }, [bookConfirm, pushToolbarToServer]);
+  }, [bookConfirm, pushToolbarToServer, viewerStaffId]);
 
   const handleBookConfirmNo = useCallback(() => {
     // Just dismiss the confirm — the source list modal is still mounted
@@ -4900,7 +4910,8 @@ export default function CalendarScreenWeb() {
           editing={editingApt}
           seedClientName={newApptSeedClient || undefined}
           initialStaffId={newApptStaffId}
-          staffRoster={staffRoster}
+          staffRoster={assignableStaff}
+          canAssignAnyStaff={canSeeAllStaff}
           clients={clients}
           services={serviceCatalog}
           onAddClient={handleAddClient}
@@ -4930,6 +4941,7 @@ function NewAppointmentOverlay({
   seedClientName,
   initialStaffId,
   staffRoster,
+  canAssignAnyStaff = true,
   clients,
   services,
   onAddClient,
@@ -4965,7 +4977,10 @@ function NewAppointmentOverlay({
   const [notes, setNotes] = useState(editing?.notes || "");
   const roster = Array.isArray(staffRoster) ? staffRoster : [];
   const [selectedStaffId, setSelectedStaffId] = useState(
-    editing?.staffId || initialStaffId || "",
+    editing?.staffId ||
+      initialStaffId ||
+      (!canAssignAnyStaff && roster[0]?.id ? roster[0].id : "") ||
+      "",
   );
 
   const [repeatEnabled, setRepeatEnabled] = useState(false);
@@ -5064,7 +5079,7 @@ function NewAppointmentOverlay({
               value={selectedStaffId}
               onChange={(e) => setSelectedStaffId(e.target.value)}
             >
-              <option value="">Unassigned</option>
+              {canAssignAnyStaff ? <option value="">Unassigned</option> : null}
               {roster.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}

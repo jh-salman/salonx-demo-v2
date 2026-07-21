@@ -28,6 +28,14 @@ import {
   resolveClientCarePhone,
 } from "../../lib/demoLoginPhone.js";
 import { fireClientCareCard } from "../../data/clientCareApi.js";
+import {
+  completeAppointmentRemote,
+  isAppointmentsApiAvailable,
+} from "../../data/v2AppointmentsApi.js";
+import {
+  notifyCalendarUpdated,
+  removeAppointmentFromSessionCache,
+} from "../../data/calendarEventsStore.js";
 
 const DEMO_STYLIST_NAME = "Joe Stylzz";
 
@@ -796,37 +804,62 @@ export default function Climax() {
   const handleCashCheckout = useCallback(async () => {
     if (careCardState === 'sending' || careCardState === 'sent') return;
 
-    const phone = resolveClientCarePhone(checkoutClientPhone);
-    if (phone.length < 10) {
-      setCareCardState('error');
-      setCareCardError('Client phone missing on this appointment.');
-      return;
-    }
-
     setCareCardError('');
     setCareCardState('sending');
-    try {
-      await fireClientCareCard({
-        recipientPhone: phone,
-        recipientName: clientHeader.name,
-        stylistName: DEMO_STYLIST_NAME,
-        products: checkoutProducts,
-        appointmentId: activeApt?.id ?? null,
-        demoOnly: false,
-      });
-      setCareCardState('sent');
-    } catch (e) {
-      setCareCardState('error');
-      setCareCardError(
-        e instanceof Error ? e.message : 'Could not send Client Care Card.',
-      );
+
+    const phone = resolveClientCarePhone(checkoutClientPhone);
+    const hasPhone = phone.length >= 10;
+    let careCardFailed = false;
+
+    if (hasPhone) {
+      try {
+        await fireClientCareCard({
+          recipientPhone: phone,
+          recipientName: clientHeader.name,
+          stylistName: DEMO_STYLIST_NAME,
+          products: checkoutProducts,
+          appointmentId: activeApt?.id ?? null,
+          demoOnly: false,
+        });
+      } catch (e) {
+        careCardFailed = true;
+        setCareCardError(
+          e instanceof Error ? e.message : 'Could not send Client Care Card.',
+        );
+      }
+    } else {
+      setCareCardError('Client phone missing — finishing visit without care card.');
     }
+
+    if (activeApt?.id && isAppointmentsApiAvailable()) {
+      try {
+        await completeAppointmentRemote(activeApt.id);
+        removeAppointmentFromSessionCache(activeApt.id);
+        notifyCalendarUpdated();
+        setCareCardState('sent');
+        window.setTimeout(() => {
+          navigate('/calendar', { replace: true });
+        }, 600);
+        return;
+      } catch (e) {
+        setCareCardState('error');
+        setCareCardError(
+          (prev) =>
+            prev ||
+            (e instanceof Error ? e.message : 'Could not finish this appointment.'),
+        );
+        return;
+      }
+    }
+
+    setCareCardState(careCardFailed || !hasPhone ? 'error' : 'sent');
   }, [
     activeApt?.id,
     careCardState,
     checkoutClientPhone,
     checkoutProducts,
     clientHeader.name,
+    navigate,
   ]);
 
   useEffect(() => {

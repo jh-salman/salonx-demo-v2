@@ -60,6 +60,7 @@ import {
   persistRemoteAppointmentVisit,
   persistRemoteConsultation,
   PRODUCTS_CATALOG_UPDATED,
+  CONSULTATION_REMOTE_UPDATED,
   resumeRemoteConsultPersist,
   resumeRemoteVisitPersist,
   saveConsultStore,
@@ -718,6 +719,57 @@ export default function Screen2() {
     };
   }, [activeClientName]);
 
+  // Poll + socket-less refresh while Ghost Notes brief is generating
+  useEffect(() => {
+    const ghost = consultRecord?.ghost;
+    const key = clientKey(activeClientName);
+    const needsPoll =
+      isAppointmentsApiAvailable() &&
+      ghost?.brief_status === 'generating' &&
+      (!ghost?.appointmentId || ghost.appointmentId === activeApt?.id);
+
+    const applyRemote = (data) => {
+      if (!data?.stored || !data.record) return;
+      pauseRemoteConsultPersist();
+      const { store, didMerge } = mergeRemoteConsultIntoStore(
+        key,
+        data.record,
+        consultRecordRef.current,
+      );
+      if (didMerge) {
+        setConsultRecord(getConsultRecord(store, activeClientName));
+      }
+      window.setTimeout(() => resumeRemoteConsultPersist(), 400);
+    };
+
+    const onRemoteUpdated = () => {
+      if (!isAppointmentsApiAvailable()) return;
+      void loadRemoteConsultation(activeClientName).then(applyRemote);
+    };
+
+    window.addEventListener(CONSULTATION_REMOTE_UPDATED, onRemoteUpdated);
+
+    if (!needsPoll) {
+      return () => {
+        window.removeEventListener(CONSULTATION_REMOTE_UPDATED, onRemoteUpdated);
+      };
+    }
+
+    const pollId = window.setInterval(() => {
+      void loadRemoteConsultation(activeClientName).then(applyRemote);
+    }, 3000);
+
+    return () => {
+      window.clearInterval(pollId);
+      window.removeEventListener(CONSULTATION_REMOTE_UPDATED, onRemoteUpdated);
+    };
+  }, [
+    activeClientName,
+    activeApt?.id,
+    consultRecord?.ghost?.brief_status,
+    consultRecord?.ghost?.appointmentId,
+  ]);
+
   /** Profile photo sheet (camera / library); avatar persists per client via consultation store. */
   const [avatarPhotoSheetOpen, setAvatarPhotoSheetOpen] = useState(false);
 
@@ -1043,13 +1095,27 @@ export default function Screen2() {
   }, [consultRecord.photos]);
 
   const preSummary = useMemo(() => {
+    const ghost = consultRecord?.ghost;
+    if (ghost?.brief_status === 'generating') {
+      return 'Preparing consultation brief…';
+    }
+    const aiBrief =
+      typeof ghost?.ai_brief === 'string' && ghost.ai_brief.trim()
+        ? ghost.ai_brief.trim()
+        : '';
+    if (aiBrief) return aiBrief.length > 64 ? `${aiBrief.slice(0, 64)}…` : aiBrief;
+    const plant =
+      Array.isArray(ghost?.ai_plants) && ghost.ai_plants[0]?.text
+        ? String(ghost.ai_plants[0].text).trim()
+        : '';
+    if (plant) return plant.length > 64 ? `${plant.slice(0, 64)}…` : plant;
     const n = (activeApt?.notes && String(activeApt.notes).trim()) || '';
     const svc = activeApt?.service ? String(activeApt.service).trim() : '';
     let s = '';
     if (n && svc) s = `${n} · ${svc}`;
     else s = n || svc || (isNewClient ? 'New appointment — screening & intake' : 'No pre-visit notes yet');
     return s.length > 64 ? `${s.slice(0, 64)}…` : s;
-  }, [activeApt, isNewClient]);
+  }, [activeApt, consultRecord?.ghost, isNewClient]);
 
   const prePillKind = CONSULT.noteTag === 'YELLOW' ? 'alert' : isNewClient ? 'new' : 'returning';
 
