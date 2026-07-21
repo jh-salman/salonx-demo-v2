@@ -470,6 +470,10 @@ function getConsultRecord(store, name) {
       typeof rec.avatarDataKey === 'string' && rec.avatarDataKey.trim()
         ? rec.avatarDataKey.trim()
         : null,
+    ghost:
+      rec.ghost && typeof rec.ghost === 'object' && !Array.isArray(rec.ghost)
+        ? rec.ghost
+        : null,
     updatedAt: rec.updatedAt || null,
   };
 }
@@ -682,15 +686,22 @@ export default function Screen2() {
     };
   }, [activeApt]);
 
-  const isNewClient = useMemo(() => {
-    const target = activeClientName.toLowerCase();
-    return !MOCK_CLIENTS.some((c) => (c.name || '').toLowerCase() === target);
-  }, [activeClientName]);
-
   // Consultation notes per client, persisted to localStorage
   const [consultRecord, setConsultRecord] = useState(() =>
     getConsultRecord(loadConsultStore(), activeClientName),
   );
+
+  const isNewClient = useMemo(() => {
+    const history =
+      (consultRecord.LIFE_entries?.length || 0) +
+      (consultRecord.CHAIR_entries?.length || 0) +
+      (consultRecord.PATH_entries?.length || 0);
+    return history === 0;
+  }, [
+    consultRecord.LIFE_entries,
+    consultRecord.CHAIR_entries,
+    consultRecord.PATH_entries,
+  ]);
 
   const consultRecordRef = useRef(consultRecord);
   consultRecordRef.current = consultRecord;
@@ -810,7 +821,24 @@ export default function Screen2() {
       void (async () => {
         const store = loadConsultStore();
         const key = clientKey(activeClientName);
+        const storedRow = store[key] || {};
         const raw = { ...consultRecordRef.current, updatedAt: Date.now() };
+        const storedGhost = storedRow.ghost;
+        if (
+          storedGhost &&
+          typeof storedGhost === 'object' &&
+          !Array.isArray(storedGhost)
+        ) {
+          const localGhost = raw.ghost;
+          if (!localGhost) {
+            raw.ghost = storedGhost;
+          } else if (
+            localGhost.brief_status === 'generating' &&
+            storedGhost.brief_status === 'ready'
+          ) {
+            raw.ghost = storedGhost;
+          }
+        }
         const av = typeof raw.avatar === 'string' ? raw.avatar.trim() : '';
         const idbKeyExisting =
           typeof raw.avatarDataKey === 'string' && raw.avatarDataKey.trim()
