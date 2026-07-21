@@ -6,6 +6,7 @@
 import { fetchClientsCatalog, saveClientsCatalogRemote } from './calendarCatalogApi.js'
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
 import { isAppointmentsApiAvailable } from './v2AppointmentsApi.js'
+import { http } from '../lib/http.js'
 
 export const CLIENTS_CATALOG_UPDATED = 'salonx:clients-catalog-updated'
 
@@ -74,17 +75,15 @@ export async function uploadClientProfileImage(file) {
 
   const fd = new FormData()
   fd.append('file', file)
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}/api/upload`, {
-    method: 'POST',
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    body: fd,
-  })
-  if (!res.ok) {
-    const t = await res.text().catch(() => '')
-    throw new Error(t || `Upload failed (${res.status})`)
+  let data
+  try {
+    const res = await http.post(`${base}/api/upload`, fd)
+    data = res.data || {}
+  } catch (e) {
+    const d = e?.response?.data
+    const t = typeof d === 'string' ? d : d?.error || ''
+    throw new Error(t || `Upload failed (${e?.response?.status || 0})`)
   }
-  const data = await res.json().catch(() => ({}))
   const url = resolveUploadUrl(data, base)
   if (!url) throw new Error('Upload response missing url')
   return url

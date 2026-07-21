@@ -188,7 +188,9 @@ export async function ensureConsultPhotosAreHosted(record) {
       const url = typeof p?.url === 'string' ? p.url : ''
       if (!url.startsWith('data:')) return p
       try {
-        const blob = await fetch(url).then((r) => r.blob())
+        const { http } = await import('../lib/http.js')
+        const res = await http.get(url, { responseType: 'blob' })
+        const blob = res.data
         const file = new File([blob], 'look.jpg', {
           type: blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg',
         })

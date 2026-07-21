@@ -11,6 +11,8 @@ import SettingsScreen from "../presentation/screen/SettingsScreen";
 import SettingsOrganization from "../presentation/screen/SettingsOrganization";
 import SettingsHours from "../presentation/screen/SettingsHours";
 import SettingsStaff from "../presentation/screen/SettingsStaff";
+import SettingsSchedules from "../presentation/screen/SettingsSchedules";
+import SettingsWaitlist from "../presentation/screen/SettingsWaitlist";
 import SettingsAdmin from "../presentation/screen/SettingsAdmin";
 import Screen1DemoImage from "../presentation/screen/Screen1DemoImage";
 import Screen5 from "../presentation/screen/Screen5";
@@ -159,6 +161,8 @@ function buildRouter() {
         { path: "/settings/organization", element: <SettingsOrganization /> },
         { path: "/settings/hours", element: <SettingsHours /> },
         { path: "/settings/staff", element: <SettingsStaff /> },
+        { path: "/settings/schedules", element: <SettingsSchedules /> },
+        { path: "/settings/waitlist", element: <SettingsWaitlist /> },
         { path: "/settings/admin", element: <SettingsAdmin /> },
         {
           path: "/microsite",

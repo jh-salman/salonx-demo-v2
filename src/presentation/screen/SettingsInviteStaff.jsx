@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import { authAppApi } from '../../auth/authAppApi.js'
 import { cancelOrgInvitation, inviteOrgMember } from '../../auth/authClient.js'
+import {
+  ensureTeam,
+  selectTeamCallerRole,
+  selectTeamInvitations,
+  selectTeamMembers,
+  selectTeamStatus,
+} from '../../store/teamSlice.js'
 
 function statusMeta(status) {
   const s = String(status || '').toLowerCase()
@@ -31,46 +39,40 @@ function memberSub(m) {
 
 /** Staff invite + members + dynamic invitation statuses — Settings. */
 export default function SettingsInviteStaff({ pageMode = false }) {
+  const dispatch = useDispatch()
+  const members = useSelector(selectTeamMembers)
+  const invites = useSelector(selectTeamInvitations)
+  const callerRole = useSelector(selectTeamCallerRole)
+  const teamStatus = useSelector(selectTeamStatus)
+
   const [open] = useState(pageMode)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('member')
   const [busy, setBusy] = useState(false)
-  const [listBusy, setListBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
-  const [invites, setInvites] = useState([])
-  const [members, setMembers] = useState([])
-  const [callerRole, setCallerRole] = useState('')
   const [confirm, setConfirm] = useState(null) // { kind, title, body, run }
 
   const canManage =
     String(callerRole).toLowerCase() === 'owner' ||
     String(callerRole).toLowerCase() === 'admin'
 
-  const refresh = useCallback(async () => {
-    setListBusy(true)
-    try {
-      const [inviteData, memberData] = await Promise.all([
-        authAppApi.orgInvitations().catch(() => null),
-        authAppApi.orgMembers().catch(() => null),
-      ])
-      setInvites(
-        Array.isArray(inviteData?.invitations) ? inviteData.invitations : [],
-      )
-      if (memberData) {
-        setMembers(Array.isArray(memberData.members) ? memberData.members : [])
-        setCallerRole(memberData.callerRole || '')
-      } else {
-        setMembers([])
-        setCallerRole('')
+  // Show spinner only on the first empty load — cached revisits render instantly.
+  const listBusy = teamStatus === 'loading' && members.length === 0 && invites.length === 0
+
+  const refresh = useCallback(
+    async (force = false) => {
+      try {
+        await dispatch(ensureTeam(force ? { force: true } : undefined))
+      } catch {
+        /* keep last good cache */
       }
-    } finally {
-      setListBusy(false)
-    }
-  }, [])
+    },
+    [dispatch],
+  )
 
   useEffect(() => {
-    if (open) void refresh()
+    if (open) void refresh(false)
   }, [open, refresh])
 
   async function submit(e) {
@@ -82,7 +84,7 @@ export default function SettingsInviteStaff({ pageMode = false }) {
       await inviteOrgMember({ email: email.trim(), role })
       setMsg(`Invite sent to ${email.trim()}`)
       setEmail('')
-      await refresh()
+      await refresh(true)
     } catch (err) {
       const text = err.message || 'Invite failed'
       if (/already invited/i.test(text)) {
@@ -94,7 +96,7 @@ export default function SettingsInviteStaff({ pageMode = false }) {
           })
           setMsg(`Invite re-sent to ${email.trim()}`)
           setEmail('')
-          await refresh()
+          await refresh(true)
           return
         } catch (e2) {
           setError(e2.message || text)
@@ -119,7 +121,7 @@ export default function SettingsInviteStaff({ pageMode = false }) {
     try {
       await confirm.run()
       setConfirm(null)
-      await refresh()
+      await refresh(true)
     } catch (err) {
       setError(err.message || 'Action failed')
       setConfirm(null)
@@ -181,7 +183,14 @@ export default function SettingsInviteStaff({ pageMode = false }) {
   }
 
   const sortedInvites = [...invites].sort((a, b) => {
-    const order = { pending: 0, accepted: 1, canceled: 2, cancelled: 2, expired: 3, rejected: 4 }
+    const order = {
+      pending: 0,
+      accepted: 1,
+      canceled: 2,
+      cancelled: 2,
+      expired: 3,
+      rejected: 4,
+    }
     const sa = order[String(a.status || '').toLowerCase()] ?? 9
     const sb = order[String(b.status || '').toLowerCase()] ?? 9
     if (sa !== sb) return sa - sb
@@ -242,22 +251,22 @@ export default function SettingsInviteStaff({ pageMode = false }) {
           <button
             type="button"
             className="sx-btn sx-btn--ghost sx-btn--sm"
-            onClick={() => void refresh()}
-            disabled={listBusy}
+            onClick={() => void refresh(true)}
+            disabled={teamStatus === 'loading'}
           >
-            {listBusy ? '…' : 'Refresh'}
+            {teamStatus === 'loading' ? '…' : 'Refresh'}
           </button>
         </div>
 
-        {members.length === 0 ? (
+        {listBusy ? (
+          <p className="sx-empty">Loading…</p>
+        ) : members.length === 0 ? (
           <p className="sx-empty">No members yet</p>
         ) : (
           <ul className="sx-inviteList">
             {members.map((m) => (
               <li key={m.id} className="sx-inviteItem">
-                <span className="sx-avatar">
-                  {memberLabel(m).charAt(0)}
-                </span>
+                <span className="sx-avatar">{memberLabel(m).charAt(0)}</span>
                 <span className="sx-inviteItem__meta">
                   <span className="sx-inviteItem__email">
                     {memberLabel(m)}
@@ -265,7 +274,9 @@ export default function SettingsInviteStaff({ pageMode = false }) {
                   </span>
                   <span className="sx-inviteItem__role">{memberSub(m)}</span>
                 </span>
-                <span className={`sx-status sx-status--${String(m.role || 'member').toLowerCase()}`}>
+                <span
+                  className={`sx-status sx-status--${String(m.role || 'member').toLowerCase()}`}
+                >
                   {m.role || 'member'}
                 </span>
                 {canManage && !m.isSelf ? (

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useDispatch } from 'react-redux'
 import CreateFromTemplate from './admin/CreateFromTemplate'
 import MicrositeThemeEditor from './admin/MicrositeThemeEditor'
-import { authAppApi } from '../../auth/authAppApi.js'
+import { ensureMe } from '../../store/sessionSlice.js'
 import { micrositeApi } from './micrositeApi'
 import './microsite.css'
 
@@ -10,6 +11,7 @@ import './microsite.css'
  * Stylist Microsite panel — always scoped to the active organization salon.
  */
 export default function MicrositeAdminScreen() {
+  const dispatch = useDispatch()
   const [salon, setSalon] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -20,7 +22,7 @@ export default function MicrositeAdminScreen() {
     setError('')
     setNeedsOrg(false)
     try {
-      const me = await authAppApi.me()
+      const me = await dispatch(ensureMe({ force: true }))
       if (!me?.members?.length || !me?.session?.activeOrganizationId) {
         setSalon(null)
         setNeedsOrg(true)
@@ -42,11 +44,11 @@ export default function MicrositeAdminScreen() {
       setSalon(mine)
     } catch (e) {
       setSalon(null)
-      setError(e.message || 'Failed to load microsite')
+      setError(e?.message || 'Failed to load microsite')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dispatch])
 
   useEffect(() => {
     void refresh()

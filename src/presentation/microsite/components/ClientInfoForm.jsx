@@ -3,7 +3,10 @@ export default function ClientInfoForm({
   clientPhone,
   clientEmail = '',
   notes = '',
+  referenceImageUrl = '',
   onChange,
+  onPickImage,
+  uploadingImage,
 }) {
   return (
     <div className="ms-bk-form">
@@ -48,6 +51,28 @@ export default function ClientInfoForm({
           onChange={(e) => onChange({ notes: e.target.value })}
           placeholder="Anything we should know?"
         />
+      </label>
+      <label className="ms-field">
+        <span>Reference image (optional)</span>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) onPickImage?.(file)
+          }}
+        />
+        <span className="ms-field__hint">
+          Show your stylist what you&apos;re expecting — one image.
+        </span>
+        {uploadingImage ? <span className="ms-muted">Uploading…</span> : null}
+        {referenceImageUrl ? (
+          <img
+            className="ms-bk-refpreview"
+            src={referenceImageUrl}
+            alt="Reference"
+          />
+        ) : null}
       </label>
     </div>
   )

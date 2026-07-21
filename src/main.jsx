@@ -2,6 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { RouterProvider } from 'react-router-dom'
+import { Provider } from 'react-redux'
+import { store } from './store/index.js'
 import { router } from './route/router.jsx'
 import { AppProvider } from './context/AppContext.jsx'
 import { TimersProvider } from './context/TimersContext.jsx'
@@ -29,15 +31,17 @@ async function startApp() {
 
   createRoot(document.getElementById('root')).render(
     <StrictMode>
-      <ThemeProvider>
-        <AppProvider>
-          <TimersProvider>
-            {/* <ResponsivePhoneShell> */}
-              <RouterProvider router={router} />
-            {/* </ResponsivePhoneShell> */}
-          </TimersProvider>
-        </AppProvider>
-      </ThemeProvider>
+      <Provider store={store}>
+        <ThemeProvider>
+          <AppProvider>
+            <TimersProvider>
+              {/* <ResponsivePhoneShell> */}
+                <RouterProvider router={router} />
+              {/* </ResponsivePhoneShell> */}
+            </TimersProvider>
+          </AppProvider>
+        </ThemeProvider>
+      </Provider>
     </StrictMode>,
   )
 }

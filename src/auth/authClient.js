@@ -1,6 +1,7 @@
 import { createAuthClient } from 'better-auth/react'
 import { phoneNumberClient, organizationClient } from 'better-auth/client/plugins'
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
+import { http, toApiError } from '../lib/http.js'
 
 /** Public API origin the browser should call (Vite proxy or production). */
 export function authBaseURL() {
@@ -64,27 +65,18 @@ export const authClient = new Proxy(
   },
 )
 
-async function authJson(path, init = {}) {
+async function authJson(path, { method = 'GET', body } = {}) {
   const url = `${authBaseURL()}${path}`
-  const res = await fetch(url, {
-    credentials: 'include',
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(init.headers || {}),
-    },
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const err = new Error(
-      data.message || data.error || res.statusText || 'Request failed',
-    )
-    err.status = res.status
-    err.data = data
-    throw err
+  try {
+    const res = await http.request({
+      url,
+      method,
+      ...(body !== undefined ? { data: body } : {}),
+    })
+    return res.data
+  } catch (e) {
+    throw toApiError(e)
   }
-  return data
 }
 
 /** Invite staff into the active organization (session cookie). */
@@ -95,11 +87,11 @@ export async function inviteOrgMember({
 }) {
   return authJson('/api/auth/organization/invite-member', {
     method: 'POST',
-    body: JSON.stringify({
+    body: {
       email: String(email || '').trim(),
       role,
       ...(resend ? { resend: true } : {}),
-    }),
+    },
   })
 }
 
@@ -113,13 +105,13 @@ export async function listOrgInvitations() {
 export async function cancelOrgInvitation(invitationId) {
   return authJson('/api/auth/organization/cancel-invitation', {
     method: 'POST',
-    body: JSON.stringify({ invitationId: String(invitationId || '').trim() }),
+    body: { invitationId: String(invitationId || '').trim() },
   })
 }
 
 /** End the current session (better-auth core endpoint). */
 export async function signOut() {
-  return authJson('/api/auth/sign-out', { method: 'POST', body: '{}' })
+  return authJson('/api/auth/sign-out', { method: 'POST', body: {} })
 }
 
 function isUsNational(d) {
@@ -165,48 +157,24 @@ export function toUsE164(tenDigits) {
 /** Direct send-otp (avoids stale better-auth client base). */
 export async function sendPhoneOtp(phoneNumber) {
   const url = `${authBaseURL()}/api/auth/phone-number/send-otp`
-  const res = await fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ phoneNumber }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const err = new Error(
-      data.message || data.error || res.statusText || 'Could not send code',
-    )
-    err.status = res.status
+  try {
+    const res = await http.post(url, { phoneNumber })
+    return res.data
+  } catch (e) {
+    const err = toApiError(e, 'Could not send code')
     err.url = url
-    err.data = data
     throw err
   }
-  return data
 }
 
 export async function verifyPhoneOtp(phoneNumber, code) {
   const url = `${authBaseURL()}/api/auth/phone-number/verify`
-  const res = await fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ phoneNumber, code }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const err = new Error(
-      data.message || data.error || res.statusText || 'Invalid code',
-    )
-    err.status = res.status
+  try {
+    const res = await http.post(url, { phoneNumber, code })
+    return res.data
+  } catch (e) {
+    const err = toApiError(e, 'Invalid code')
     err.url = url
-    err.data = data
     throw err
   }
-  return data
 }

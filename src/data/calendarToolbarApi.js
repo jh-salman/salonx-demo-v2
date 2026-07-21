@@ -1,4 +1,5 @@
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
+import { http, toApiError } from '../lib/http.js'
 
 /**
  * GET /api/calendar-toolbar — parked + waitlist toolbar JSON (salonx-web-v2).
@@ -7,14 +8,12 @@ import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
 export async function fetchCalendarToolbar() {
   const base = getV2AdminBase()
   if (!base) return null
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}/api/calendar-toolbar`, {
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    credentials: 'include',
-    cache: 'no-store',
-  })
-  if (!res.ok) return null
-  return res.json()
+  try {
+    const res = await http.get(`${base}/api/calendar-toolbar`)
+    return res.data
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -23,24 +22,17 @@ export async function fetchCalendarToolbar() {
 export async function saveCalendarToolbarRemote(body) {
   const base = getV2AdminBase()
   if (!base) throw new Error('V2 admin / demo-api base URL is not configured')
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}/api/calendar-toolbar`, {
-    method: 'PUT',
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    if (res.status === 409) {
-      const err = new Error(data.error || 'Toolbar conflict')
-      err.code = 'CONFLICT'
-      err.payload = data
-      throw err
+  try {
+    const res = await http.put(`${base}/api/calendar-toolbar`, body)
+    return res.data
+  } catch (e) {
+    const err = toApiError(e)
+    if (err.status === 409) {
+      const conflict = new Error(err.data?.error || 'Toolbar conflict')
+      conflict.code = 'CONFLICT'
+      conflict.payload = err.data
+      throw conflict
     }
-    const t = typeof data.error === 'string' ? data.error : await res.text().catch(() => '')
-    throw new Error(t || `HTTP ${res.status}`)
+    throw new Error(err.data?.error || `HTTP ${err.status}`)
   }
-  return res.json()
 }

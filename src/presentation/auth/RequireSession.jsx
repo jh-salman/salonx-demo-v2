@@ -1,23 +1,27 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { authAppApi } from '../../auth/authAppApi.js'
+import { useDispatch, useSelector } from 'react-redux'
+import { ensureMe, selectMe } from '../../store/sessionSlice.js'
 import './authScreens.css'
 
 /**
  * Soft gate for stylist tools (Microsite, etc.).
- * Uses `/api/auth-app/me` (cookie session) — more reliable than client getSession alone.
- * On failure: show sign-in card here (do not dump onto blank black Home).
+ * Session lives in the Redux store (`ensureMe` dedupes the `/api/auth-app/me`
+ * cookie-session check), so route changes reuse the cached session instead of
+ * refetching. On failure: show sign-in card here (do not dump onto blank black
+ * Home).
  */
 export default function RequireSession({ children }) {
   const location = useLocation()
-  const [state, setState] = useState('loading')
+  const dispatch = useDispatch()
+  const me = useSelector(selectMe)
+  const [state, setState] = useState(me?.user ? 'ok' : 'loading')
 
   useEffect(() => {
     let alive = true
-    authAppApi
-      .me()
-      .then(() => {
-        if (alive) setState('ok')
+    dispatch(ensureMe())
+      .then((data) => {
+        if (alive) setState(data?.user ? 'ok' : 'no')
       })
       .catch(() => {
         if (alive) setState('no')
@@ -25,7 +29,7 @@ export default function RequireSession({ children }) {
     return () => {
       alive = false
     }
-  }, [location.pathname])
+  }, [location.pathname, dispatch])
 
   if (state === 'loading') {
     return (

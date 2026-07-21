@@ -1,4 +1,5 @@
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
+import { http, toApiError } from '../lib/http.js'
 
 /**
  * @typedef {object} AppointmentDto
@@ -21,6 +22,7 @@ export function appointmentDtoToEvent(dto) {
   return {
     id: dto.id,
     clientName: dto.clientName,
+    ...(dto.clientPhone ? { clientPhone: dto.clientPhone } : {}),
     service: dto.service || '',
     start,
     end,
@@ -29,6 +31,12 @@ export function appointmentDtoToEvent(dto) {
     notes: dto.notes || '',
     ...(dto.seriesId ? { seriesId: dto.seriesId } : {}),
     ...(dto.staffId ? { staffId: dto.staffId } : {}),
+    ...(dto.referenceImageUrl
+      ? { referenceImageUrl: dto.referenceImageUrl }
+      : {}),
+    ...(dto.referenceImageReviewedAt
+      ? { referenceImageReviewedAt: dto.referenceImageReviewedAt }
+      : {}),
   }
 }
 
@@ -36,37 +44,21 @@ export function isAppointmentsApiAvailable() {
   return Boolean(getV2AdminBase())
 }
 
-function apiFetch(path, init = {}) {
+async function apiRequest(path, { method = 'GET', body, signal } = {}) {
   const base = getV2AdminBase()
   if (!base) throw new Error('V2 admin URL is not configured')
-  const sameOrigin = base.startsWith('/')
-  return fetch(`${base}${path}`, {
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    credentials: 'include',
-    cache: 'no-store',
-    ...init,
-  })
-}
-
-async function readJson(res) {
-  const text = await res.text()
-  let data = null
   try {
-    data = text ? JSON.parse(text) : null
-  } catch {
-    data = null
+    const res = await http.request({
+      url: `${base}${path}`,
+      method,
+      ...(body !== undefined ? { data: body } : {}),
+      ...(signal ? { signal } : {}),
+    })
+    return res.data
+  } catch (e) {
+    if (e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED') throw e
+    throw toApiError(e, `HTTP ${e?.response?.status || 0}`)
   }
-  if (!res.ok) {
-    let msg =
-      data && typeof data === 'object' && typeof data.error === 'string'
-        ? data.error
-        : `HTTP ${res.status}`
-    if (msg === `HTTP ${res.status}` && text && text.length > 0 && text.length < 400) {
-      msg = `${msg}: ${text.trim()}`
-    }
-    throw new Error(msg)
-  }
-  return data
 }
 
 /**
@@ -81,10 +73,9 @@ export async function fetchAppointmentsRange(from, to, opts = {}) {
     from: from.toISOString(),
     to: to.toISOString(),
   })
-  const res = await apiFetch(`/api/appointments?${qs}`, {
+  const data = await apiRequest(`/api/appointments?${qs}`, {
     signal: opts.signal,
   })
-  const data = await readJson(res)
   return Array.isArray(data?.appointments) ? data.appointments : []
 }
 
@@ -93,12 +84,7 @@ export async function fetchAppointmentsRange(from, to, opts = {}) {
  * @returns {Promise<{ appointment: AppointmentDto }>}
  */
 export async function createAppointmentRemote(body) {
-  const res = await apiFetch('/api/appointments', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return readJson(res)
+  return apiRequest('/api/appointments', { method: 'POST', body })
 }
 
 /**
@@ -107,21 +93,56 @@ export async function createAppointmentRemote(body) {
  * @returns {Promise<{ appointment: AppointmentDto }>}
  */
 export async function updateAppointmentRemote(id, patch) {
-  const res = await apiFetch(`/api/appointments/${encodeURIComponent(id)}`, {
+  return apiRequest(`/api/appointments/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
+    body: patch,
   })
-  return readJson(res)
 }
 
 /**
  * @param {string} id
  */
 export async function deleteAppointmentRemote(id) {
-  const res = await apiFetch(`/api/appointments/${encodeURIComponent(id)}`, {
+  await apiRequest(`/api/appointments/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
-  if (res.status === 204) return
-  await readJson(res)
+}
+
+/**
+ * Upcoming appointments with an unreviewed client reference image (#11 popup).
+ * @param {{ staffId?: string | null }} [opts]
+ * @returns {Promise<AppointmentDto[]>}
+ */
+export async function fetchPendingReferenceReviews(opts = {}) {
+  if (!getV2AdminBase()) return []
+  const qs = new URLSearchParams()
+  if (opts.staffId) qs.set('staffId', opts.staffId)
+  const suffix = qs.toString() ? `?${qs}` : ''
+  const data = await apiRequest(
+    `/api/appointments/pending-reference-reviews${suffix}`,
+  )
+  return Array.isArray(data?.appointments) ? data.appointments : []
+}
+
+/**
+ * Staff → client note/SMS for an appointment (#9).
+ * @param {string} id
+ * @param {{ body: string, clientPhone?: string }} payload
+ */
+export async function sendAppointmentMessage(id, payload) {
+  return apiRequest(`/api/appointments/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    body: payload,
+  })
+}
+
+/**
+ * List staff → client messages for an appointment.
+ * @param {string} id
+ */
+export async function fetchAppointmentMessages(id) {
+  const data = await apiRequest(
+    `/api/appointments/${encodeURIComponent(id)}/messages`,
+  )
+  return Array.isArray(data?.messages) ? data.messages : []
 }

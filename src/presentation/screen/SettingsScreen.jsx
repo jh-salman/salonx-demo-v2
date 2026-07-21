@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDispatch } from 'react-redux';
 
 import { signOut } from '../../auth/authClient.js';
+import { sessionCleared } from '../../store/sessionSlice.js';
 import '../style/settings.css';
 
 /** SalonX v2 admin — external station (Build Station / RAMP). */
@@ -68,6 +70,7 @@ const IconSearch = () => (
  */
 function SettingsScreen() {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const [query, setQuery] = useState('');
   const [signingOut, setSigningOut] = useState(false);
 
@@ -80,6 +83,8 @@ function SettingsScreen() {
           { id: 'org', label: 'Organization', hint: 'Switch or create a salon', Icon: IconOrg, to: '/settings/organization' },
           { id: 'hours', label: 'Business hours', hint: 'Online booking availability', Icon: IconHours, to: '/settings/hours' },
           { id: 'staff', label: 'Staff', hint: 'Invite & manage your team', Icon: IconStaff, to: '/settings/staff' },
+          { id: 'schedules', label: 'Stylist schedules', hint: 'Per-stylist hours, lunch & breaks', Icon: IconHours, to: '/settings/schedules' },
+          { id: 'waitlist', label: 'Waiting list', hint: 'Clients waiting for a time', Icon: IconStaff, to: '/settings/waitlist' },
         ],
       },
       {
@@ -125,6 +130,7 @@ function SettingsScreen() {
     } catch {
       /* ignore — still leave the session */
     }
+    dispatch(sessionCleared());
     navigate('/');
   }
 

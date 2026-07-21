@@ -6,9 +6,12 @@ import AddOnPicker from '../components/AddOnPicker'
 import StaffPicker from '../components/StaffPicker'
 import SlotPicker from '../components/SlotPicker'
 import ClientInfoForm from '../components/ClientInfoForm'
+import WaitlistForm from '../components/WaitlistForm'
 import { micrositeApi, micrositePublicPath } from '../micrositeApi'
 import { useMicrositeSlug } from '../useMicrositeSlug'
 import { cartTotals, durationLabel, priceLabel, splitCatalog } from '../micrositeCatalog'
+import { getV2AdminBase } from '../../../sync/v2AdminBootstrap.js'
+import { http } from '../../../lib/http.js'
 
 function todayISODate() {
   const d = new Date()
@@ -37,6 +40,7 @@ const STEP_TITLES = {
   addons: 'Add extras',
   staff: 'Choose your professional',
   time: 'Pick a time',
+  waitlist: 'Join waiting list',
   details: 'Your details',
 }
 
@@ -45,7 +49,21 @@ const STEP_LABELS = {
   addons: 'Extras',
   staff: 'Pro',
   time: 'Time',
+  waitlist: 'Waitlist',
   details: 'Details',
+}
+
+async function uploadReferenceImage(file) {
+  const base = getV2AdminBase()
+  if (!base) throw new Error('Upload unavailable')
+  const fd = new FormData()
+  fd.append('file', file)
+  try {
+    const res = await http.post(`${base}/api/upload`, fd)
+    return res.data?.url || res.data?.path
+  } catch (e) {
+    throw new Error(e?.response?.data?.error || 'Upload failed')
+  }
 }
 
 export default function MicrositeBook() {
@@ -66,15 +84,27 @@ export default function MicrositeBook() {
   const [slots, setSlots] = useState([])
   const [slot, setSlot] = useState(null)
   const [slotsLoading, setSlotsLoading] = useState(false)
+  const [smartLoading, setSmartLoading] = useState(false)
+  const [smartMiss, setSmartMiss] = useState(false)
 
   const [client, setClient] = useState({
     clientName: '',
     clientPhone: '',
     clientEmail: '',
     notes: '',
+    referenceImageUrl: '',
   })
+  const [waitlist, setWaitlist] = useState({
+    clientName: '',
+    clientPhone: '',
+    preferredWindow: 'afternoon',
+    preferredDates: [todayISODate()],
+    notes: '',
+  })
+  const [uploadingImage, setUploadingImage] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [waitlistDone, setWaitlistDone] = useState(false)
 
   const { main: services, addOns } = useMemo(
     () => splitCatalog(rawServices),
@@ -88,7 +118,10 @@ export default function MicrositeBook() {
     return s
   }, [addOns.length])
 
-  const stepKey = steps[Math.min(step, steps.length - 1)]
+  const [forceWaitlist, setForceWaitlist] = useState(false)
+  const stepKey = forceWaitlist
+    ? 'waitlist'
+    : steps[Math.min(step, steps.length - 1)]
 
   const loadAll = useCallback(() => {
     if (!slug) {
@@ -174,6 +207,77 @@ export default function MicrositeBook() {
     )
   }
 
+  async function handleSmartFind({ dates, window }) {
+    setSmartLoading(true)
+    setSmartMiss(false)
+    setError('')
+    try {
+      const data = await micrositeApi.smartAvailability(slug, {
+        dates,
+        window,
+        serviceId: primaryServiceId || undefined,
+        staffId: staffId || undefined,
+      })
+      if (data.slot?.start) {
+        setSlot(data.slot)
+        if (data.slot.date) setDate(data.slot.date)
+        setSmartMiss(false)
+      } else {
+        setSlot(null)
+        setSmartMiss(true)
+      }
+    } catch (e) {
+      setError(e.message || 'Search failed')
+      setSmartMiss(true)
+    } finally {
+      setSmartLoading(false)
+    }
+  }
+
+  function openWaitlist() {
+    setWaitlist((w) => ({
+      ...w,
+      clientName: w.clientName || client.clientName,
+      clientPhone: w.clientPhone || client.clientPhone,
+    }))
+    setForceWaitlist(true)
+    setWaitlistDone(false)
+  }
+
+  async function submitWaitlist() {
+    setBusy(true)
+    setError('')
+    try {
+      await micrositeApi.joinWaitlist(slug, {
+        clientName: waitlist.clientName.trim(),
+        clientPhone: waitlist.clientPhone.trim(),
+        serviceId: primaryServiceId || undefined,
+        staffId: staffId || undefined,
+        preferredDates: waitlist.preferredDates,
+        preferredWindow: waitlist.preferredWindow || undefined,
+        notes: waitlist.notes.trim() || undefined,
+      })
+      setWaitlistDone(true)
+    } catch (e) {
+      setError(e.message || 'Could not join waitlist')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handlePickImage(file) {
+    setUploadingImage(true)
+    setError('')
+    try {
+      const url = await uploadReferenceImage(file)
+      setClient((c) => ({ ...c, referenceImageUrl: url }))
+    } catch (e) {
+      setError(e.message || 'Image upload failed')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
   const canNext = useMemo(() => {
     if (stepKey === 'service') return serviceIds.length > 0
     if (stepKey === 'addons') return true
@@ -181,6 +285,7 @@ export default function MicrositeBook() {
     if (stepKey === 'time') return Boolean(slot?.start)
     if (stepKey === 'details')
       return Boolean(client.clientName.trim() && client.clientPhone.trim())
+    if (stepKey === 'waitlist') return false
     return false
   }, [stepKey, serviceIds, slot, client])
 
@@ -217,6 +322,7 @@ export default function MicrositeBook() {
         staffId: staffId || slot.staffId || null,
         start: startD.toISOString(),
         end: endD.toISOString(),
+        referenceImageUrl: client.referenceImageUrl || undefined,
       })
       navigate(micrositePublicPath(slug, 'success'), {
         state: { clientName: client.clientName.trim() },
@@ -272,19 +378,21 @@ export default function MicrositeBook() {
             ← {salon?.name}
           </Link>
           <h1 className="ms-book__title">{STEP_TITLES[stepKey]}</h1>
-          <div className="ms-bk-steps" aria-label="Progress">
-            {steps.map((key, i) => (
-              <span
-                key={key}
-                className={`ms-bk-steps__item${i === step ? ' is-active' : ''}${
-                  i < step ? ' is-done' : ''
-                }`}
-              >
-                <i className="ms-bk-steps__dot" />
-                <span className="ms-bk-steps__txt">{STEP_LABELS[key]}</span>
-              </span>
-            ))}
-          </div>
+          {!forceWaitlist ? (
+            <div className="ms-bk-steps" aria-label="Progress">
+              {steps.map((key, i) => (
+                <span
+                  key={key}
+                  className={`ms-bk-steps__item${i === step ? ' is-active' : ''}${
+                    i < step ? ' is-done' : ''
+                  }`}
+                >
+                  <i className="ms-bk-steps__dot" />
+                  <span className="ms-bk-steps__txt">{STEP_LABELS[key]}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="ms-book__body">
@@ -314,9 +422,35 @@ export default function MicrositeBook() {
               onDateChange={setDate}
               slots={slots}
               value={slot}
-              onChange={setSlot}
+              onChange={(s) => {
+                setSlot(s)
+                setSmartMiss(false)
+              }}
               loading={slotsLoading}
+              onSmartFind={handleSmartFind}
+              smartLoading={smartLoading}
+              smartMiss={smartMiss}
+              onJoinWaitlist={openWaitlist}
             />
+          ) : null}
+
+          {stepKey === 'waitlist' ? (
+            waitlistDone ? (
+              <div className="ms-center">
+                <h2 className="ms-bk-error-title">You&apos;re on the list</h2>
+                <p className="ms-muted">We&apos;ll reach out when a time opens up.</p>
+                <Link className="ms-btn ms-btn--primary" to={micrositePublicPath(slug)}>
+                  Done
+                </Link>
+              </div>
+            ) : (
+              <WaitlistForm
+                {...waitlist}
+                onChange={(patch) => setWaitlist((w) => ({ ...w, ...patch }))}
+                onSubmit={submitWaitlist}
+                busy={busy}
+              />
+            )
           ) : null}
 
           {stepKey === 'details' ? (
@@ -360,7 +494,10 @@ export default function MicrositeBook() {
                 clientPhone={client.clientPhone}
                 clientEmail={client.clientEmail}
                 notes={client.notes}
+                referenceImageUrl={client.referenceImageUrl}
                 onChange={(patch) => setClient((c) => ({ ...c, ...patch }))}
+                onPickImage={handlePickImage}
+                uploadingImage={uploadingImage}
               />
             </>
           ) : null}
@@ -369,7 +506,7 @@ export default function MicrositeBook() {
         </div>
 
         <div className="ms-book__footer">
-          {cart.count > 0 && stepKey !== 'details' ? (
+          {cart.count > 0 && stepKey !== 'details' && stepKey !== 'waitlist' ? (
             <div className="ms-bk-cartbar">
               <span className="ms-bk-cartbar__count">
                 {cart.count} {cart.count === 1 ? 'item' : 'items'}
@@ -379,7 +516,15 @@ export default function MicrositeBook() {
             </div>
           ) : null}
           <div className="ms-book__actions">
-            {step > 0 ? (
+            {forceWaitlist ? (
+              <button
+                type="button"
+                className="ms-btn ms-btn--ghost"
+                onClick={() => setForceWaitlist(false)}
+              >
+                Back
+              </button>
+            ) : step > 0 ? (
               <button
                 type="button"
                 className="ms-btn ms-btn--ghost"
@@ -390,7 +535,7 @@ export default function MicrositeBook() {
             ) : (
               <span />
             )}
-            {step < steps.length - 1 ? (
+            {!forceWaitlist && step < steps.length - 1 ? (
               <button
                 type="button"
                 className="ms-btn ms-btn--primary"
@@ -399,7 +544,8 @@ export default function MicrositeBook() {
               >
                 Continue
               </button>
-            ) : (
+            ) : null}
+            {!forceWaitlist && step === steps.length - 1 ? (
               <button
                 type="button"
                 className="ms-btn ms-btn--primary"
@@ -408,7 +554,7 @@ export default function MicrositeBook() {
               >
                 {busy ? 'Booking…' : 'Confirm booking'}
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

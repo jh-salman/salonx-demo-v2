@@ -1,48 +1,18 @@
-import { getV2AdminBase } from '../../sync/v2AdminBootstrap.js'
+import { apiJson } from '../../lib/http.js'
 
 const DEFAULT_TIMEOUT_MS = 15000
 
 /**
  * Fetch a microsite endpoint with a hard timeout so a cold/slow backend never
- * leaves the booking UI stuck on "Loading…". Aborts after `timeoutMs`.
+ * leaves the booking UI stuck on "Loading…". Times out after `timeoutMs`
+ * (axios timeout → error with `.code = 'TIMEOUT'`).
  */
 function apiFetch(path, init = {}, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const base = getV2AdminBase()
-  if (!base) {
-    return Promise.reject(new Error('API base not configured'))
-  }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  return fetch(`${base}${path}`, {
-    credentials: 'include',
-    signal: controller.signal,
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(init.headers || {}),
-    },
+  return apiJson(path, {
+    method: init.method || 'GET',
+    ...(init.body !== undefined ? { body: init.body } : {}),
+    timeoutMs,
   })
-    .then(async (res) => {
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const err = new Error(data?.error || res.statusText || 'Request failed')
-        err.status = res.status
-        err.data = data
-        throw err
-      }
-      return data
-    })
-    .catch((err) => {
-      if (err?.name === 'AbortError') {
-        const e = new Error('This is taking too long. Please try again.')
-        e.status = 0
-        e.code = 'TIMEOUT'
-        throw e
-      }
-      throw err
-    })
-    .finally(() => clearTimeout(timer))
 }
 
 export const micrositeApi = {
@@ -53,12 +23,12 @@ export const micrositeApi = {
   create: (body) =>
     apiFetch('/api/microsite/create', {
       method: 'POST',
-      body: JSON.stringify(body),
+      body,
     }),
   patchSalon: (slug, body) =>
     apiFetch(`/api/microsite/salons/${encodeURIComponent(slug)}`, {
       method: 'PATCH',
-      body: JSON.stringify(body),
+      body,
     }),
   getPublicSalon: (slug) =>
     apiFetch(`/api/microsite/public/salons/${encodeURIComponent(slug)}`),
@@ -74,10 +44,20 @@ export const micrositeApi = {
       `/api/microsite/public/salons/${encodeURIComponent(slug)}/availability?${q}`,
     )
   },
+  smartAvailability: (slug, body) =>
+    apiFetch(
+      `/api/microsite/public/salons/${encodeURIComponent(slug)}/smart-availability`,
+      { method: 'POST', body },
+    ),
+  joinWaitlist: (slug, body) =>
+    apiFetch(
+      `/api/microsite/public/salons/${encodeURIComponent(slug)}/waitlist`,
+      { method: 'POST', body },
+    ),
   book: (slug, body) =>
     apiFetch(`/api/microsite/public/salons/${encodeURIComponent(slug)}/book`, {
       method: 'POST',
-      body: JSON.stringify(body),
+      body,
     }),
 }
 

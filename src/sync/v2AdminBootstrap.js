@@ -578,21 +578,20 @@ export async function syncFromV2Admin() {
     const headers = {}
     if (cached?.etag) headers['If-None-Match'] = cached.etag
 
-    const sameOrigin = base.startsWith('/')
-    const res = await fetch(`${base}/api/config?forWeb=1`, {
-      mode: sameOrigin ? 'same-origin' : 'cors',
-      cache: 'no-store',
+    const { http } = await import('../lib/http.js')
+    const res = await http.get(`${base}/api/config?forWeb=1`, {
       headers,
+      // 304 Not Modified is a valid answer here, not an error.
+      validateStatus: (s) => (s >= 200 && s < 300) || s === 304,
     })
     if (res.status === 304) {
       if (cached?.body) applyV2AdminConfigJson(cached.body)
       return true
     }
-    if (!res.ok) return false
 
-    const cfg = await res.json()
+    const cfg = res.data
     applyV2AdminConfigJson(cfg)
-    const etag = res.headers.get('ETag')?.trim() || ''
+    const etag = String(res.headers?.etag || '').trim()
     writeV2ConfigCache(etag, cfg)
     return true
   } catch {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { authAppApi } from '../../auth/authAppApi.js'
+import { useDispatch } from 'react-redux'
+import { ensureMe } from '../../store/sessionSlice.js'
 import { micrositeApi } from '../microsite/micrositeApi.js'
 
 const DAY_LABELS = [
@@ -28,6 +29,7 @@ function normalizeHours(raw) {
 
 /** Active org salon booking hours — Settings (gear). */
 export default function SettingsOrgHours({ pageMode = false }) {
+  const dispatch = useDispatch()
   const [open] = useState(pageMode)
   const [salon, setSalon] = useState(null)
   const [hours, setHours] = useState({})
@@ -38,20 +40,20 @@ export default function SettingsOrgHours({ pageMode = false }) {
   const load = useCallback(async () => {
     setError('')
     try {
-      const me = await authAppApi.me()
+      const me = await dispatch(ensureMe({ force: true }))
       const active = me?.activeSalon || null
       setSalon(active)
       setHours(normalizeHours(active?.bookingHours))
     } catch (e) {
       setSalon(null)
       setHours({})
-      if (e.status === 401) {
+      if (e?.status === 401) {
         setError('Sign in to edit hours')
       } else {
-        setError(e.message || 'Could not load hours')
+        setError(e?.message || 'Could not load hours')
       }
     }
-  }, [])
+  }, [dispatch])
 
   useEffect(() => {
     if (open) void load()

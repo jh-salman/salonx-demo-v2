@@ -13,7 +13,8 @@ import {
   clearClientsCatalogCache,
   refreshClientsCatalogCache,
 } from '../../data/clientProfileAvatar';
-import { authAppApi } from '../../auth/authAppApi.js';
+import { useDispatch } from 'react-redux';
+import { ensureMe } from '../../store/sessionSlice.js';
 import { isAppointmentsApiAvailable } from '../../data/v2AppointmentsApi';
 import { writePersistedScreen2Apt } from '../../data/appointmentStateStore';
 import {
@@ -98,7 +99,7 @@ export default function Clients() {
     let cancelled = false;
     void (async () => {
       try {
-        const me = await authAppApi.me();
+        const me = await dispatch(ensureMe());
         if (cancelled) return;
         const sid = me?.activeSalon?.id || null;
         setActiveSalonId(sid);
@@ -113,7 +114,7 @@ export default function Clients() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dispatch]);
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) {

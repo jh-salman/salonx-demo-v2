@@ -1,4 +1,5 @@
 import { getV2AdminBase, syncFromV2Admin } from '../sync/v2AdminBootstrap.js'
+import { http } from '../lib/http.js'
 
 const S1_SLOTS = ['topBar', 'hero', 'promo', 'curveStrip']
 
@@ -13,23 +14,18 @@ export async function uploadBuildStationMedia(file) {
 
   const fd = new FormData()
   fd.set('file', file)
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}/api/upload`, {
-    method: 'POST',
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    body: fd,
-  })
-  if (!res.ok) {
-    let detail = ''
-    try {
-      const j = await res.json()
-      if (typeof j?.error === 'string' && j.error.trim()) detail = `: ${j.error.trim()}`
-    } catch {
-      /* ignore */
-    }
+  let data
+  try {
+    const res = await http.post(`${base}/api/upload`, fd)
+    data = res.data
+  } catch (e) {
+    const j = e?.response?.data
+    const detail =
+      j && typeof j.error === 'string' && j.error.trim()
+        ? `: ${j.error.trim()}`
+        : ''
     throw new Error(`Upload failed${detail}`)
   }
-  const data = await res.json()
   const url = data?.url || data?.path
   if (!url || typeof url !== 'string') throw new Error('Upload failed: no URL in response')
   return url
@@ -85,24 +81,17 @@ export async function patchS1DemoRemote(payload) {
     publishToApp: true,
   }
 
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}/api/config`, {
-    method: 'PATCH',
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    let detail = ''
-    try {
-      const j = await res.json()
-      if (typeof j?.error === 'string' && j.error.trim()) detail = `: ${j.error.trim()}`
-    } catch {
-      /* ignore */
-    }
+  try {
+    const res = await http.patch(`${base}/api/config`, body)
+    return res.data
+  } catch (e) {
+    const j = e?.response?.data
+    const detail =
+      j && typeof j.error === 'string' && j.error.trim()
+        ? `: ${j.error.trim()}`
+        : ''
     throw new Error(`Could not save S1${detail}`)
   }
-  return res.json()
 }
 
 /**

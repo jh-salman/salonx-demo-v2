@@ -8,9 +8,9 @@ export function buildTitle(name) {
 }
 
 async function downloadImageUrl(imageUrl, filename) {
-  const res = await fetch(imageUrl);
-  if (!res.ok) throw new Error("fetch failed");
-  const blob = await res.blob();
+  const { http } = await import("../../lib/http.js");
+  const res = await http.get(imageUrl, { responseType: "blob" });
+  const blob = res.data;
   const objectUrl = URL.createObjectURL(blob);
   try {
     const anchor = document.createElement("a");

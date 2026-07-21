@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import { authAppApi } from '../../auth/authAppApi.js'
+import { ensureMe, selectMe } from '../../store/sessionSlice.js'
 
 function slugify(name) {
   return String(name || '')
@@ -11,7 +13,8 @@ function slugify(name) {
 
 /** Organization switch + create — Settings (gear) bar. */
 export default function SettingsOrgPanel() {
-  const [me, setMe] = useState(null)
+  const dispatch = useDispatch()
+  const me = useSelector(selectMe)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -21,19 +24,17 @@ export default function SettingsOrgPanel() {
 
   const load = useCallback(async () => {
     try {
-      const data = await authAppApi.me()
-      setMe(data)
+      const data = await dispatch(ensureMe({ force: true }))
       setError('')
       if (!data.members?.length) setShowCreate(true)
     } catch (e) {
-      setMe(null)
-      if (e.status === 401) {
+      if (e?.status === 401) {
         setError('Sign in to manage organizations')
       } else {
-        setError(e.message || 'Could not load organizations')
+        setError(e?.message || 'Could not load organizations')
       }
     }
-  }, [])
+  }, [dispatch])
 
   useEffect(() => {
     load()

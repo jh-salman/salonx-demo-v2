@@ -26,8 +26,26 @@ import {
   PickerTrigger,
   SearchablePickerModal,
 } from "../../component/calendar/CalendarOverlays";
-import { MOCK_CLIENTS } from "../../data/mockClients";
-import { MOCK_SERVICES } from "../../data/mockServices";
+import MyScheduleQuickEdit from "./MyScheduleQuickEdit";
+import ReferenceReviewPopup from "./ReferenceReviewPopup";
+import MessageClientModal from "./MessageClientModal";
+import { useDispatch, useSelector } from "react-redux";
+import {
+  fetchMe,
+  selectCanSeeAllStaff,
+  selectMe,
+} from "../../store/sessionSlice.js";
+import {
+  clientAdded,
+  clientsLoaded,
+  selectClients,
+  selectServiceCatalog,
+  selectStaffRoster,
+  selectViewerStaffId,
+  serviceAdded,
+  servicesLoaded,
+  staffLoaded,
+} from "../../store/catalogsSlice.js";
 import {
   notifyCalendarUpdated,
   persistToolbarToCalendarStorage,
@@ -53,7 +71,6 @@ import {
   saveServiceCatalogRemote,
 } from "../../data/calendarCatalogApi.js";
 import {
-  MOCK_STAFF,
   MOCK_STAFF_BY_SUFFIX,
   STAFF_UNASSIGNED_ID,
 } from "../../data/mockStaff.js";
@@ -789,39 +806,32 @@ export default function CalendarScreenWeb() {
   });
   const [now, setNow] = useState(() => new Date());
 
-  // Customer + service catalog — from API/DB when demo-api is configured; mocks only offline.
-  const [clients, setClients] = useState(() => {
-    if (isAppointmentsApiAvailable()) {
-      return Array.isArray(persisted?.clients) && persisted.clients.length > 0
-        ? persisted.clients
-        : [];
-    }
-    return persisted?.clients || MOCK_CLIENTS;
-  });
-  const [serviceCatalog, setServiceCatalog] = useState(() => {
-    if (isAppointmentsApiAvailable()) {
-      return Array.isArray(persisted?.serviceCatalog) && persisted.serviceCatalog.length > 0
-        ? persisted.serviceCatalog
-        : [];
-    }
-    return persisted?.serviceCatalog || MOCK_SERVICES;
-  });
-  const [staffRoster, setStaffRoster] = useState(() => {
-    if (isAppointmentsApiAvailable()) {
-      return Array.isArray(persisted?.staffRoster) && persisted.staffRoster.length > 0
-        ? persisted.staffRoster
-        : [];
-    }
-    return persisted?.staffRoster || MOCK_STAFF;
-  });
+  // Shared/server state — Redux store (session/viewer + catalogs).
+  // Ephemeral drag/overlay/appointment-edit state stays local below.
+  const dispatch = useDispatch();
+  const clients = useSelector(selectClients);
+  const serviceCatalog = useSelector(selectServiceCatalog);
+  const staffRoster = useSelector(selectStaffRoster);
+  const viewer = useSelector(selectMe);
+  const canSeeAllStaff = useSelector(selectCanSeeAllStaff);
+  const viewerStaffId = useSelector(selectViewerStaffId);
+
+  // Viewer identity + org role — drives who can see all staff columns.
+  // Owner/admin see everyone; a stylist sees only their own column.
+  useEffect(() => {
+    if (!isAppointmentsApiAvailable()) return;
+    void dispatch(fetchMe());
+  }, [dispatch]);
 
   const staffColumns = useMemo(() => {
-    const roster = staffRoster.length > 0 ? staffRoster : MOCK_STAFF;
-    return [
-      ...roster.map((s) => ({ id: s.id, name: s.name })),
+    const all = [
+      ...staffRoster.map((s) => ({ id: s.id, name: s.name })),
       { id: STAFF_UNASSIGNED_ID, name: "Unassigned" },
     ];
-  }, [staffRoster]);
+    if (canSeeAllStaff) return all;
+    // Stylist view: only their own column.
+    return all.filter((c) => c.id === viewerStaffId);
+  }, [staffRoster, canSeeAllStaff, viewerStaffId]);
 
   // Phase 1 modal/overlay state
   const [aptOptionsApt, setAptOptionsApt] = useState(null); // appointment object
@@ -917,13 +927,19 @@ export default function CalendarScreenWeb() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleAddClient = useCallback((client) => {
-    setClients((prev) => [client, ...prev]);
-  }, []);
+  const handleAddClient = useCallback(
+    (client) => {
+      dispatch(clientAdded(client));
+    },
+    [dispatch],
+  );
 
-  const handleAddService = useCallback((svc) => {
-    setServiceCatalog((prev) => [svc, ...prev]);
-  }, []);
+  const handleAddService = useCallback(
+    (svc) => {
+      dispatch(serviceAdded(svc));
+    },
+    [dispatch],
+  );
 
   // ---------- Phase 3: drag + resize + park + overlap guard ----------
   const [parkedFromDrag, setParkedFromDrag] = useState(() => {
@@ -1002,6 +1018,9 @@ export default function CalendarScreenWeb() {
   const [moveConfirm, setMoveConfirm] = useState(null);
   // Follow-up notify confirm — { clientName, action: 'moved'|'resized'|'parked' }
   const [notifyConfirm, setNotifyConfirm] = useState(null);
+
+  // #9 — staff → client message composer
+  const [messageApt, setMessageApt] = useState(null);
 
   // ---------- Phase 5+ — waitlist drag-to-book ----------
   const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
@@ -2329,8 +2348,10 @@ export default function CalendarScreenWeb() {
             .catch((err) => {
               if (err?.code === "CONFLICT" && err.payload?.clients) {
                 pauseServerPersist();
-                setClients(
-                  Array.isArray(err.payload.clients) ? err.payload.clients : [],
+                dispatch(
+                  clientsLoaded(
+                    Array.isArray(err.payload.clients) ? err.payload.clients : [],
+                  ),
                 );
                 if (err.payload.updatedAt) {
                   clientsCatalogUpdatedAtRef.current = err.payload.updatedAt;
@@ -2353,10 +2374,12 @@ export default function CalendarScreenWeb() {
             .catch((err) => {
               if (err?.code === "CONFLICT" && err.payload?.serviceCatalog) {
                 pauseServerPersist();
-                setServiceCatalog(
-                  Array.isArray(err.payload.serviceCatalog)
-                    ? err.payload.serviceCatalog
-                    : [],
+                dispatch(
+                  servicesLoaded(
+                    Array.isArray(err.payload.serviceCatalog)
+                      ? err.payload.serviceCatalog
+                      : [],
+                  ),
                 );
                 if (err.payload.updatedAt) {
                   serviceCatalogUpdatedAtRef.current = err.payload.updatedAt;
@@ -2378,6 +2401,7 @@ export default function CalendarScreenWeb() {
     calendarCatalogRemoteReady,
     pauseServerPersist,
     shouldSkipServerPersist,
+    dispatch,
   ]);
 
   // Offline / no API: persist full calendar slice including appointments.
@@ -2522,21 +2546,21 @@ export default function CalendarScreenWeb() {
         if (cancelled) return;
         if (clientsData && Array.isArray(clientsData.clients)) {
           pauseServerPersist();
-          setClients(clientsData.clients);
+          dispatch(clientsLoaded(clientsData.clients));
           if (clientsData.updatedAt) {
             clientsCatalogUpdatedAtRef.current = clientsData.updatedAt;
           }
         }
         if (servicesData?.stored && Array.isArray(servicesData.serviceCatalog)) {
           pauseServerPersist();
-          setServiceCatalog(servicesData.serviceCatalog);
+          dispatch(servicesLoaded(servicesData.serviceCatalog));
           if (servicesData.updatedAt) {
             serviceCatalogUpdatedAtRef.current = servicesData.updatedAt;
           }
         }
         if (staffData?.stored && Array.isArray(staffData.staff)) {
           pauseServerPersist();
-          setStaffRoster(staffData.staff);
+          dispatch(staffLoaded(staffData.staff));
         }
       } catch (err) {
         console.warn("[Calendar] catalog load from API failed", err);
@@ -2547,7 +2571,7 @@ export default function CalendarScreenWeb() {
     return () => {
       cancelled = true;
     };
-  }, [pauseServerPersist]);
+  }, [pauseServerPersist, dispatch]);
 
   const mergeServerAppointmentRows = useCallback((serverRows, prev) => {
     const parkedIds = parkedAppointmentIdsRef.current;
@@ -2718,7 +2742,7 @@ export default function CalendarScreenWeb() {
       onClientsCatalogUpdated: (payload) => {
         if (payload?.stored && Array.isArray(payload.clients)) {
           pauseServerPersist();
-          setClients(payload.clients);
+          dispatch(clientsLoaded(payload.clients));
           if (payload.updatedAt) {
             clientsCatalogUpdatedAtRef.current = payload.updatedAt;
           }
@@ -2727,7 +2751,7 @@ export default function CalendarScreenWeb() {
       onServiceCatalogUpdated: (payload) => {
         if (payload?.stored && Array.isArray(payload.serviceCatalog)) {
           pauseServerPersist();
-          setServiceCatalog(payload.serviceCatalog);
+          dispatch(servicesLoaded(payload.serviceCatalog));
           if (payload.updatedAt) {
             serviceCatalogUpdatedAtRef.current = payload.updatedAt;
           }
@@ -2745,6 +2769,7 @@ export default function CalendarScreenWeb() {
     reloadToolbarFromServer,
     refetchAppointmentsFromServer,
     pauseServerPersist,
+    dispatch,
   ]);
 
   const parked = useMemo(
@@ -2770,6 +2795,16 @@ export default function CalendarScreenWeb() {
     () => events.filter((e) => !parkedAppointmentIds.has(String(e.id))),
     [events, parkedAppointmentIds],
   );
+
+  // Role-scoped calendar view: a stylist only sees their own appointments in the
+  // grid/month. Parked + waiting list are intentionally NOT filtered here (they
+  // live in separate state), so every user can still park/unpark/take to calendar.
+  const visibleCalendarEvents = useMemo(() => {
+    if (canSeeAllStaff) return calendarEvents;
+    return calendarEvents.filter(
+      (e) => (e.staffId || null) === (viewerStaffId || null),
+    );
+  }, [calendarEvents, canSeeAllStaff, viewerStaffId]);
 
   // Persist API-backed events for the current local day so Stylist / ClientList still
   // see today's list while Calendar is unmounted (session cache + loadCalendarEvents fallback).
@@ -2810,8 +2845,8 @@ export default function CalendarScreenWeb() {
   );
 
   const dayAppointments = useMemo(
-    () => calendarEvents.filter((a) => isSameDay(a.start, currentDate)),
-    [calendarEvents, currentDate]
+    () => visibleCalendarEvents.filter((a) => isSameDay(a.start, currentDate)),
+    [visibleCalendarEvents, currentDate]
   );
 
   const positioned = useMemo(() => layoutDayAppointments(dayAppointments), [dayAppointments]);
@@ -2859,10 +2894,10 @@ export default function CalendarScreenWeb() {
 
   const monthSheetAppointments = useMemo(() => {
     if (!monthSheetDate) return [];
-    const list = calendarEvents.filter((a) => isSameDay(a.start, monthSheetDate));
+    const list = visibleCalendarEvents.filter((a) => isSameDay(a.start, monthSheetDate));
     list.sort((a, b) => a.start - b.start);
     return list;
-  }, [calendarEvents, monthSheetDate]);
+  }, [visibleCalendarEvents, monthSheetDate]);
 
   useEffect(() => {
     if (viewMode !== "month") setMonthSheetDate(null);
@@ -3722,6 +3757,8 @@ export default function CalendarScreenWeb() {
   return (
     <div className="cal-root">
       <CalendarDecorations onGoToToday={handleGoToToday} />
+      <ReferenceReviewPopup />
+      <MyScheduleQuickEdit />
       <div className="cal-header">
         {viewMode !== "month" ? (
           <h1 className="cal-header__monthTitle">{format(currentDate, "MMMM yyyy")}</h1>
@@ -3942,7 +3979,7 @@ export default function CalendarScreenWeb() {
                       <div key={wi} className="cal-month__week">
                         {week.map((d) => {
                           const inMonth = isSameMonth(d, monthDate);
-                          const dayDots = calendarEvents
+                          const dayDots = visibleCalendarEvents
                             .filter((a) => isSameDay(a.start, d))
                             .sort((a, b) => a.start.getTime() - b.start.getTime())
                             .slice(0, 3);
@@ -4036,7 +4073,7 @@ export default function CalendarScreenWeb() {
               : [baseDate];
 
           const renderColumnContent = (baseDate, day, includeColumnHead, staffColumn) => {
-            const dayEvents = calendarEvents.filter((a) => {
+            const dayEvents = visibleCalendarEvents.filter((a) => {
               if (!isSameDay(a.start, day)) return false;
               if (staffColumn) {
                 return appointmentMatchesStaffColumn(a, staffColumn.id);
@@ -4182,6 +4219,40 @@ export default function CalendarScreenWeb() {
                           <span className="cal-apt__waitTag" aria-hidden>
                             Waiting
                           </span>
+                        ) : null}
+                        {apt.referenceImageUrl && !apt.referenceImageReviewedAt ? (
+                          <button
+                            type="button"
+                            className="cal-apt__refBadge"
+                            title="Client reference image — tap to review"
+                            aria-label="Review client reference image"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              try {
+                                window.open(apt.referenceImageUrl, "_blank", "noopener");
+                                await updateAppointmentRemote(apt.id, {
+                                  markReferenceReviewed: true,
+                                });
+                                setEvents((prev) =>
+                                  prev.map((ev) =>
+                                    ev.id === apt.id
+                                      ? {
+                                          ...ev,
+                                          referenceImageReviewedAt: new Date().toISOString(),
+                                        }
+                                      : ev,
+                                  ),
+                                );
+                              } catch {
+                                /* ignore */
+                              }
+                            }}
+                          >
+                            <span aria-hidden="true">📷</span>
+                            <span className="cal-apt__refBadgeDot" aria-hidden="true" />
+                          </button>
                         ) : null}
                         <div
                           className="cal-apt__resize"
@@ -4365,6 +4436,17 @@ export default function CalendarScreenWeb() {
               className="cal-modal__btn"
               onClick={() => {
                 if (Date.now() < suppressModalClickUntilRef.current) return;
+                setMessageApt(aptOptionsApt);
+                setAptOptionsApt(null);
+              }}
+            >
+              Message client
+            </button>
+            <button
+              type="button"
+              className="cal-modal__btn"
+              onClick={() => {
+                if (Date.now() < suppressModalClickUntilRef.current) return;
                 setConfirmCancelApt(aptOptionsApt);
               }}
             >
@@ -4376,6 +4458,9 @@ export default function CalendarScreenWeb() {
           </div>
         </div>
       ) : null}
+
+      {/* #9 — Message client */}
+      <MessageClientModal apt={messageApt} onClose={() => setMessageApt(null)} />
 
       {/* Empty slot tap → 3-option modal */}
       {emptySlotInfo
@@ -4878,7 +4963,7 @@ function NewAppointmentOverlay({
   const [color, setColor] = useState(editing?.color || "blue");
   const [price, setPrice] = useState(editing?.price ?? "");
   const [notes, setNotes] = useState(editing?.notes || "");
-  const roster = staffRoster?.length > 0 ? staffRoster : MOCK_STAFF;
+  const roster = Array.isArray(staffRoster) ? staffRoster : [];
   const [selectedStaffId, setSelectedStaffId] = useState(
     editing?.staffId || initialStaffId || "",
   );

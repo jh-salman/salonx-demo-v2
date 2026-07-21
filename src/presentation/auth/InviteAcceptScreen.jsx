@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useDispatch } from 'react-redux'
 import { authAppApi } from '../../auth/authAppApi.js'
+import { ensureMe } from '../../store/sessionSlice.js'
 import {
   clearPendingInvite,
   setPendingInvite,
@@ -16,6 +18,7 @@ import './authScreens.css'
 export default function InviteAcceptScreen() {
   const { invitationId } = useParams()
   const navigate = useNavigate()
+  const dispatch = useDispatch()
   const [state, setState] = useState('working') // working | error
   const [error, setError] = useState('')
   const ranRef = useRef(false)
@@ -27,7 +30,7 @@ export default function InviteAcceptScreen() {
       return
     }
     try {
-      await authAppApi.me()
+      await dispatch(ensureMe({ force: true }))
     } catch {
       // Not signed in — remember invite, go sign in, come back here.
       setPendingInvite(invitationId)
@@ -37,13 +40,15 @@ export default function InviteAcceptScreen() {
     try {
       await authAppApi.acceptInvite(invitationId)
       clearPendingInvite()
+      // Membership just changed — refresh the cached session/org state.
+      await dispatch(ensureMe({ force: true })).catch(() => {})
       navigate('/screen1', { replace: true })
     } catch (e) {
       clearPendingInvite()
       setState('error')
       setError(e?.message || 'Could not accept this invitation')
     }
-  }, [invitationId, navigate])
+  }, [invitationId, navigate, dispatch])
 
   useEffect(() => {
     if (ranRef.current) return

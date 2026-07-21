@@ -1,96 +1,71 @@
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
+import { http, toApiError } from '../lib/http.js'
 
-async function apiFetch(path, init = {}) {
+/** GET catalog JSON — null when API is unavailable or the request fails. */
+async function getCatalog(path) {
   const base = getV2AdminBase()
   if (!base) return null
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}${path}`, {
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    credentials: 'include',
-    cache: 'no-store',
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init.headers || {}),
-    },
-  })
-  return res
+  try {
+    const res = await http.get(`${base}${path}`)
+    return res.data
+  } catch {
+    return null
+  }
+}
+
+/** PUT/PATCH catalog JSON — throws, 409 gets `.code = 'CONFLICT'` + `.payload`. */
+async function saveCatalog(path, body, conflictLabel, method = 'PUT') {
+  const base = getV2AdminBase()
+  if (!base) throw new Error('V2 admin / demo-api base URL is not configured')
+  try {
+    const res = await http.request({ url: `${base}${path}`, method, data: body })
+    return res.data
+  } catch (e) {
+    const err = toApiError(e)
+    if (err.status === 409) {
+      const conflict = new Error(err.data?.error || conflictLabel)
+      conflict.code = 'CONFLICT'
+      conflict.payload = err.data
+      throw conflict
+    }
+    throw new Error(err.data?.error || err.data?.message || `HTTP ${err.status}`)
+  }
 }
 
 export async function fetchClientsCatalog() {
-  const res = await apiFetch('/api/clients')
-  if (!res?.ok) return null
-  return res.json()
+  return getCatalog('/api/clients')
 }
 
 export async function saveClientsCatalogRemote(body) {
-  const base = getV2AdminBase()
-  if (!base) throw new Error('V2 admin / demo-api base URL is not configured')
-  const res = await apiFetch('/api/clients', {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    if (res.status === 409) {
-      const err = new Error(data.error || 'Clients catalog conflict')
-      err.code = 'CONFLICT'
-      err.payload = data
-      throw err
-    }
-    throw new Error(data.error || `HTTP ${res.status}`)
-  }
-  return res.json()
+  return saveCatalog('/api/clients', body, 'Clients catalog conflict')
 }
 
 export async function fetchStaffCatalog() {
-  const res = await apiFetch('/api/staff')
-  if (!res?.ok) return null
-  return res.json()
+  return getCatalog('/api/staff')
+}
+
+export async function saveStaffCatalogRemote(body) {
+  return saveCatalog('/api/staff', body, 'Staff catalog conflict')
+}
+
+/** PATCH one stylist's schedule (owner or canSelfManage member). */
+export async function patchStaffScheduleRemote(staffId, body) {
+  return saveCatalog(
+    `/api/staff/${encodeURIComponent(staffId)}/schedule`,
+    body,
+    'Staff schedule conflict',
+    'PATCH',
+  )
 }
 
 export async function fetchServiceCatalog() {
-  const res = await apiFetch('/api/service-catalog')
-  if (!res?.ok) return null
-  return res.json()
+  return getCatalog('/api/service-catalog')
 }
 
 export async function saveServiceCatalogRemote(body) {
-  const base = getV2AdminBase()
-  if (!base) throw new Error('V2 admin / demo-api base URL is not configured')
-  const res = await apiFetch('/api/service-catalog', {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    if (res.status === 409) {
-      const err = new Error(data.error || 'Service catalog conflict')
-      err.code = 'CONFLICT'
-      err.payload = data
-      throw err
-    }
-    throw new Error(data.error || `HTTP ${res.status}`)
-  }
-  return res.json()
+  return saveCatalog('/api/service-catalog', body, 'Service catalog conflict')
 }
 
 export async function saveProductCatalogRemote(body) {
-  const base = getV2AdminBase()
-  if (!base) throw new Error('V2 admin / demo-api base URL is not configured')
-  const res = await apiFetch('/api/product-catalog', {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    if (res.status === 409) {
-      const err = new Error(data.error || 'Product catalog conflict')
-      err.code = 'CONFLICT'
-      err.payload = data
-      throw err
-    }
-    throw new Error(data.error || `HTTP ${res.status}`)
-  }
-  return res.json()
+  return saveCatalog('/api/product-catalog', body, 'Product catalog conflict')
 }

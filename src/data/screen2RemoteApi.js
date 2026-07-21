@@ -1,20 +1,35 @@
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
+import { http, toApiError } from '../lib/http.js'
 
-async function apiFetch(path, init = {}) {
+/** GET JSON — null when API is unavailable or the request fails. */
+async function getJson(path) {
   const base = getV2AdminBase()
   if (!base) return null
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}${path}`, {
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    credentials: 'include',
-    cache: 'no-store',
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init.headers || {}),
-    },
-  })
-  return res
+  try {
+    const res = await http.get(`${base}${path}`)
+    return res.data
+  } catch {
+    return null
+  }
+}
+
+/** PUT JSON — throws, 409 gets `.code = 'CONFLICT'` + `.payload`. */
+async function putJson(path, body, conflictLabel) {
+  const base = getV2AdminBase()
+  if (!base) throw new Error('API base URL is not configured')
+  try {
+    const res = await http.put(`${base}${path}`, body)
+    return res.data
+  } catch (e) {
+    const err = toApiError(e)
+    if (err.status === 409) {
+      const conflict = new Error(err.data?.error || conflictLabel)
+      conflict.code = 'CONFLICT'
+      conflict.payload = err.data
+      throw conflict
+    }
+    throw new Error(err.data?.error || `HTTP ${err.status}`)
+  }
 }
 
 export function normalizeClientKey(name) {
@@ -23,63 +38,33 @@ export function normalizeClientKey(name) {
 
 export async function fetchClientConsultation(clientKey) {
   const key = encodeURIComponent(normalizeClientKey(clientKey))
-  const res = await apiFetch(`/api/client-consultation/${key}`)
-  if (!res?.ok) return null
-  return res.json()
+  return getJson(`/api/client-consultation/${key}`)
 }
 
 export async function saveClientConsultationRemote(clientKey, body) {
-  const base = getV2AdminBase()
-  if (!base) throw new Error('API base URL is not configured')
   const key = encodeURIComponent(normalizeClientKey(clientKey))
-  const res = await apiFetch(`/api/client-consultation/${key}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    if (res.status === 409) {
-      const err = new Error(data.error || 'Consultation conflict')
-      err.code = 'CONFLICT'
-      err.payload = data
-      throw err
-    }
-    throw new Error(data.error || `HTTP ${res.status}`)
-  }
-  return res.json()
+  return putJson(
+    `/api/client-consultation/${key}`,
+    body,
+    'Consultation conflict',
+  )
 }
 
 export async function fetchAppointmentVisit(appointmentId) {
   const id = encodeURIComponent(String(appointmentId || '').trim())
   if (!id) return null
-  const res = await apiFetch(`/api/appointment-visit/${id}`)
-  if (!res?.ok) return null
-  return res.json()
+  return getJson(`/api/appointment-visit/${id}`)
 }
 
 export async function saveAppointmentVisitRemote(appointmentId, body) {
-  const base = getV2AdminBase()
-  if (!base) throw new Error('API base URL is not configured')
   const id = encodeURIComponent(String(appointmentId || '').trim())
-  const res = await apiFetch(`/api/appointment-visit/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    if (res.status === 409) {
-      const err = new Error(data.error || 'Appointment visit conflict')
-      err.code = 'CONFLICT'
-      err.payload = data
-      throw err
-    }
-    throw new Error(data.error || `HTTP ${res.status}`)
-  }
-  return res.json()
+  return putJson(
+    `/api/appointment-visit/${id}`,
+    body,
+    'Appointment visit conflict',
+  )
 }
 
 export async function fetchProductCatalog() {
-  const res = await apiFetch('/api/product-catalog')
-  if (!res?.ok) return null
-  return res.json()
+  return getJson('/api/product-catalog')
 }

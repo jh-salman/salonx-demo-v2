@@ -1,4 +1,5 @@
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
+import { http } from '../lib/http.js'
 
 export function isRampApiAvailable() {
   return Boolean(getV2AdminBase())
@@ -21,53 +22,44 @@ export async function generateRampImage({
   const trimmedPrompt = String(prompt || '').trim()
   if (!trimmedPrompt) throw new Error('prompt is required')
 
-  const sameOrigin = base.startsWith('/')
-  let res
-
+  let payload
   if (imageFile instanceof File) {
     const fd = new FormData()
     fd.append('prompt', trimmedPrompt)
     fd.append('image', imageFile, imageFile.name || 'source.png')
     if (size) fd.append('size', size)
     if (model) fd.append('model', model)
-    res = await fetch(`${base}/api/ramp/generate-image`, {
-      method: 'POST',
-      mode: sameOrigin ? 'same-origin' : 'cors',
-      cache: 'no-store',
-      body: fd,
-    })
+    payload = fd
   } else {
-    const body = { prompt: trimmedPrompt, size }
-    if (model) body.model = model
+    payload = { prompt: trimmedPrompt, size }
+    if (model) payload.model = model
     const url = String(imageUrl || '').trim()
-    if (url) body.imageUrl = url
-    res = await fetch(`${base}/api/ramp/generate-image`, {
-      method: 'POST',
-      mode: sameOrigin ? 'same-origin' : 'cors',
-      cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    if (url) payload.imageUrl = url
+  }
+
+  let res
+  try {
+    res = await http.post(`${base}/api/ramp/generate-image`, payload, {
+      responseType: 'blob',
     })
-  }
-
-  const contentType = res.headers.get('content-type') || ''
-  if (!res.ok) {
-    if (contentType.includes('application/json')) {
-      const data = await res.json().catch(() => ({}))
-      const msg =
-        data && typeof data === 'object' && typeof data.error === 'string'
-          ? data.error
-          : `HTTP ${res.status}`
-      throw new Error(msg)
+  } catch (e) {
+    const errBlob = e?.response?.data
+    if (errBlob instanceof Blob && errBlob.type.includes('application/json')) {
+      const data = await errBlob
+        .text()
+        .then((t) => JSON.parse(t))
+        .catch(() => ({}))
+      if (typeof data?.error === 'string') throw new Error(data.error)
     }
-    throw new Error(`HTTP ${res.status}`)
+    throw new Error(`HTTP ${e?.response?.status || 0}`)
   }
 
+  const contentType = String(res.headers?.['content-type'] || res.data?.type || '')
   if (!contentType.includes('image/')) {
     throw new Error('Image generation returned an unexpected response')
   }
 
-  const blob = await res.blob()
+  const blob = res.data
   return {
     blob,
     objectUrl: URL.createObjectURL(blob),

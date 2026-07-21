@@ -9,7 +9,8 @@ import {
   toE164,
   verifyPhoneOtp,
 } from '../../auth/authClient.js'
-import { authAppApi } from '../../auth/authAppApi.js'
+import { useDispatch } from 'react-redux'
+import { ensureMe } from '../../store/sessionSlice.js'
 import { getPendingInvite } from '../../auth/pendingInvite.js'
 import '../style/screen0.css'
 
@@ -44,6 +45,7 @@ const MOCK_OTP_HINT =
 
 function Screen0() {
   const navigate = useNavigate()
+  const dispatch = useDispatch()
   const marqueeVideoRef = useRef(null)
   const postRockStarNavTimerRef = useRef(null)
   const [marquee, setMarquee] = useState(() => readMarqueePersisted())
@@ -74,8 +76,7 @@ function Screen0() {
   // Already signed in? Skip welcome/login entirely (secure cookie session).
   useEffect(() => {
     let alive = true
-    authAppApi
-      .me()
+    dispatch(ensureMe({ force: true }))
       .then((me) => {
         if (!alive) return
         if (me && me.user) {
@@ -97,7 +98,7 @@ function Screen0() {
     return () => {
       alive = false
     }
-  }, [navigate])
+  }, [navigate, dispatch])
 
   useEffect(() => {
     if (!inAuthDock) return undefined
@@ -240,7 +241,7 @@ function Screen0() {
         return
       }
       try {
-        const me = await authAppApi.me()
+        const me = await dispatch(ensureMe({ force: true }))
         if (!me.members?.length) {
           setGlassKeyboardOpen(false)
           navigate('/onboarding')
@@ -257,6 +258,7 @@ function Screen0() {
     }
   }, [
     busy,
+    dispatch,
     entering,
     finishEnter,
     navigate,

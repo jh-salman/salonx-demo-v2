@@ -58,10 +58,14 @@ export async function imageRefToFile(imageRef, filename = 'ramp-capture.png') {
     return new File([blob], filename.replace(/\.\w+$/, `.${ext}`), { type })
   }
 
-  const res = await fetch(ref)
-  if (!res.ok) return null
-  const blob = await res.blob()
-  const type = blob.type || 'image/png'
-  const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'
-  return new File([blob], filename.replace(/\.\w+$/, `.${ext}`), { type })
+  try {
+    const { http } = await import('../lib/http.js')
+    const res = await http.get(ref, { responseType: 'blob' })
+    const blob = res.data
+    const type = blob.type || 'image/png'
+    const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'
+    return new File([blob], filename.replace(/\.\w+$/, `.${ext}`), { type })
+  } catch {
+    return null
+  }
 }

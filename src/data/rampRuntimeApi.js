@@ -1,5 +1,6 @@
 import { getV2AdminBase } from '../sync/v2AdminBootstrap.js'
 import { isRampApiAvailable } from './rampApi.js'
+import { http, toApiError } from '../lib/http.js'
 
 function rampBase() {
   const base = getV2AdminBase()
@@ -7,33 +8,19 @@ function rampBase() {
   return base
 }
 
-async function rampFetch(path, options = {}) {
+async function rampFetch(path, { method = 'GET', body } = {}) {
   const base = rampBase()
-  const sameOrigin = base.startsWith('/')
-  const res = await fetch(`${base}${path}`, {
-    mode: sameOrigin ? 'same-origin' : 'cors',
-    credentials: 'include',
-    cache: 'no-store',
-    ...options,
-    headers: {
-      ...(options.body && !(options.body instanceof FormData)
-        ? { 'Content-Type': 'application/json' }
-        : {}),
-      ...options.headers,
-    },
-  })
-  const contentType = res.headers.get('content-type') || ''
-  const data = contentType.includes('application/json')
-    ? await res.json().catch(() => ({}))
-    : null
-  if (!res.ok) {
-    const msg =
-      data && typeof data === 'object' && typeof data.error === 'string'
-        ? data.error
-        : `HTTP ${res.status}`
-    throw new Error(msg)
+  try {
+    const res = await http.request({
+      url: `${base}${path}`,
+      method,
+      ...(body !== undefined ? { data: body } : {}),
+    })
+    return res.data && typeof res.data === 'object' ? res.data : null
+  } catch (e) {
+    const err = toApiError(e)
+    throw new Error(err.data?.error || `HTTP ${err.status}`)
   }
-  return data
 }
 
 export function isRampRuntimeApiAvailable() {
@@ -83,7 +70,7 @@ export async function getRampPublicPost(id) {
 export async function createRampPost(payload) {
   const data = await rampFetch('/api/ramp/posts', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: payload,
   })
   return data?.post ?? null
 }
@@ -91,7 +78,7 @@ export async function createRampPost(payload) {
 export async function patchRampPost(id, patch) {
   const data = await rampFetch(`/api/ramp/posts/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    body: JSON.stringify(patch),
+    body: patch,
   })
   return data?.post ?? null
 }
@@ -106,7 +93,7 @@ export async function startRampPostGeneration(id, { caption } = {}) {
   if (caption) body.caption = caption
   const data = await rampFetch(`/api/ramp/posts/${encodeURIComponent(id)}/generate`, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body,
   })
   return data?.post ?? null
 }
