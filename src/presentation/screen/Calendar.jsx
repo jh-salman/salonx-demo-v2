@@ -85,6 +85,11 @@ import {
 } from "../../data/apiAppointmentsSessionCache.js";
 import { startCalendarRealtimeSync } from "../../sync/calendarRealtimeSync.js";
 import {
+  isRangeFetched,
+  rangeForView,
+  recordFetchedRange,
+} from "../../data/calendarFetchRange.js";
+import {
   clearPersistedCalendarNavIntents,
   readPersistedCalendarBack,
   writePersistedCalendarBack,
@@ -196,12 +201,9 @@ function shouldUseMockAppointmentFallback() {
   );
 }
 
-function mockAppointmentFetchRange() {
-  const anchor = new Date();
-  return {
-    from: addDays(anchor, -120),
-    to: addDays(anchor, 240),
-  };
+function buildInitialMockAppointments(viewMode = "day", anchor = new Date()) {
+  const { from, to } = rangeForView(viewMode, anchor);
+  return buildMockAppointmentsForRange(from, to);
 }
 
 function buildMockAppointmentsForRange(fromDate, toDate) {
@@ -225,11 +227,6 @@ function buildMockAppointmentsForRange(fromDate, toDate) {
     day = addDays(day, 1);
   }
   return events;
-}
-
-function buildInitialMockAppointments() {
-  const { from, to } = mockAppointmentFetchRange();
-  return buildMockAppointmentsForRange(from, to);
 }
 
 function minutesSinceStart(d) {
@@ -577,14 +574,55 @@ function reviveCalendarSlices(data) {
   return data;
 }
 
-function mergeParkedToolbarRows(serverParked, localParked) {
-  const server = Array.isArray(serverParked) ? serverParked : [];
-  const local = Array.isArray(localParked) ? localParked : [];
-  const serverIds = new Set(server.map((p) => String(p?.id)));
-  const pending = local.filter(
-    (p) => p?.id != null && !serverIds.has(String(p.id)),
-  );
-  return [...server, ...pending];
+function parkedRowMatchesDropId(row, dropId) {
+  if (!row || dropId == null) return false;
+  const id = String(dropId);
+  if (row.id != null && String(row.id) === id) return true;
+  if (row.sourceAppointmentId != null && String(row.sourceAppointmentId) === id) {
+    return true;
+  }
+  return false;
+}
+
+/** Remove one parked card from both toolbar arrays (park drag + legacy isParked rows). */
+function withoutParkedToolbarItem(parkedFromDrag, toolbarEvents, dropId) {
+  return {
+    parkedFromDrag: (parkedFromDrag || []).filter(
+      (p) => !parkedRowMatchesDropId(p, dropId),
+    ),
+    toolbarEvents: (toolbarEvents || []).filter(
+      (t) => !(t?.isParked === true && parkedRowMatchesDropId(t, dropId)),
+    ),
+  };
+}
+
+/** Deduped park list — same id must not appear twice (toolbar + parkedFromDrag). */
+function dedupeParkedToolbarItems(toolbarEvents, parkedFromDrag) {
+  const seen = new Set();
+  const out = [];
+  const push = (raw) => {
+    if (!raw || typeof raw !== "object") return;
+    const id = raw.id != null ? String(raw.id) : "";
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(raw);
+  };
+  for (const e of Array.isArray(toolbarEvents) ? toolbarEvents : []) {
+    if (e?.isParked === true) push(e);
+  }
+  for (const p of Array.isArray(parkedFromDrag) ? parkedFromDrag : []) {
+    push(p);
+  }
+  return out;
+}
+
+function parkedItemRefIds(item) {
+  const ids = [];
+  if (item?.id != null) ids.push(String(item.id));
+  if (item?.sourceAppointmentId != null) {
+    ids.push(String(item.sourceAppointmentId));
+  }
+  return ids;
 }
 
 function mergeRebookParkItem(list, item) {
@@ -725,6 +763,8 @@ export default function CalendarScreenWeb() {
   const appointmentsListFetchTokenRef = useRef(0);
   /** After first appointments list fetch attempt (success or hard failure). */
   const appointmentsInitialFetchDoneRef = useRef(false);
+  /** Session memory — which date windows were already fetched from API. */
+  const fetchedAppointmentRangesRef = useRef([]);
   /** After first calendar-toolbar GET finishes — avoids PUT clobbering server before hydrate. */
   const [calendarToolbarRemoteReady, setCalendarToolbarRemoteReady] = useState(
     () => !isAppointmentsApiAvailable(),
@@ -744,6 +784,9 @@ export default function CalendarScreenWeb() {
     () => Date.now() < suppressServerPersistUntilRef.current,
     [],
   );
+
+  const parkedFromDragRef = useRef([]);
+  const toolbarEventsRef = useRef([]);
 
   /** Push toolbar JSON to server immediately (don't wait for 150ms debounce). */
   const pushToolbarToServer = useCallback(
@@ -771,8 +814,10 @@ export default function CalendarScreenWeb() {
           const serverToolbar = Array.isArray(revived.toolbarEvents)
             ? revived.toolbarEvents
             : [];
-          setParkedFromDrag((prev) => mergeParkedToolbarRows(serverParked, prev));
+          // Server wins — never re-merge local parked rows (causes repeat-unpark).
+          setParkedFromDrag(serverParked);
           setToolbarEvents(serverToolbar);
+          persistToolbarToCalendarStorage(serverParked, serverToolbar);
           if (err.payload.updatedAt) {
             toolbarUpdatedAtRef.current = err.payload.updatedAt;
           }
@@ -782,6 +827,19 @@ export default function CalendarScreenWeb() {
       }
     },
     [calendarToolbarRemoteReady, pauseServerPersist],
+  );
+
+  const commitToolbarState = useCallback(
+    (nextParked, nextToolbar, { push = true } = {}) => {
+      pauseServerPersist();
+      setParkedFromDrag(nextParked);
+      setToolbarEvents(nextToolbar);
+      persistToolbarToCalendarStorage(nextParked, nextToolbar);
+      if (push) {
+        void pushToolbarToServer(nextParked, nextToolbar);
+      }
+    },
+    [pauseServerPersist, pushToolbarToServer],
   );
 
   const initialCalendarViewRef = useRef(null);
@@ -803,7 +861,10 @@ export default function CalendarScreenWeb() {
       if (Array.isArray(cached) && cached.length > 0) return cached;
       return [];
     }
-    return persisted?.events || buildInitialMockAppointments();
+    return persisted?.events || buildInitialMockAppointments(
+      initialCalendarView?.viewMode || "day",
+      new Date(),
+    );
   });
   const [now, setNow] = useState(() => new Date());
 
@@ -964,6 +1025,14 @@ export default function CalendarScreenWeb() {
   const parkedAppointmentIdsRef = useRef(new Set());
   /** Set after refetch helper — S2/calendar park source purge. */
   const purgeSourceForParkRef = useRef(null);
+
+  useEffect(() => {
+    parkedFromDragRef.current = parkedFromDrag;
+  }, [parkedFromDrag]);
+
+  useEffect(() => {
+    toolbarEventsRef.current = toolbarEvents;
+  }, [toolbarEvents]);
 
   // S2 rebook → MOVE TO PARK (offline only — API mode merges in toolbar hydrate).
   useEffect(() => {
@@ -1877,23 +1946,32 @@ export default function CalendarScreenWeb() {
         setWaitlistModalOpen(false);
       }
     } else {
-      // parked → un-park: remove from park list first, sync toolbar, then book on calendar
-      let nextParked;
-      let nextToolbar;
-      setParkedFromDrag((prev) => {
-        nextParked = dropId ? prev.filter((p) => String(p.id) !== dropId) : prev;
-        return nextParked;
-      });
-      setToolbarEvents((prev) => {
-        nextToolbar = dropId ? prev.filter((t) => String(t.id) !== dropId) : prev;
-        return nextToolbar;
-      });
+      if (!dropId) {
+        setBookConfirm(null);
+        return;
+      }
+      const stillParked = dedupeParkedToolbarItems(
+        toolbarEventsRef.current,
+        parkedFromDragRef.current,
+      ).some((p) => parkedRowMatchesDropId(p, dropId));
+      if (!stillParked) {
+        setBookConfirm(null);
+        setParkedModalOpen(false);
+        return;
+      }
+
+      for (const pid of parkedItemRefIds(item)) {
+        parkedAppointmentIdsRef.current.delete(pid);
+      }
+
+      const { parkedFromDrag: nextParked, toolbarEvents: nextToolbar } =
+        withoutParkedToolbarItem(
+          parkedFromDragRef.current,
+          toolbarEventsRef.current,
+          dropId,
+        );
       setParkedModalOpen(false);
-      queueMicrotask(() => {
-        if (nextParked && nextToolbar) {
-          void pushToolbarToServer(nextParked, nextToolbar);
-        }
-      });
+      commitToolbarState(nextParked, nextToolbar);
 
       const localEvent = {
         id: makeEventId(),
@@ -1944,7 +2022,7 @@ export default function CalendarScreenWeb() {
         action: kind === "waitlist" ? "booked" : "scheduled",
       });
     }
-  }, [bookConfirm, pushToolbarToServer, viewerStaffId]);
+  }, [bookConfirm, commitToolbarState, viewerStaffId]);
 
   const handleBookConfirmNo = useCallback(() => {
     // Just dismiss the confirm — the source list modal is still mounted
@@ -2152,11 +2230,6 @@ export default function CalendarScreenWeb() {
     };
   }, []);
 
-  const removeFromParked = useCallback((id) => {
-    setToolbarEvents((prev) => prev.filter((t) => t.id !== id));
-    setParkedFromDrag((prev) => prev.filter((p) => p.id !== id));
-  }, []);
-
   const handleParkedPointerDown = useCallback(
     (e, item) => {
       if (viewMode !== "day") return;
@@ -2333,12 +2406,15 @@ export default function CalendarScreenWeb() {
                   parkedFromDrag: err.payload.parkedFromDrag,
                   toolbarEvents: err.payload.toolbarEvents,
                 });
-                setParkedFromDrag(
-                  Array.isArray(revived.parkedFromDrag) ? revived.parkedFromDrag : [],
-                );
-                setToolbarEvents(
-                  Array.isArray(revived.toolbarEvents) ? revived.toolbarEvents : [],
-                );
+                const serverParked = Array.isArray(revived.parkedFromDrag)
+                  ? revived.parkedFromDrag
+                  : [];
+                const serverToolbar = Array.isArray(revived.toolbarEvents)
+                  ? revived.toolbarEvents
+                  : [];
+                setParkedFromDrag(serverParked);
+                setToolbarEvents(serverToolbar);
+                persistToolbarToCalendarStorage(serverParked, serverToolbar);
                 if (err.payload.updatedAt) {
                   toolbarUpdatedAtRef.current = err.payload.updatedAt;
                 }
@@ -2599,9 +2675,23 @@ export default function CalendarScreenWeb() {
   }, []);
 
   const refetchAppointmentsFromServer = useCallback(async (opts = {}) => {
-    const { replace = false, background = false } = opts;
-    const { from, to } = mockAppointmentFetchRange();
+    const {
+      replace = false,
+      background = false,
+      force = false,
+      viewMode: viewModeOpt,
+      currentDate: currentDateOpt,
+    } = opts;
+    const vm = viewModeOpt ?? viewMode;
+    const cd = currentDateOpt ?? currentDate;
+    const { from, to } = rangeForView(vm, cd);
     if (!isAppointmentsApiAvailable()) return;
+
+    if (!force && isRangeFetched(fetchedAppointmentRangesRef.current, from, to)) {
+      appointmentsInitialFetchDoneRef.current = true;
+      return;
+    }
+
     if (!background) {
       appointmentsFetchAbortRef.current?.abort();
     }
@@ -2614,11 +2704,24 @@ export default function CalendarScreenWeb() {
     const applyMockFallback = () => {
       if (!shouldUseMockAppointmentFallback()) return false;
       const mockEvents = buildMockAppointmentsForRange(from, to);
-      setEvents(mockEvents);
+      setEvents((prev) => {
+        if (replace) return mockEvents;
+        const ids = new Set(prev.map((e) => String(e.id)));
+        const merged = [...prev];
+        for (const e of mockEvents) {
+          if (!ids.has(String(e.id))) merged.push(e);
+        }
+        return merged.sort((a, b) => a.start.getTime() - b.start.getTime());
+      });
       queueMicrotask(() => {
         appointmentsInitialFetchDoneRef.current = true;
         writeApiAppointmentsSessionCache(mockEvents);
       });
+      fetchedAppointmentRangesRef.current = recordFetchedRange(
+        fetchedAppointmentRangesRef.current,
+        from,
+        to,
+      );
       return true;
     };
 
@@ -2627,6 +2730,13 @@ export default function CalendarScreenWeb() {
       if (ac.signal.aborted) return;
       if (myToken !== appointmentsListFetchTokenRef.current) return;
       if (!rows.length && applyMockFallback()) return;
+
+      fetchedAppointmentRangesRef.current = recordFetchedRange(
+        fetchedAppointmentRangesRef.current,
+        from,
+        to,
+      );
+
       setEvents((prev) => {
         const parkedIds = parkedAppointmentIdsRef.current;
         const filterParked = (list) =>
@@ -2650,10 +2760,10 @@ export default function CalendarScreenWeb() {
     } finally {
       appointmentsInitialFetchDoneRef.current = true;
     }
-  }, [mergeServerAppointmentRows]);
+  }, [currentDate, viewMode, mergeServerAppointmentRows]);
 
   refreshAppointmentsRef.current = () =>
-    refetchAppointmentsFromServer({ replace: false, background: true });
+    refetchAppointmentsFromServer({ background: true, force: true });
 
   const purgeSourceAppointmentForPark = useCallback(
     (sourceId, { parkItemId } = {}) => {
@@ -2682,14 +2792,11 @@ export default function CalendarScreenWeb() {
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
-    void refetchAppointmentsFromServer({
-      replace: true,
-      background: !isBrowserReloadNavigation(),
-    });
+    void refetchAppointmentsFromServer({ background: false });
     return () => {
       appointmentsFetchAbortRef.current?.abort();
     };
-  }, [refetchAppointmentsFromServer]);
+  }, [currentDate, viewMode, refetchAppointmentsFromServer]);
 
   const applyRemoteToolbarPayload = useCallback(
     (payload) => {
@@ -2769,9 +2876,11 @@ export default function CalendarScreenWeb() {
           }
         }
       },
-      onPoll: () => {
+      onPoll: ({ socketConnected }) => {
         void reloadToolbarFromServer();
-        void refetchAppointmentsFromServer({ replace: true, background: true });
+        if (!socketConnected) {
+          void refetchAppointmentsFromServer({ background: true, force: true });
+        }
       },
     },
       { salonId },
@@ -2788,7 +2897,7 @@ export default function CalendarScreenWeb() {
   ]);
 
   const parked = useMemo(
-    () => [...toolbarEvents.filter((e) => e.isParked === true), ...parkedFromDrag],
+    () => dedupeParkedToolbarItems(toolbarEvents, parkedFromDrag),
     [toolbarEvents, parkedFromDrag],
   );
 

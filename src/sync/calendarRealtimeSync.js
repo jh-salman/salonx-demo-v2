@@ -46,7 +46,7 @@ export function resolveCalendarSocketEndpoint() {
  *   onConsultationUpdated?: (p: object) => void
  *   onAppointmentVisitUpdated?: (p: object) => void
  *   onProductCatalogUpdated?: (p: object) => void
- *   onPoll?: () => void
+ *   onPoll?: (ctx: { socketConnected: boolean }) => void
  * }} handlers
  * @param {{ salonId?: string | null }} [options]
  * @returns {() => void}
@@ -59,6 +59,7 @@ export function startCalendarRealtimeSync(handlers, options = {}) {
       : null
   let socket = null
   let debounceTimer = null
+  let socketConnected = false
 
   const debounce = (fn) => {
     if (debounceTimer) clearTimeout(debounceTimer)
@@ -82,7 +83,13 @@ export function startCalendarRealtimeSync(handlers, options = {}) {
         reconnection: true,
         reconnectionAttempts: 10,
       })
-      socket.on('connect', subscribeSalon)
+      socket.on('connect', () => {
+        socketConnected = true
+        subscribeSalon()
+      })
+      socket.on('disconnect', () => {
+        socketConnected = false
+      })
       socket.on('appointment:created', (p) =>
         debounce(() => handlers.onAppointmentCreated?.(p)),
       )
@@ -118,12 +125,12 @@ export function startCalendarRealtimeSync(handlers, options = {}) {
 
   const pollId = setInterval(() => {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-    debounce(() => handlers.onPoll?.())
+    debounce(() => handlers.onPoll?.({ socketConnected }))
   }, POLL_FALLBACK_MS)
 
   const onVisible = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      debounce(() => handlers.onPoll?.())
+      debounce(() => handlers.onPoll?.({ socketConnected }))
     }
   }
   if (typeof document !== 'undefined') {
