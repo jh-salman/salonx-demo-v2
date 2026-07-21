@@ -32,6 +32,7 @@ import MessageClientModal from "./MessageClientModal";
 import { useDispatch, useSelector } from "react-redux";
 import {
   fetchMe,
+  selectActiveSalon,
   selectCanSeeAllStaff,
   selectMe,
 } from "../../store/sessionSlice.js";
@@ -813,6 +814,8 @@ export default function CalendarScreenWeb() {
   const serviceCatalog = useSelector(selectServiceCatalog);
   const staffRoster = useSelector(selectStaffRoster);
   const viewer = useSelector(selectMe);
+  const activeSalon = useSelector(selectActiveSalon);
+  const salonId = activeSalon?.id ?? null;
   const canSeeAllStaff = useSelector(selectCanSeeAllStaff);
   const viewerStaffId = useSelector(selectViewerStaffId);
 
@@ -2696,18 +2699,16 @@ export default function CalendarScreenWeb() {
         parkedFromDrag: payload.parkedFromDrag,
         toolbarEvents: payload.toolbarEvents,
       });
-      const nextParkedFromServer = Array.isArray(revived.parkedFromDrag)
+      const nextParked = Array.isArray(revived.parkedFromDrag)
         ? revived.parkedFromDrag
         : [];
       const nextToolbar = Array.isArray(revived.toolbarEvents)
         ? revived.toolbarEvents
         : [];
-      setParkedFromDrag((prev) => {
-        const merged = mergeParkedToolbarRows(nextParkedFromServer, prev);
-        persistToolbarToCalendarStorage(merged, nextToolbar);
-        return merged;
-      });
+      // Server wins on remote sync — cross-device unpark must not re-merge local rows.
+      setParkedFromDrag(nextParked);
       setToolbarEvents(nextToolbar);
+      persistToolbarToCalendarStorage(nextParked, nextToolbar);
       if (payload.updatedAt) toolbarUpdatedAtRef.current = payload.updatedAt;
     },
     [pauseServerPersist],
@@ -2744,7 +2745,8 @@ export default function CalendarScreenWeb() {
 
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return;
-    return startCalendarRealtimeSync({
+    return startCalendarRealtimeSync(
+      {
       onAppointmentCreated: (p) => applyRemoteAppointmentDto(p?.appointment),
       onAppointmentUpdated: (p) => applyRemoteAppointmentDto(p?.appointment),
       onAppointmentDeleted: (p) => removeRemoteAppointment(p?.id),
@@ -2771,7 +2773,9 @@ export default function CalendarScreenWeb() {
         void reloadToolbarFromServer();
         void refetchAppointmentsFromServer({ replace: true, background: true });
       },
-    });
+    },
+      { salonId },
+    );
   }, [
     applyRemoteAppointmentDto,
     removeRemoteAppointment,
@@ -2780,6 +2784,7 @@ export default function CalendarScreenWeb() {
     refetchAppointmentsFromServer,
     pauseServerPersist,
     dispatch,
+    salonId,
   ]);
 
   const parked = useMemo(

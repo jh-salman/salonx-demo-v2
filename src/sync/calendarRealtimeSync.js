@@ -48,10 +48,15 @@ export function resolveCalendarSocketEndpoint() {
  *   onProductCatalogUpdated?: (p: object) => void
  *   onPoll?: () => void
  * }} handlers
+ * @param {{ salonId?: string | null }} [options]
  * @returns {() => void}
  */
-export function startCalendarRealtimeSync(handlers) {
+export function startCalendarRealtimeSync(handlers, options = {}) {
   const endpoint = resolveCalendarSocketEndpoint()
+  const salonId =
+    typeof options.salonId === 'string' && options.salonId.trim()
+      ? options.salonId.trim()
+      : null
   let socket = null
   let debounceTimer = null
 
@@ -63,6 +68,12 @@ export function startCalendarRealtimeSync(handlers) {
     }, DEBOUNCE_MS)
   }
 
+  const subscribeSalon = () => {
+    if (socket?.connected && salonId) {
+      socket.emit('subscribe:salon', { salonId })
+    }
+  }
+
   if (endpoint) {
     try {
       socket = io(endpoint.origin, {
@@ -71,6 +82,7 @@ export function startCalendarRealtimeSync(handlers) {
         reconnection: true,
         reconnectionAttempts: 10,
       })
+      socket.on('connect', subscribeSalon)
       socket.on('appointment:created', (p) =>
         debounce(() => handlers.onAppointmentCreated?.(p)),
       )
@@ -80,9 +92,8 @@ export function startCalendarRealtimeSync(handlers) {
       socket.on('appointment:deleted', (p) =>
         debounce(() => handlers.onAppointmentDeleted?.(p)),
       )
-      socket.on('calendar-toolbar:updated', (p) =>
-        debounce(() => handlers.onToolbarUpdated?.(p)),
-      )
+      // Toolbar park/waitlist — apply immediately (no debounce) for multi-staff sync.
+      socket.on('calendar-toolbar:updated', (p) => handlers.onToolbarUpdated?.(p))
       socket.on('clients-catalog:updated', (p) =>
         debounce(() => handlers.onClientsCatalogUpdated?.(p)),
       )
@@ -102,6 +113,8 @@ export function startCalendarRealtimeSync(handlers) {
       socket = null
     }
   }
+
+  subscribeSalon()
 
   const pollId = setInterval(() => {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
