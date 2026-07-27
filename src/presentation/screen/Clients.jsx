@@ -78,6 +78,7 @@ function initialsFor(name) {
 }
 
 export default function Clients() {
+  const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
 
