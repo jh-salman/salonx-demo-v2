@@ -4,6 +4,9 @@ import { getV2AdminBase } from './v2AdminBootstrap.js'
 const DEBOUNCE_MS = 250
 const POLL_FALLBACK_MS = 5000
 
+/** Must match demo-api LEGACY_SALON_ID / subscribe:salon default. */
+export const REALTIME_DEFAULT_SALON_ID = 'default'
+
 /**
  * Socket.IO endpoint for demo-api (REST base may be a Vite proxy path).
  * @returns {{ origin: string, path: string } | null}
@@ -48,15 +51,23 @@ export function resolveCalendarSocketEndpoint() {
  *   onProductCatalogUpdated?: (p: object) => void
  *   onPoll?: (ctx: { socketConnected: boolean }) => void
  * }} handlers
- * @param {{ salonId?: string | null }} [options]
+ * @param {{ salonId?: string | null, getSalonId?: () => string | null | undefined }} [options]
  * @returns {() => void}
  */
 export function startCalendarRealtimeSync(handlers, options = {}) {
   const endpoint = resolveCalendarSocketEndpoint()
-  const salonId =
-    typeof options.salonId === 'string' && options.salonId.trim()
-      ? options.salonId.trim()
-      : null
+  const resolveSalonId = () => {
+    if (typeof options.getSalonId === 'function') {
+      const id = options.getSalonId()
+      if (typeof id === 'string' && id.trim()) return id.trim()
+    }
+    if (typeof options.salonId === 'string' && options.salonId.trim()) {
+      return options.salonId.trim()
+    }
+    return REALTIME_DEFAULT_SALON_ID
+  }
+
+  let activeSalonId = resolveSalonId()
   let socket = null
   let debounceTimer = null
   let socketConnected = false
@@ -70,9 +81,10 @@ export function startCalendarRealtimeSync(handlers, options = {}) {
   }
 
   const subscribeSalon = () => {
-    if (socket?.connected && salonId) {
-      socket.emit('subscribe:salon', { salonId })
-    }
+    if (!socket?.connected) return
+    const nextId = resolveSalonId()
+    if (nextId !== activeSalonId) activeSalonId = nextId
+    socket.emit('subscribe:salon', { salonId: activeSalonId })
   }
 
   if (endpoint) {
@@ -123,6 +135,17 @@ export function startCalendarRealtimeSync(handlers, options = {}) {
 
   subscribeSalon()
 
+  const salonWatchId =
+    typeof options.getSalonId === 'function'
+      ? setInterval(() => {
+          const nextId = resolveSalonId()
+          if (nextId !== activeSalonId) {
+            activeSalonId = nextId
+            subscribeSalon()
+          }
+        }, 1500)
+      : null
+
   const pollId = setInterval(() => {
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
     debounce(() => handlers.onPoll?.({ socketConnected }))
@@ -139,6 +162,7 @@ export function startCalendarRealtimeSync(handlers, options = {}) {
 
   return () => {
     if (debounceTimer) clearTimeout(debounceTimer)
+    if (salonWatchId) clearInterval(salonWatchId)
     clearInterval(pollId)
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', onVisible)

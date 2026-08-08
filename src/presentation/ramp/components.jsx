@@ -2,6 +2,7 @@ import { Camera, Copy, Image as ImageIcon } from "phosphor-react";
 import { Link } from "react-router-dom";
 import { clientInitialLetter } from "../../data/rampClients.js";
 import { rampStatusLabel } from "../../data/rampStatus.js";
+import { SALON_MODE_SOLO, useSalonMode } from "../../lib/salonMode.js";
 import { rampPublicPath, rampPublicUrl } from "./rampPaths";
 
 /** Back button + title used at the top of every detail view. */
@@ -67,6 +68,10 @@ export function ClientThumb({ name, avatar, thumb, className = "qthumb" }) {
 
 /** A single client row in the dashboard / queue lists. */
 export function QueueCard({ item, onClick }) {
+  const [salonMode] = useSalonMode();
+  // Solo build mode: one stylist, so the attribution line is noise.
+  const showStylist = salonMode !== SALON_MODE_SOLO;
+
   return (
     <button type="button" className="qcard" onClick={onClick}>
       {item.armed ? <span className="armed">{item.armed}</span> : null}
@@ -86,7 +91,7 @@ export function QueueCard({ item, onClick }) {
             ))}
           </div>
         ) : null}
-        {item.stylist ? (
+        {showStylist && item.stylist ? (
           <div className="stylist-tag">— Stylist: {item.stylist}</div>
         ) : null}
       </div>

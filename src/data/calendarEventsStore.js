@@ -336,9 +336,10 @@ const S1_QUEUE_POLL_MS = 2000;
 
 /**
  * Realtime sync for Screen1 — appointments, waitlist, and parked toolbar.
+ * @param {{ salonId?: string | null, getSalonId?: () => string | null | undefined }} [options]
  * @returns {() => void}
  */
-export function startWaitingListRealtimeSync() {
+export function startWaitingListRealtimeSync(options = {}) {
   if (!isAppointmentsApiAvailable()) return () => {};
 
   const applyToolbarPayload = (payload) => {
@@ -374,7 +375,7 @@ export function startWaitingListRealtimeSync() {
     },
     onToolbarUpdated: applyToolbarPayload,
     onPoll: reloadAllFromDb,
-  });
+  }, options);
 
   return () => {
     clearInterval(pollId);

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { useTimers } from '../context/TimersContext';
 import {
   buildAptNavPayload,
@@ -10,6 +11,9 @@ import {
   isSameLocalDay,
   useCalendarEvents,
 } from '../data/calendarEventsStore';
+import { SALON_MODE_SOLO, useSalonMode } from '../lib/salonMode.js';
+import { selectCanSeeAllStaff } from '../store/sessionSlice.js';
+import { selectViewerStaffId } from '../store/catalogsSlice.js';
 import AppointmentTimerBox from './AppointmentTimerBox';
 import TimerModal from './TimerModal';
 import { useTheme } from '../context/ThemeContext';
@@ -144,6 +148,12 @@ const ClientList = ({ stylistFromPath = '/screen1' }) => {
   const navigate = useNavigate();
   const { timers, setTimer, clearTimer } = useTimers();
   const calendarEvents = useCalendarEvents();
+  const [salonMode] = useSalonMode();
+  const canSeeAllStaffByRole = useSelector(selectCanSeeAllStaff);
+  const viewerStaffId = useSelector(selectViewerStaffId);
+  // Solo scopes the list to the signed-in stylist, same rule Calendar applies,
+  // so flipping the S1 pill re-filters this list without a reload.
+  const canSeeAllStaff = salonMode !== SALON_MODE_SOLO && canSeeAllStaffByRole;
 
   // Derive today's appointments from the Calendar event store. Sorted by start
   // time so the list matches the calendar day view top-to-bottom. The full
@@ -151,6 +161,10 @@ const ClientList = ({ stylistFromPath = '/screen1' }) => {
   const todaysAppointments = useMemo(() => {
     const today = new Date();
     return calendarEvents
+      .filter(
+        (ev) =>
+          canSeeAllStaff || (ev.staffId || null) === (viewerStaffId || null),
+      )
       .filter((ev) => isSameLocalDay(ev.start, today))
       .sort((a, b) => a.start.getTime() - b.start.getTime())
       .map((ev) => ({
@@ -160,7 +174,7 @@ const ClientList = ({ stylistFromPath = '/screen1' }) => {
         service: ev.service || '',
         apt: buildAptNavPayload(ev),
       }));
-  }, [calendarEvents]);
+  }, [calendarEvents, canSeeAllStaff, viewerStaffId]);
 
   const [now, setNow] = useState(() => Date.now());
   /** Matches `TimersContext` / Calendar: one timer per appointment id (not client name). */

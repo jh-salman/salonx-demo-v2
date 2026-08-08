@@ -799,6 +799,57 @@
   overflow: visible;
 }
 
+/* Pre-launch build switch — knob left = TEAM, knob right = SOLO */
+.profile-panel .s1-modePill {
+  position: absolute;
+  top: 4px;
+  left: var(--s1-content-inset-left, 5px);
+  z-index: 6;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  width: 72px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.profile-panel .s1-modePill__label {
+  position: relative;
+  z-index: 2;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.38);
+  transition: color 0.18s ease;
+}
+
+.profile-panel .s1-modePill__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  height: calc(100% - 4px);
+  border-radius: 999px;
+  background: #f2662a;
+  transition: transform 0.18s ease;
+}
+
+.profile-panel .s1-modePill.is-solo .s1-modePill__knob {
+  transform: translateX(100%);
+}
+
+.profile-panel .s1-modePill.is-team .s1-modePill__label:first-child,
+.profile-panel .s1-modePill.is-solo .s1-modePill__label:last-child {
+  color: #000;
+}
+
 .screen1-container--demoImage .s1demo-grayStack {
   --s1-panel-top: var(--s1demo-gray-stack-margin-top);
   margin-top: var(--s1demo-gray-stack-margin-top);

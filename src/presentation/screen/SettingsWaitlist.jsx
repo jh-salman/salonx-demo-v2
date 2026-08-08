@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSelector } from 'react-redux'
 import SettingsSubScreen from './SettingsSubScreen'
 import { apiJson } from '../../lib/http.js'
+import { startCalendarRealtimeSync } from '../../sync/calendarRealtimeSync.js'
+import { selectActiveSalon } from '../../store/sessionSlice.js'
 
 export default function SettingsWaitlist() {
+  const activeSalon = useSelector(selectActiveSalon)
   const [entries, setEntries] = useState([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -23,6 +27,20 @@ export default function SettingsWaitlist() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    return startCalendarRealtimeSync(
+      {
+        onToolbarUpdated: () => {
+          void load()
+        },
+        onPoll: () => {
+          void load()
+        },
+      },
+      { getSalonId: () => activeSalon?.id },
+    )
+  }, [activeSalon?.id, load])
 
   async function dismiss(id) {
     try {

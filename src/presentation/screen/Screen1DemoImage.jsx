@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import {
   Scissors,
   User,
@@ -50,6 +51,13 @@ import {
   setS1DemoMemoryPayload,
 } from '../../data/s1DemoMemoryStore.js';
 import { optimizeMediaDeliveryUrl } from '../../lib/mediaDeliveryUrl.js';
+import {
+  SALON_MODE_SOLO,
+  SALON_MODE_TEAM,
+  useSalonMode,
+} from '../../lib/salonMode.js';
+import { selectCanSeeAllStaff, selectActiveSalon } from '../../store/sessionSlice.js';
+import { selectViewerStaffId } from '../../store/catalogsSlice.js';
 import { syncSalonxShellHeight } from '../../layout/viewportShellSync.js';
 import '../style/screen1.css';
 
@@ -229,6 +237,31 @@ function S1VariantCycleHotspot({ disabled, onCycle, ariaLabel = 'Switch saved lo
         onCycle();
       }}
     />
+  );
+}
+
+/** Pre-launch build switch: knob left = TEAM, knob right = SOLO (default). */
+function S1SalonModePill() {
+  const [mode, setMode] = useSalonMode();
+  const solo = mode === SALON_MODE_SOLO;
+
+  return (
+    <button
+      type="button"
+      className={`s1-modePill${solo ? ' is-solo' : ' is-team'}`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setMode(solo ? SALON_MODE_TEAM : SALON_MODE_SOLO);
+      }}
+      aria-pressed={solo}
+      aria-label={`Build mode: ${solo ? 'solo' : 'team'}. Tap to switch.`}
+    >
+      <span className="s1-modePill__label">TEAM</span>
+      <span className="s1-modePill__label">SOLO</span>
+      <span className="s1-modePill__knob" aria-hidden />
+    </button>
   );
 }
 
@@ -1017,6 +1050,11 @@ function Screen1DemoImage() {
     location.pathname === S1_DEMO_IMAGE_ROUTE;
 
   const calendarEvents = useCalendarEvents();
+  const [salonMode] = useSalonMode();
+  const canSeeAllStaffByRole = useSelector(selectCanSeeAllStaff);
+  const activeSalon = useSelector(selectActiveSalon);
+  const viewerStaffId = useSelector(selectViewerStaffId);
+  const canSeeAllStaff = salonMode !== SALON_MODE_SOLO && canSeeAllStaffByRole;
   const openScreen1Calendar = useScreen1CalendarNav();
   const stylistRouteVisible =
     location.pathname === SCREEN1_ROUTE ||
@@ -1040,11 +1078,13 @@ function Screen1DemoImage() {
   /** Appointments + waitlist + parked toolbar — socket realtime (starts on mount). */
   useEffect(() => {
     if (!isAppointmentsApiAvailable()) return undefined;
-    const stopWaiting = startWaitingListRealtimeSync();
+    const stopWaiting = startWaitingListRealtimeSync({
+      getSalonId: () => activeSalon?.id,
+    });
     return () => {
       stopWaiting?.();
     };
-  }, []);
+  }, [activeSalon?.id]);
 
   /** First paint + keep-alive return: load SET3 data without opening Calendar. */
   useEffect(() => {
@@ -1464,10 +1504,14 @@ function Screen1DemoImage() {
     if (session) return session;
     const today = new Date();
     const todays = calendarEvents
+      .filter(
+        (ev) =>
+          canSeeAllStaff || (ev.staffId || null) === (viewerStaffId || null),
+      )
       .filter((ev) => isSameLocalDay(ev.start, today))
       .sort((a, b) => a.start.getTime() - b.start.getTime());
     return todays.length ? buildAptNavPayload(todays[0]) : null;
-  }, [calendarEvents]);
+  }, [calendarEvents, canSeeAllStaff, viewerStaffId]);
 
   /** Active slot image URL while resize bottom sheet is open (slots other than curve strip). */
   const sheetEditingSlot = editingSlot;
@@ -1513,6 +1557,7 @@ function Screen1DemoImage() {
                 transform: selectSlider ? 'translateX(-100%)' : 'translateX(0)',
               }}
             >
+              <S1SalonModePill />
               <div className="s1demo-grayStack">
                 <div
                   className="s1demo-grayStack__topBar s1demo-brandBar"

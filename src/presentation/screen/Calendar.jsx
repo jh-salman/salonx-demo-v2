@@ -75,6 +75,7 @@ import {
   MOCK_STAFF_BY_SUFFIX,
   STAFF_UNASSIGNED_ID,
 } from "../../data/mockStaff.js";
+import { SALON_MODE_SOLO, useSalonMode } from "../../lib/salonMode.js";
 import {
   fetchCalendarToolbar,
   saveCalendarToolbarRemote,
@@ -473,6 +474,22 @@ function isBrowserReloadNavigation() {
   return false;
 }
 
+/**
+ * The navigation entry keeps reporting "reload" for the whole page lifetime, so
+ * the guard is consumed by the first Calendar mount. Every later in-app open is
+ * a normal navigation and must reuse cached state instead of resetting.
+ */
+let pendingReloadGuard = null;
+
+function takeReloadNavigationGuard() {
+  if (pendingReloadGuard === null) {
+    pendingReloadGuard = isBrowserReloadNavigation();
+  }
+  const active = pendingReloadGuard;
+  pendingReloadGuard = false;
+  return active;
+}
+
 const CALENDAR_VIEW_SESSION_KEY = "@salonx/calendar-view/v1";
 
 function readPersistedCalendarView() {
@@ -854,9 +871,12 @@ export default function CalendarScreenWeb() {
     () => initialCalendarView?.focusedStaffId ?? null,
   );
   const [currentDate, setCurrentDate] = useState(() => startOfDay(new Date()));
+  /** One-shot per app session: only the first mount after F5 skips cached state. */
+  const [isReloadMount] = useState(takeReloadNavigationGuard);
   const [events, setEvents] = useState(() => {
     if (isAppointmentsApiAvailable()) {
-      if (isBrowserReloadNavigation()) return [];
+      // The API cache is in-memory only, so a hard refresh already starts empty —
+      // an in-app open paints the cached rows immediately, then refetches.
       const cached = readApiAppointmentsSessionCache();
       if (Array.isArray(cached) && cached.length > 0) return cached;
       return [];
@@ -877,8 +897,14 @@ export default function CalendarScreenWeb() {
   const viewer = useSelector(selectMe);
   const activeSalon = useSelector(selectActiveSalon);
   const salonId = activeSalon?.id ?? null;
-  const canSeeAllStaff = useSelector(selectCanSeeAllStaff);
+  const canSeeAllStaffByRole = useSelector(selectCanSeeAllStaff);
   const viewerStaffId = useSelector(selectViewerStaffId);
+  const [salonMode] = useSalonMode();
+  /** Solo build mode collapses the calendar to the signed-in stylist only. */
+  const soloMode = salonMode === SALON_MODE_SOLO;
+  const canSeeAllStaff = !soloMode && canSeeAllStaffByRole;
+  /** Column the solo view books into — own staff row, else Unassigned. */
+  const soloColumnId = viewerStaffId || STAFF_UNASSIGNED_ID;
 
   // Viewer identity + org role — drives who can see all staff columns.
   // Owner/admin see everyone; a stylist sees only their own column.
@@ -893,9 +919,14 @@ export default function CalendarScreenWeb() {
       { id: STAFF_UNASSIGNED_ID, name: "Unassigned" },
     ];
     if (canSeeAllStaff) return all;
+    // Solo build mode keeps one column even when no staff row is linked yet.
+    if (soloMode) {
+      const mine = all.find((c) => c.id === soloColumnId);
+      return [mine ?? { id: soloColumnId, name: "My day" }];
+    }
     // Stylist view: only their own column.
     return all.filter((c) => c.id === viewerStaffId);
-  }, [staffRoster, canSeeAllStaff, viewerStaffId]);
+  }, [staffRoster, canSeeAllStaff, viewerStaffId, soloMode, soloColumnId]);
 
   /** Staff picker in new/edit appointment — owner/admin: all; stylist: self only. */
   const assignableStaff = useMemo(() => {
@@ -932,9 +963,9 @@ export default function CalendarScreenWeb() {
   }, [staffColumns, focusedStaffId]);
 
   useEffect(() => {
-    if (!isBrowserReloadNavigation()) return;
+    if (!isReloadMount) return;
     clearPersistedCalendarNavIntents();
-  }, []);
+  }, [isReloadMount]);
 
   useEffect(() => {
     if (!bookFutureCtx.active || bookFutureEnteredRef.current) return;
@@ -945,7 +976,7 @@ export default function CalendarScreenWeb() {
 
   // Opening Calendar (toolbar / S1 / Climax) lands on today — not last session date.
   useEffect(() => {
-    if (isBrowserReloadNavigation()) return;
+    if (isReloadMount) return;
 
     const persistedNav = readPersistedCalendarBack();
     const hasRebookIntent =
@@ -960,6 +991,7 @@ export default function CalendarScreenWeb() {
     setViewMode("day");
     setMonthSheetDate(null);
   }, [
+    isReloadMount,
     location.key,
     bookFutureCtx.active,
     location?.state?.rebookToPark,
@@ -1036,7 +1068,7 @@ export default function CalendarScreenWeb() {
 
   // S2 rebook → MOVE TO PARK (offline only — API mode merges in toolbar hydrate).
   useEffect(() => {
-    if (isBrowserReloadNavigation()) return;
+    if (isReloadMount) return;
     if (isAppointmentsApiAvailable()) return;
     const persistedNav = readPersistedCalendarBack();
     const fromState =
@@ -1074,6 +1106,7 @@ export default function CalendarScreenWeb() {
     writePersistedCalendarBack(calendarBackTarget);
     clearPersistedCalendarNavIntents();
   }, [
+    isReloadMount,
     location.key,
     location?.state?.rebookToPark,
     location?.state?.goToDate,
@@ -1093,6 +1126,8 @@ export default function CalendarScreenWeb() {
   const [resizeDelta, setResizeDelta] = useState(0);
   // Whether the pointer is currently hovering inside the park area
   const [parkHover, setParkHover] = useState(false);
+  /** Team-mode column under pointer while dragging waitlist/parked onto calendar */
+  const [listDropStaffColumnId, setListDropStaffColumnId] = useState(null);
   // Confirm modal after drop: { kind: 'move' | 'park' | 'resize', original, currentStart?, currentEnd?, durationMin? }
   const [moveConfirm, setMoveConfirm] = useState(null);
   // Follow-up notify confirm — { clientName, action: 'moved'|'resized'|'parked' }
@@ -1897,9 +1932,6 @@ export default function CalendarScreenWeb() {
     if (!bookConfirm) return;
     const { kind, item, start, end, staffId } = bookConfirm;
     const dropId = item?.id != null ? String(item.id) : null;
-    // Unpark → assign to whoever unparked (their staff catalog row).
-    const assignStaffId =
-      kind === "parked" ? viewerStaffId || staffId : staffId;
 
     if (kind === "waitlist") {
       if (isAppointmentsApiAvailable()) {
@@ -1982,7 +2014,7 @@ export default function CalendarScreenWeb() {
         notes: "",
         start,
         end,
-        ...(assignStaffId ? { staffId: assignStaffId } : {}),
+        ...(staffId ? { staffId } : {}),
       };
 
       setEvents((prev) => [...prev, localEvent]);
@@ -1997,7 +2029,7 @@ export default function CalendarScreenWeb() {
               color: localEvent.color,
               price: 0,
               notes: "",
-              ...(assignStaffId ? { staffId: assignStaffId } : {}),
+              ...(staffId ? { staffId } : {}),
             });
             const saved = appointmentDtoToEvent(appointment);
             setEvents((prev) => [
@@ -2022,7 +2054,7 @@ export default function CalendarScreenWeb() {
         action: kind === "waitlist" ? "booked" : "scheduled",
       });
     }
-  }, [bookConfirm, commitToolbarState, viewerStaffId]);
+  }, [bookConfirm, commitToolbarState]);
 
   const handleBookConfirmNo = useCallback(() => {
     // Just dismiss the confirm — the source list modal is still mounted
@@ -2049,6 +2081,7 @@ export default function CalendarScreenWeb() {
     releasePointerCaptureIfHeld(captureEl, pid);
     waitlistPointerCaptureElRef.current = null;
     setWaitlistDrag(null);
+    setListDropStaffColumnId(null);
     waitlistDragRef.current = {
       itemId: null,
       pointerId: null,
@@ -2126,6 +2159,14 @@ export default function CalendarScreenWeb() {
         const inner = waitlistDragRef.current;
         if (!inner.activated || inner.itemId !== item.id) return;
         setWaitlistDrag((prev) => (prev ? { ...prev, ...xy } : prev));
+        const staffGridEl = document.querySelector(".cal-day__staffGrid");
+        if (staffGridEl) {
+          setListDropStaffColumnId(
+            resolveStaffColumnFromPointer(xy.x, staffGridEl),
+          );
+        } else {
+          setListDropStaffColumnId(null);
+        }
       });
     },
     [cancelWaitlistLongPress, finishWaitlistDrag],
@@ -2219,6 +2260,7 @@ export default function CalendarScreenWeb() {
     releasePointerCaptureIfHeld(captureEl, pid);
     parkedPointerCaptureElRef.current = null;
     setParkedDrag(null);
+    setListDropStaffColumnId(null);
     parkedDragRef.current = {
       itemId: null,
       pointerId: null,
@@ -2296,6 +2338,14 @@ export default function CalendarScreenWeb() {
         const inner = parkedDragRef.current;
         if (!inner.activated || inner.itemId !== item.id) return;
         setParkedDrag((prev) => (prev ? { ...prev, ...xy } : prev));
+        const staffGridEl = document.querySelector(".cal-day__staffGrid");
+        if (staffGridEl) {
+          setListDropStaffColumnId(
+            resolveStaffColumnFromPointer(xy.x, staffGridEl),
+          );
+        } else {
+          setListDropStaffColumnId(null);
+        }
       });
     },
     [cancelParkedLongPress, finishParkedDrag],
@@ -2812,6 +2862,22 @@ export default function CalendarScreenWeb() {
       const nextToolbar = Array.isArray(revived.toolbarEvents)
         ? revived.toolbarEvents
         : [];
+      const parkedIds = new Set();
+      for (const p of nextParked) {
+        if (p?.id != null) parkedIds.add(String(p.id));
+        if (p?.sourceAppointmentId != null) {
+          parkedIds.add(String(p.sourceAppointmentId));
+        }
+      }
+      for (const t of nextToolbar) {
+        if (t?.isParked === true && t?.id != null) parkedIds.add(String(t.id));
+      }
+      parkedAppointmentIdsRef.current = parkedIds;
+      if (parkedIds.size > 0) {
+        setEvents((prev) =>
+          prev.filter((e) => !parkedIds.has(String(e.id))),
+        );
+      }
       // Server wins on remote sync — cross-device unpark must not re-merge local rows.
       setParkedFromDrag(nextParked);
       setToolbarEvents(nextToolbar);
@@ -2883,7 +2949,7 @@ export default function CalendarScreenWeb() {
         }
       },
     },
-      { salonId },
+      { getSalonId: () => salonId },
     );
   }, [
     applyRemoteAppointmentDto,
@@ -3962,7 +4028,7 @@ export default function CalendarScreenWeb() {
         </div>
       ) : null}
 
-      {viewMode === "day" && staffColumns.length > 0 ? (
+      {viewMode === "day" && !soloMode && staffColumns.length > 0 ? (
         <div className="cal-staffBar" role="toolbar" aria-label="Staff day view">
           {focusedStaffId ? (
             <button
@@ -4211,14 +4277,18 @@ export default function CalendarScreenWeb() {
                 key={staffColumn ? staffColumn.id : day.toISOString()}
                 className={`cal-day__col${includeColumnHead ? " cal-day__col--week" : ""}${
                   staffColumn
-                    ? focusedStaffId
+                    ? focusedStaffId || soloMode
                       ? " cal-day__col--solo"
                       : " cal-day__col--staff"
+                    : ""
+                }${
+                  staffColumn && listDropStaffColumnId === staffColumn.id
+                    ? " is-listDropTarget"
                     : ""
                 }`}
                 data-staff-column={staffColumn ? staffColumn.id : undefined}
               >
-                {staffColumn ? (
+                {staffColumn && !soloMode ? (
                   focusedStaffId ? (
                     <div className="cal-day__colHead cal-day__colHead--staff cal-day__colHead--solo">
                       <span className="cal-day__colHeadDow">{staffColumn.name}</span>
@@ -4422,7 +4492,7 @@ export default function CalendarScreenWeb() {
             return (
               <div className="cal-day__scroll" ref={setupDayScrollRef}>
                 <div className="cal-day__axis" style={{ width: TIME_AXIS_WIDTH }}>
-                  {viewMode === "day" ? (
+                  {viewMode === "day" && !soloMode ? (
                     <div className="cal-day__axisHeadSpacer" aria-hidden />
                   ) : null}
                   {axisRows}
@@ -4431,7 +4501,7 @@ export default function CalendarScreenWeb() {
                   <div className="cal-day__weekGrid">
                     {columns.map((d) => renderColumnContent(baseDate, d, true, null))}
                   </div>
-                ) : focusedStaffId ? (
+                ) : focusedStaffId || soloMode ? (
                   <div className="cal-day__soloWrap">
                     {(() => {
                       const staff =

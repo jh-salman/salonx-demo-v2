@@ -1437,6 +1437,18 @@ button.cal-day__colHead--staff {
   pointer-events: none;
 }
 
+/* Team mode — column under pointer while dragging waitlist/parked to calendar */
+.cal-day__col.is-listDropTarget {
+  outline: 2px dashed rgba(var(--salonx-primary-rgb), 0.85);
+  outline-offset: -2px;
+  background: rgba(var(--salonx-primary-rgb), 0.08);
+  border-radius: 6px;
+  box-shadow: inset 0 0 28px rgba(var(--salonx-primary-rgb), 0.12);
+}
+.cal-day__col.is-listDropTarget .cal-day__colHead--staff {
+  color: var(--salonx-primary);
+}
+
 /* Phase 4 — chip rows, helper text, conflict grid, decorations */
 .cal-chipRow {
   display: flex;
